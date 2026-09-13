@@ -16,7 +16,7 @@
 
 **Purpose**: Project initialization.
 
-- [ ] T001 Initialize the NestJS project at `backend/` per `plan.md` Source Code layout: create `package.json` with all dependencies listed under plan.md §Primary Dependencies; create `tsconfig.json`, `tsconfig.build.json`, `nest-cli.json`, `jest.config.ts`, `.eslintrc.cjs`, `.prettierrc`, `.gitignore` (excludes `.env`, `logs/`, `data/`), `.env.example`; create the empty directory tree `src/{common/{filters,interceptors,pipes,decorators,guards},config,database/migrations,modules/{auth,users,chat,conversations,models,provider,app-config,health}}`; run `npm install` to verify the manifest resolves cleanly. Verification: `npx nest --version` and `npm ls --depth=0` exit zero.
+- [x] T001 Initialize the NestJS project at `backend/` per `plan.md` Source Code layout: create `package.json` with all dependencies listed under plan.md §Primary Dependencies; create `tsconfig.json`, `tsconfig.build.json`, `nest-cli.json`, `jest.config.ts`, `.eslintrc.cjs`, `.prettierrc`, `.gitignore` (excludes `.env`, `logs/`, `data/`), `.env.example`; create the empty directory tree `src/{common/{filters,interceptors,pipes,decorators,guards},config,database/migrations,modules/{auth,users,chat,conversations,models,provider,app-config,health}}`; run `npm install` to verify the manifest resolves cleanly. Verification: `npx nest --version` and `npm ls --depth=0` exit zero.
 
 ---
 
