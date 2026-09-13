@@ -19,6 +19,7 @@ import { Model } from './modules/models/entities/model.entity';
 import { AppConfig as AppConfigEntity } from './modules/app-config/entities/app-config.entity';
 import { Conversation } from './modules/conversations/entities/conversation.entity';
 import { Message } from './modules/conversations/entities/message.entity';
+import { ChatModule } from './modules/chat/chat.module';
 import { ModelsModule } from './modules/models/models.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -118,6 +119,7 @@ import { HealthModule } from './modules/health/health.module';
       Conversation,
       Message,
     ]),
+    ChatModule,
     ModelsModule,
     AuthModule,
     UsersModule,
