@@ -1,0 +1,980 @@
+openapi: 3.1.0
+info:
+  title: Multi-Model Chatbot MVP API
+  version: 1.0.0
+  summary: Public + admin REST API for the MVP, with SSE chat streaming.
+  description: |
+    Source of intent: `api-contract.md`. This OpenAPI 3.1 artifact is the
+    machine-readable contract produced via the contract skill workflow.
+    The companion machine-readable artifact for the OpenAPI 3.0.3 baseline
+    is `openapi.yaml`; this 3.1 version supersedes it once validated.
+  contact:
+    name: Backend Team
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+  - url: https://{host}
+    description: Production
+    variables:
+      host:
+        default: api.example.com
+        description: Production hostname.
+
+tags:
+  - name: Auth
+    description: Identity endpoints (public). Issue and rotate JWT tokens.
+  - name: User
+    description: End-user chat and history endpoints. Requires a user JWT.
+  - name: Admin
+    description: Admin-only configuration endpoints. Requires an admin JWT (role=admin).
+  - name: Health
+    description: Liveness and readiness probes. Public.
+
+# Global security: every endpoint requires a JWT bearer token unless it
+# explicitly sets `security: []` (health, register, login, refresh).
+security:
+  - bearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      summary: Liveness probe.
+      description: Returns 200 as long as the process is alive. Does NOT check downstream dependencies.
+      security: []
+      responses:
+        '200':
+          description: Service is alive.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+
+  /readyz:
+    get:
+      tags: [Health]
+      summary: Readiness probe.
+      description: Returns 200 only if the database is reachable and migrations are applied.
+      security: []
+      responses:
+        '200':
+          description: Service is ready to serve traffic.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ok
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new end-user account.
+      description: Creates a `User` with role `user` and returns the first access + refresh pair.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+            examples:
+              valid:
+                summary: Valid registration
+                value: { email: "alice@example.com", password: "correct-horse-battery-staple" }
+      responses:
+        '201':
+          description: Account created. Returns the new user and tokens.
+          headers:
+            Location:
+              description: URL of the new user resource.
+              schema: { type: string, format: uri, example: /v1/users/550e8400-e29b-41d4-a716-446655440000 }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+              examples:
+                success:
+                  value:
+                    user:
+                      id: 550e8400-e29b-41d4-a716-446655440000
+                      email: alice@example.com
+                      role: user
+                      createdAt: '2026-09-13T16:42:11Z'
+                      lastLoginAt: '2026-09-13T16:42:11Z'
+                    accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                    refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                    expiresIn: 900
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Authenticate and receive a token pair.
+      description: Returns 401 with a generic message on bad credentials OR unknown email (no enumeration).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+            examples:
+              valid:
+                value: { email: "alice@example.com", password: "correct-horse-battery-staple" }
+      responses:
+        '200':
+          description: Authenticated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+              examples:
+                success:
+                  value:
+                    user:
+                      id: 550e8400-e29b-41d4-a716-446655440000
+                      email: alice@example.com
+                      role: user
+                      createdAt: '2026-09-13T16:00:00Z'
+                      lastLoginAt: '2026-09-13T16:42:11Z'
+                    accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                    refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                    expiresIn: 900
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rotate tokens. The old refresh token is revoked.
+      description: Exchange a valid refresh token for a new access + refresh pair.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+                  description: The refresh token issued by a prior login or refresh call.
+                  example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      responses:
+        '200':
+          description: New token pair issued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke the caller's refresh token.
+      description: Writes the refresh token's jti to the in-memory revocation list until its expiry.
+      responses:
+        '204':
+          description: Logged out.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/admin/auth/login:
+    post:
+      tags: [Admin, Auth]
+      summary: Admin login.
+      description: |
+        Same contract as `/v1/auth/login`. The issued JWT MUST carry
+        `role: "admin"`; non-admin accounts receive 401 even with valid
+        credentials.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Authenticated as admin.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/models:
+    get:
+      tags: [User]
+      summary: List enabled models (display names + `isDefault` flag).
+      description: Returns only enabled models. `actualName` is NEVER exposed in this response.
+      responses:
+        '200':
+          description: Enabled models.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ModelPublic' }
+              examples:
+                empty:
+                  summary: No models enabled
+                  value: { items: [] }
+                populated:
+                  summary: Two enabled models, one default
+                  value:
+                    items:
+                      - { id: 11111111-1111-1111-1111-111111111111, displayName: "GPT-4o mini", isDefault: true }
+                      - { id: 22222222-2222-2222-2222-222222222222, displayName: "Claude Haiku", isDefault: false }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/chat/stream:
+    post:
+      tags: [User]
+      summary: Send a message and stream the model's reply as SSE.
+      description: |
+        Active-model resolution order:
+          1. `modelId` in the request body.
+          2. Caller's last explicit selection (FR-020).
+          3. Admin's default model.
+          4. None — returns 422 `no_model_available`.
+
+        Streaming transport is `text/event-stream`. Each token is a
+        `data: {"delta":"..."}` event. The stream terminates with
+        `event: done` (success) or `event: error` (failure).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChatRequest' }
+            examples:
+              new_conversation:
+                summary: New conversation, default model
+                value: { message: "Hello, who are you?" }
+              follow_up:
+                summary: Follow-up in existing conversation
+                value:
+                  conversationId: 33333333-3333-3333-3333-333333333333
+                  message: "Tell me more."
+      responses:
+        '200':
+          description: SSE stream of model tokens.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  `data: {"delta":"..."}\n\n` events, terminated by
+                  `event: done` or `event: error`. See api-contract.md §3.8.
+                example: |
+                  data: {"delta":"Hello"}
+
+                  data: {"delta":" there"}
+
+                  event: done
+                  data: {}
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/ProviderNotConfigured' }
+        '422': { $ref: '#/components/responses/NoModelAvailable' }
+        '502': { $ref: '#/components/responses/ProviderUnreachable' }
+
+  /v1/conversations:
+    get:
+      tags: [User]
+      summary: List the caller's conversations.
+      description: Ordered by `updatedAt` descending.
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/OffsetParam'
+      responses:
+        '200':
+          description: Conversations ordered by most recent activity.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ConversationSummary' }
+              examples:
+                populated:
+                  value:
+                    items:
+                      - id: 33333333-3333-3333-3333-333333333333
+                        modelId: 11111111-1111-1111-1111-111111111111
+                        title: "Hello, who are you?"
+                        createdAt: '2026-09-13T16:42:11Z'
+                        updatedAt: '2026-09-13T16:43:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/conversations/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    get:
+      tags: [User]
+      summary: Get a conversation with its full transcript.
+      responses:
+        '200':
+          description: Conversation with messages in `createdAt` order.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConversationDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [User]
+      summary: Delete a conversation (cascades messages).
+      responses:
+        '204':
+          description: Deleted.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/admin/provider:
+    get:
+      tags: [Admin]
+      summary: Get the central provider configuration (credential masked).
+      responses:
+        '200':
+          description: Central provider config.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CentralProviderPublic' }
+              examples:
+                configured:
+                  value:
+                    baseUrl: https://api.example.com/v1
+                    apiKeyMasked: '***wxyz'
+                    isConfigured: true
+                    lastValidatedAt: '2026-09-13T16:42:11Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Admin]
+      summary: Update the central provider configuration.
+      description: |
+        Probes the provider with a minimal non-streaming call before
+        persisting. On probe failure, returns 422 and leaves the prior
+        config untouched.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CentralProviderUpdateRequest' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CentralProviderPublic' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /v1/admin/models:
+    get:
+      tags: [Admin]
+      summary: List all models, including disabled.
+      responses:
+        '200':
+          description: All models.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ModelAdmin' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      summary: Create a model.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ModelUpsertRequest' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelAdmin' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/admin/models/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    patch:
+      tags: [Admin]
+      summary: Update a model (any of `displayName`, `actualName`, `enabled`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ModelUpsertRequest' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelAdmin' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Admin]
+      summary: Delete a model.
+      description: |
+        Refused with 409 if the model is referenced by `AppConfig.defaultModelId`
+        or by any existing conversation.
+      responses:
+        '204':
+          description: Deleted.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /v1/admin/config:
+    get:
+      tags: [Admin]
+      summary: Get the AppConfig (default model id).
+      responses:
+        '200':
+          description: App config.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppConfigPublic' }
+              examples:
+                no_default:
+                  value: { defaultModelId: null }
+                with_default:
+                  value: { defaultModelId: 11111111-1111-1111-1111-111111111111 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [Admin]
+      summary: Set or clear the default model.
+      description: |
+        PUT with `{ "defaultModelId": "<uuid>" }` sets the default.
+        PUT with `{ "defaultModelId": null }` clears it.
+        The referenced model MUST exist and be `enabled = true`; otherwise 422.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AppConfigUpdateRequest' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppConfigPublic' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: HS256-signed JWT. Claims include `sub` (userId), `role` (user|admin), and `jti`.
+
+  parameters:
+    PathId:
+      name: id
+      in: path
+      required: true
+      description: UUIDv4 of the target resource.
+      schema:
+        type: string
+        format: uuid
+        example: 550e8400-e29b-41d4-a716-446655440000
+    LimitParam:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of items to return (1..100, default 20).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+        example: 20
+    OffsetParam:
+      name: offset
+      in: query
+      required: false
+      description: Number of items to skip (>= 0, default 0).
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+        example: 0
+
+  responses:
+    BadRequest:
+      description: Invalid request body or query parameters.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            validation_failed:
+              value:
+                code: validation_failed
+                message: One or more fields failed validation.
+                details:
+                  - { field: email, message: must be a valid email }
+                requestId: 550e8400-e29b-41d4-a716-446655440000
+    Unauthorized:
+      description: Missing, invalid, expired, or revoked token.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            invalid_token:
+              value:
+                code: invalid_token
+                message: The provided token is invalid or expired.
+                requestId: 550e8400-e29b-41d4-a716-446655440000
+    Forbidden:
+      description: Authenticated but not permitted.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            forbidden:
+              value:
+                code: forbidden
+                message: You do not have permission to access this resource.
+                requestId: 550e8400-e29b-41d4-a716-446655440000
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            not_found:
+              value:
+                code: not_found
+                message: The requested resource was not found.
+                requestId: 550e8400-e29b-41d4-a716-446655440000
+    Conflict:
+      description: Conflict with current state (duplicate, in-use, etc.).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            email_taken:
+              value:
+                code: email_taken
+                message: That email is already registered.
+                requestId: 550e8400-e29b-41d4-a716-446655440000
+    UnprocessableEntity:
+      description: Semantically invalid request.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            model_not_eligible_default:
+              value:
+                code: model_not_eligible_default
+                message: Only enabled models can be the default.
+                requestId: 550e8400-e29b-41d4-a716-446655440000
+    ProviderNotConfigured:
+      description: Central provider has not been configured by an admin.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            provider_not_configured:
+              value:
+                code: provider_not_configured
+                message: Chat is not yet configured. Contact an admin.
+                requestId: 550e8400-e29b-41d4-a716-446655440000
+    NoModelAvailable:
+      description: No model is resolvable for this chat request.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            no_model_available:
+              value:
+                code: no_model_available
+                message: No model is currently available. Pick one or ask an admin to set a default.
+                requestId: 550e8400-e29b-41d4-a716-446655440000
+    ProviderUnreachable:
+      description: Central provider rejected the call or returned malformed data.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            provider_unreachable:
+              value:
+                code: provider_unreachable
+                message: The AI provider is currently unavailable. Please try again.
+                requestId: 550e8400-e29b-41d4-a716-446655440000
+    ServiceUnavailable:
+      description: Service is not yet ready to serve traffic.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message, requestId]
+      description: |
+        Standard error envelope. Stack traces and internal details are
+        NEVER included. See api-contract.md §4.1 for the full code table.
+      properties:
+        code:
+          type: string
+          description: Stable, snake_case error code.
+          example: invalid_credentials
+        message:
+          type: string
+          description: Human-readable message safe to show to end users.
+          example: The provided credentials were invalid.
+        details:
+          description: Per-endpoint structured detail (e.g., field-level errors).
+          oneOf:
+            - type: array
+              items:
+                type: object
+                properties:
+                  field: { type: string, description: Field name. }
+                  message: { type: string, description: Human-readable reason. }
+            - type: object
+              additionalProperties: true
+        requestId:
+          type: string
+          format: uuid
+          description: Echoes the `x-request-id` header for support.
+          example: 550e8400-e29b-41d4-a716-446655440000
+
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      description: New-user registration payload.
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email address. Stored lowercased; uniqueness is case-insensitive.
+          example: alice@example.com
+        password:
+          type: string
+          format: password
+          minLength: 12
+          maxLength: 128
+          description: Plaintext password. Hashed with Argon2id (bcrypt fallback) before storage; never stored in cleartext.
+          example: correct-horse-battery-staple
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      description: Authentication payload. Same shape for user and admin.
+      properties:
+        email:
+          type: string
+          format: email
+          description: Registered email.
+          example: alice@example.com
+        password:
+          type: string
+          format: password
+          description: Plaintext password.
+          example: correct-horse-battery-staple
+
+    AuthResponse:
+      type: object
+      required: [user, accessToken, refreshToken, expiresIn]
+      description: Token pair issued on register / login / refresh.
+      properties:
+        user:
+          $ref: '#/components/schemas/UserPublic'
+        accessToken:
+          type: string
+          description: Short-lived bearer token (default TTL 15 min).
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        refreshToken:
+          type: string
+          description: Longer-lived token used only at `/v1/auth/refresh` (default TTL 7 days).
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        expiresIn:
+          type: integer
+          description: Access token TTL in seconds.
+          example: 900
+
+    UserPublic:
+      type: object
+      required: [id, email, role, createdAt]
+      description: Public user representation. Never includes the password hash.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: User id (UUIDv4).
+          example: 550e8400-e29b-41d4-a716-446655440000
+        email:
+          type: string
+          format: email
+          description: Email address.
+          example: alice@example.com
+        role:
+          type: string
+          enum: [user, admin]
+          description: Role. Determines which routes the JWT authorizes.
+          example: user
+        createdAt:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp with `Z` suffix.
+          example: '2026-09-13T16:00:00Z'
+        lastLoginAt:
+          type: [string, 'null']
+          format: date-time
+          description: ISO 8601 UTC. Null until first successful login.
+          example: '2026-09-13T16:42:11Z'
+
+    ModelPublic:
+      type: object
+      required: [id, displayName, isDefault]
+      description: User-facing model representation. `actualName` is NEVER included here.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Model id.
+          example: 11111111-1111-1111-1111-111111111111
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Human-facing name.
+          example: GPT-4o mini
+        isDefault:
+          type: boolean
+          description: True if this model is the admin-designated default.
+          example: true
+
+    ModelAdmin:
+      allOf:
+        - $ref: '#/components/schemas/ModelPublic'
+        - type: object
+          required: [actualName, enabled, createdAt, updatedAt]
+          description: Admin-facing model representation. Includes `actualName` and `enabled`.
+          properties:
+            actualName:
+              type: string
+              minLength: 1
+              maxLength: 200
+              description: Provider-side model identifier (e.g. `gpt-4o-mini`).
+              example: gpt-4o-mini
+            enabled:
+              type: boolean
+              description: Whether the model appears in the user-facing picker.
+              example: true
+            createdAt:
+              type: string
+              format: date-time
+              example: '2026-09-13T16:00:00Z'
+            updatedAt:
+              type: string
+              format: date-time
+              example: '2026-09-13T16:00:00Z'
+
+    ModelUpsertRequest:
+      type: object
+      required: [displayName, actualName]
+      description: Body for POST and PATCH on `/v1/admin/models`. All fields optional on PATCH.
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Human-facing name. Unique across the table.
+          example: GPT-4o mini
+        actualName:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Provider-side model identifier.
+          example: gpt-4o-mini
+        enabled:
+          type: boolean
+          default: true
+          description: Whether the model appears in the user-facing picker.
+          example: true
+
+    CentralProviderPublic:
+      type: object
+      required: [baseUrl, isConfigured]
+      description: Public view of the central provider config. The cleartext API key is NEVER returned.
+      properties:
+        baseUrl:
+          type: string
+          format: uri
+          description: OpenAI-compatible base URL.
+          example: https://api.example.com/v1
+        apiKeyMasked:
+          type: string
+          description: 'Last 4 characters of the cleartext key prefixed with `***`.'
+          example: '***wxyz'
+        isConfigured:
+          type: boolean
+          description: True if a central provider row exists.
+          example: true
+        lastValidatedAt:
+          type: [string, 'null']
+          format: date-time
+          description: Timestamp of the last successful credential probe.
+          example: '2026-09-13T16:42:11Z'
+
+    CentralProviderUpdateRequest:
+      type: object
+      required: [baseUrl, apiKey]
+      description: Body for PUT `/v1/admin/provider`. The server probes before persisting.
+      properties:
+        baseUrl:
+          type: string
+          format: uri
+          description: OpenAI-compatible base URL.
+          example: https://api.example.com/v1
+        apiKey:
+          type: string
+          minLength: 8
+          format: password
+          description: Cleartext credential. Encrypted with AES-256-GCM at rest.
+          example: sk-replace-me-with-real-key
+
+    AppConfigPublic:
+      type: object
+      required: [defaultModelId]
+      description: AppConfig singleton — the system-wide default model reference.
+      properties:
+        defaultModelId:
+          type: [string, 'null']
+          format: uuid
+          description: Default model id, or null if no default is set.
+          example: 11111111-1111-1111-1111-111111111111
+
+    AppConfigUpdateRequest:
+      type: object
+      required: [defaultModelId]
+      description: Body for PUT `/v1/admin/config`. Send `null` to clear.
+      properties:
+        defaultModelId:
+          type: [string, 'null']
+          format: uuid
+          description: Default model id, or null to clear.
+          example: 11111111-1111-1111-1111-111111111111
+
+    ConversationSummary:
+      type: object
+      required: [id, modelId, createdAt, updatedAt]
+      description: Conversation entry in a list view. No messages.
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 33333333-3333-3333-3333-333333333333
+        modelId:
+          type: string
+          format: uuid
+          description: Model the conversation was started with.
+          example: 11111111-1111-1111-1111-111111111111
+        title:
+          type: [string, 'null']
+          description: Conversation title (defaults to first user message truncated to 80 chars).
+          example: Hello, who are you?
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-09-13T16:42:11Z'
+        updatedAt:
+          type: string
+          format: date-time
+          example: '2026-09-13T16:43:00Z'
+
+    ConversationDetail:
+      allOf:
+        - $ref: '#/components/schemas/ConversationSummary'
+        - type: object
+          required: [messages]
+          description: Conversation with its full message transcript.
+          properties:
+            messages:
+              type: array
+              description: Messages in `createdAt` ascending order.
+              items: { $ref: '#/components/schemas/MessagePublic' }
+
+    MessagePublic:
+      type: object
+      required: [id, role, content, createdAt]
+      description: A single turn in a conversation. Immutable once persisted.
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 44444444-4444-4444-4444-444444444444
+        role:
+          type: string
+          enum: [user, assistant]
+          description: Who produced the message.
+          example: user
+        content:
+          type: string
+          minLength: 1
+          description: Full message text.
+          example: Hello, who are you?
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-09-13T16:42:11Z'
+
+    ChatRequest:
+      type: object
+      required: [message]
+      description: Body for POST `/v1/chat/stream`.
+      properties:
+        conversationId:
+          type: [string, 'null']
+          format: uuid
+          description: Omit to start a new conversation. Must belong to the caller.
+          example: 33333333-3333-3333-3333-333333333333
+        modelId:
+          type: [string, 'null']
+          format: uuid
+          description: |
+            Optional explicit override. If omitted, resolves as:
+            caller's last explicit choice -> admin's default -> none.
+          example: 11111111-1111-1111-1111-111111111111
+        message:
+          type: string
+          minLength: 1
+          maxLength: 32000
+          description: The user message to send. Empty / oversized rejected before reaching the provider.
+          example: Hello, who are you?
