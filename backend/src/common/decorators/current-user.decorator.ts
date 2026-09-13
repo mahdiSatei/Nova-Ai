@@ -6,6 +6,7 @@ export interface AuthenticatedUser {
   email: string;
   role: 'user' | 'admin';
   jti: string;
+  exp?: number;
 }
 
 /**

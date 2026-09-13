@@ -58,16 +58,27 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const resp = exception.getResponse();
-      const message =
-        typeof resp === 'object' && resp !== null && 'message' in resp
-          ? Array.isArray((resp as { message?: unknown }).message)
-            ? ((resp as { message: string[] }).message as string[]).join('; ')
-            : String((resp as { message: unknown }).message)
+      const respObj =
+        typeof resp === 'object' && resp !== null
+          ? (resp as Record<string, unknown>)
+          : null;
+      // Honor an explicit `code` on the HttpException body when present,
+      // otherwise fall back to status-based defaults.
+      const explicitCode = respObj?.['code'];
+      const code =
+        typeof explicitCode === 'string' && explicitCode.length > 0
+          ? explicitCode
+          : this.codeForStatus(status);
+      const rawMessage = respObj?.['message'];
+      const message = Array.isArray(rawMessage)
+        ? (rawMessage as string[]).join('; ')
+        : typeof rawMessage === 'string'
+          ? rawMessage
           : exception.message;
       return {
         status,
         body: {
-          code: this.codeForStatus(status),
+          code,
           message: this.sanitizeMessage(status, message),
           requestId,
         },

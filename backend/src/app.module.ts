@@ -5,6 +5,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
+const migrationsGlob = join(__dirname, 'database', 'migrations', '*.{ts,js}');
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { RequestIdInterceptor } from './common/interceptors/logging.interceptor';
@@ -19,6 +20,7 @@ import { AppConfig as AppConfigEntity } from './modules/app-config/entities/app-
 import { Conversation } from './modules/conversations/entities/conversation.entity';
 import { Message } from './modules/conversations/entities/message.entity';
 import { AuthModule } from './modules/auth/auth.module';
+import { UsersModule } from './modules/users/users.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -92,6 +94,8 @@ import { HealthModule } from './modules/health/health.module';
             url: config.get('db.postgresUrl', { infer: true }),
             autoLoadEntities: true,
             synchronize: false,
+            migrations: [migrationsGlob],
+            migrationsRun: false,
           };
         }
         return {
@@ -99,6 +103,8 @@ import { HealthModule } from './modules/health/health.module';
           database: config.get('db.sqliteFile', { infer: true }) as string,
           autoLoadEntities: true,
           synchronize: false,
+          migrations: [migrationsGlob],
+          migrationsRun: false,
         };
       },
     }),
@@ -112,6 +118,7 @@ import { HealthModule } from './modules/health/health.module';
       Message,
     ]),
     AuthModule,
+    UsersModule,
     HealthModule,
   ],
   providers: [

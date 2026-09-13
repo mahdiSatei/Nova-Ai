@@ -14,6 +14,19 @@ export interface JwtPayload {
   exp?: number;
 }
 
+/**
+ * Shape attached to `request.user` after a successful JWT verification.
+ * `exp` is the unix-second expiry of the access token — used by
+ * logout to know how long to keep the jti on the revocation list.
+ */
+export interface AuthenticatedRequestUser {
+  id: string;
+  email: string;
+  role: 'user' | 'admin';
+  jti: string;
+  exp?: number;
+}
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(config: ConfigService<AppConfig, true>) {
@@ -24,16 +37,17 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
   }
 
-  /**
-   * Passport invokes this after the token signature and expiry are
-   * verified. We additionally reject any jti present in the
-   * revocation list (logout).
-   */
-  validate(payload: JwtPayload): JwtPayload {
+  validate(payload: JwtPayload): AuthenticatedRequestUser {
     gcRevoked();
     if (isRevoked(payload.jti)) {
       throw new UnauthorizedException('invalid_token');
     }
-    return payload;
+    return {
+      id: payload.sub,
+      email: payload.email,
+      role: payload.role,
+      jti: payload.jti,
+      exp: payload.exp,
+    };
   }
 }
