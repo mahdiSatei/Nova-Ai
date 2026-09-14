@@ -1,0 +1,243 @@
+openapi: 3.0.0
+paths:
+  /v1/chat/stream:
+    post:
+      operationId: ChatController_stream
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequestDto"
+      responses:
+        "201":
+          description: ""
+  /v1/conversations:
+    get:
+      operationId: ConversationsController_list
+      parameters:
+        - name: limit
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: offset
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+  /v1/conversations/{id}:
+    get:
+      operationId: ConversationsController_get
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+    delete:
+      operationId: ConversationsController_delete
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "204":
+          description: ""
+  /v1/models:
+    get:
+      operationId: ModelsPublicController_list
+      parameters: []
+      responses:
+        "200":
+          description: ""
+  /v1/admin/models:
+    get:
+      operationId: ModelsAdminController_list
+      parameters: []
+      responses:
+        "200":
+          description: ""
+    post:
+      operationId: ModelsAdminController_create
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelUpsertDto"
+      responses:
+        "201":
+          description: ""
+  /v1/admin/models/{id}:
+    patch:
+      operationId: ModelsAdminController_update
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelUpsertDto"
+      responses:
+        "200":
+          description: ""
+    delete:
+      operationId: ModelsAdminController_delete
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "204":
+          description: ""
+  /v1/auth/register:
+    post:
+      operationId: AuthController_register
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequestDto"
+      responses:
+        "201":
+          description: ""
+  /v1/auth/login:
+    post:
+      operationId: AuthController_login
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequestDto"
+      responses:
+        "200":
+          description: ""
+  /v1/auth/refresh:
+    post:
+      operationId: AuthController_refresh
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequestDto"
+      responses:
+        "200":
+          description: ""
+  /v1/auth/logout:
+    post:
+      operationId: AuthController_logout
+      parameters: []
+      responses:
+        "204":
+          description: ""
+  /healthz:
+    get:
+      operationId: HealthController_liveness
+      parameters: []
+      responses:
+        "200":
+          description: ""
+  /readyz:
+    get:
+      operationId: HealthController_readiness
+      parameters: []
+      responses:
+        "200":
+          description: ""
+  /v1/admin/provider:
+    get:
+      operationId: ProviderController_read
+      parameters: []
+      responses:
+        "200":
+          description: ""
+    put:
+      operationId: ProviderController_update
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CentralProviderUpdateDto"
+      responses:
+        "200":
+          description: ""
+  /v1/admin/config:
+    get:
+      operationId: AppConfigController_read
+      parameters: []
+      responses:
+        "200":
+          description: ""
+    put:
+      operationId: AppConfigController_update
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppConfigUpdateDto"
+      responses:
+        "200":
+          description: ""
+info:
+  title: Chat Backend API
+  description: Multi-Model Chatbot MVP backend — REST + JSON + SSE
+  version: 1.0.0
+  contact: {}
+tags: []
+servers: []
+components:
+  securitySchemes:
+    bearer:
+      scheme: bearer
+      bearerFormat: JWT
+      type: http
+  schemas:
+    ChatRequestDto:
+      type: object
+      properties: {}
+    ModelUpsertDto:
+      type: object
+      properties: {}
+    RegisterRequestDto:
+      type: object
+      properties: {}
+    LoginRequestDto:
+      type: object
+      properties: {}
+    RefreshRequestDto:
+      type: object
+      properties: {}
+    CentralProviderUpdateDto:
+      type: object
+      properties: {}
+    AppConfigUpdateDto:
+      type: object
+      properties: {}
