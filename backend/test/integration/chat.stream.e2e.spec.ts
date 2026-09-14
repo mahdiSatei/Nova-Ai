@@ -9,7 +9,18 @@ import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 import { Model } from '../../src/modules/models/entities/model.entity';
 import { CentralProvider } from '../../src/modules/provider/entities/central-provider.entity';
-import { encrypt } from '../../src/common/crypto/credential-cipher';
+import { OpenAICompatibleClient } from '../../src/modules/chat/provider/openai-compatible.client';
+import { decrypt, encrypt } from '../../src/common/crypto/credential-cipher';
+import OpenAI from 'openai';
+
+const providerMock = {
+  yieldChunks: async function* (chunks: string[], delayMs: number) {
+    for (const c of chunks) {
+      await new Promise((r) => setTimeout(r, delayMs));
+      yield { choices: [{ delta: { content: c } }] } as any;
+    }
+  },
+};
 
 /**
  * Integration test for POST /v1/chat/stream SSE endpoint.
@@ -37,7 +48,13 @@ describe('Chat stream — e2e', () => {
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(OpenAICompatibleClient)
+      .useValue({
+        getClient: async () => new OpenAI({ baseURL: 'http://localhost:9999', apiKey: 'test-key' }),
+        stream: async (_params: any) => providerMock.yieldChunks(['Hello', ' ', 'world'], 0),
+      })
+      .compile();
 
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
@@ -131,4 +148,5 @@ describe('Chat stream — e2e', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('text/event-stream');
   });
+
 });
