@@ -24,6 +24,7 @@ import { ModelsModule } from './modules/models/models.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { HealthModule } from './modules/health/health.module';
+import { ProviderModule } from './modules/provider/provider.module';
 
 @Module({
   imports: [
@@ -124,6 +125,7 @@ import { HealthModule } from './modules/health/health.module';
     AuthModule,
     UsersModule,
     HealthModule,
+    ProviderModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
