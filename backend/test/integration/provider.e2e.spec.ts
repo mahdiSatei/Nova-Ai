@@ -19,6 +19,10 @@ describe('Central provider (US6) — e2e', () => {
   let stubServer: import('http').Server;
   let stubPort: number;
   let probeResponse: { status: number; body: string } = { status: 200, body: '{}' };
+  let modelsResponse: { status: number; body: string } = {
+    status: 200,
+    body: '{"object":"list","data":[]}',
+  };
 
   const ADMIN_EMAIL = 'admin-provider@example.com';
   const PASSWORD = 'correct-horse-battery-staple';
@@ -40,10 +44,16 @@ describe('Central provider (US6) — e2e', () => {
 
     const http = await import('node:http');
     stubServer = http.createServer((req, res) => {
-      // ProviderService probes `${baseUrl}/chat/completions`; our
-      // baseUrl is `${BASE_URL_PATTERN}:${stubPort}/v1`, so the probe
-      // hits `/v1/chat/completions`.
-      if (req.method === 'POST' && req.url === '/v1/chat/completions') {
+      // ProviderService now probes GET `${baseUrl}/models` first; if the
+      // stub returns 404/405 for it the service falls back to POST
+      // `${baseUrl}/chat/completions`. Our baseUrl is
+      // `${BASE_URL_PATTERN}:${stubPort}/v1`, so both probe paths hit
+      // `/v1/models` and `/v1/chat/completions` respectively.
+      if (req.method === 'GET' && req.url === '/v1/models') {
+        res.statusCode = modelsResponse.status;
+        res.setHeader('content-type', 'application/json');
+        res.end(modelsResponse.body);
+      } else if (req.method === 'POST' && req.url === '/v1/chat/completions') {
         res.statusCode = probeResponse.status;
         res.setHeader('content-type', 'application/json');
         res.end(probeResponse.body);
@@ -129,6 +139,20 @@ describe('Central provider (US6) — e2e', () => {
     beforeEach(async () => {
       const ds = app.get(DataSource);
       await ds.query('DELETE FROM central_provider WHERE id = ?', ['singleton']);
+      // Reset stub responses to their default for each test.
+      modelsResponse = { status: 200, body: '{"object":"list","data":[]}' };
+      probeResponse = { status: 200, body: '{"choices":[]}' };
+
+      // The "network failure" test closes the stub server. Re-create it
+      // if a previous test killed it so the rest of the suite is not
+      // poisoned.
+      if (!stubServer.listening) {
+        await new Promise<void>((r) =>
+          stubServer.listen(0, '127.0.0.1', () => r()),
+        );
+        const addr = stubServer.address();
+        if (typeof addr === 'object' && addr !== null) stubPort = addr.port;
+      }
     });
 
     it('persists when the probe returns 200 and sets lastValidatedAt', async () => {
@@ -151,7 +175,8 @@ describe('Central provider (US6) — e2e', () => {
       expect(decrypt(row!.apiKeyEncrypted)).toBe(NEW_GOOD_KEY);
     });
 
-    it('rejects with 422 and leaves prior config untouched when the probe returns 401', async () => {
+    it('rejects with 422 and leaves prior config untouched when GET /models returns 401', async () => {
+      // Seed a working config first (probeResponse=200, modelsResponse=200 default).
       probeResponse = { status: 200, body: '{"choices":[]}' };
       const seedRes = await request(app.getHttpServer())
         .put('/v1/admin/provider')
@@ -159,7 +184,8 @@ describe('Central provider (US6) — e2e', () => {
         .send({ baseUrl: baseUrl(), apiKey: ORIGINAL_KEY });
       expect(seedRes.status).toBe(200);
 
-      probeResponse = { status: 401, body: '{"error":"unauthorized"}' };
+      // Now make the probe fail with 401 from /models (auth genuinely bad).
+      modelsResponse = { status: 401, body: '{"error":"unauthorized"}' };
       const failRes = await request(app.getHttpServer())
         .put('/v1/admin/provider')
         .set('Authorization', `Bearer ${adminToken}`)
@@ -167,6 +193,7 @@ describe('Central provider (US6) — e2e', () => {
 
       expect(failRes.status).toBe(422);
       expect(failRes.body.code).toBe('credentials_rejected');
+      expect(failRes.body.message).toContain('HTTP 401');
 
       const getRes = await request(app.getHttpServer())
         .get('/v1/admin/provider')
@@ -198,6 +225,61 @@ describe('Central provider (US6) — e2e', () => {
         .set('Authorization', `Bearer ${userToken}`)
         .send({ baseUrl: baseUrl(), apiKey: NEW_GOOD_KEY });
       expect(res.status).toBe(403);
+    });
+
+    it('classifies GET /models 401 as credentials_rejected', async () => {
+      modelsResponse = { status: 401, body: '{"error":"unauthorized"}' };
+
+      const res = await request(app.getHttpServer())
+        .put('/v1/admin/provider')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ baseUrl: baseUrl(), apiKey: NEW_BAD_KEY });
+
+      expect(res.status).toBe(422);
+      expect(res.body.code).toBe('credentials_rejected');
+      expect(res.body.message).toContain('HTTP 401');
+    });
+
+    it('classifies GET /models 500 as provider_unreachable (no fallback)', async () => {
+      modelsResponse = { status: 500, body: '{}' };
+
+      const res = await request(app.getHttpServer())
+        .put('/v1/admin/provider')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ baseUrl: baseUrl(), apiKey: NEW_GOOD_KEY });
+
+      expect(res.status).toBe(422);
+      expect(res.body.code).toBe('provider_unreachable');
+    });
+
+    it('classifies fallback /chat/completions 400 as provider_request_invalid (regression)', async () => {
+      // /models 404 → falls back to /chat/completions which returns 400
+      // (the user's exact bug). Old code mapped this to credentials_rejected;
+      // new code must classify as provider_request_invalid.
+      modelsResponse = { status: 404, body: '' };
+      probeResponse = { status: 400, body: '{"error":"model not found"}' };
+
+      const res = await request(app.getHttpServer())
+        .put('/v1/admin/provider')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ baseUrl: baseUrl(), apiKey: NEW_GOOD_KEY });
+
+      expect(res.status).toBe(422);
+      expect(res.body.code).toBe('provider_request_invalid');
+      expect(res.body.message).toContain('HTTP 400');
+    });
+
+    it('classifies fallback /chat/completions 503 as provider_unreachable', async () => {
+      modelsResponse = { status: 404, body: '' };
+      probeResponse = { status: 503, body: '' };
+
+      const res = await request(app.getHttpServer())
+        .put('/v1/admin/provider')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ baseUrl: baseUrl(), apiKey: NEW_GOOD_KEY });
+
+      expect(res.status).toBe(422);
+      expect(res.body.code).toBe('provider_unreachable');
     });
   });
 });

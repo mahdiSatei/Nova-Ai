@@ -108,21 +108,34 @@ export class ProviderService {
     };
   }
 
+  /**
+   * Validate the credential by calling a minimal, auth-only probe.
+   *
+   * Step 1: GET `{baseUrl}/models` with `Authorization: Bearer ...`. Every
+   * mainstream OpenAI-compatible provider (OpenAI, Together, Groq,
+   * OpenRouter, LM Studio, Ollama's OpenAI shim, vLLM) supports this
+   * endpoint and it depends only on the auth header — no real model call
+   * needed. This avoids the prior bug where the probe POSTed with
+   * `model: 'probe'`, which real providers reject with HTTP 400 ("model
+   * not found") BEFORE checking auth, and the probe then mis-classified
+   * the 400 as `credentials_rejected`.
+   *
+   * Step 2: fall back to a tiny chat-completions probe ONLY if `/models`
+   * returns 404/405 (a few self-hosted setups don't expose it). Status
+   * is discriminated: 401/403 → real `credentials_rejected`; other 4xx →
+   * new `provider_request_invalid` (credentials appear valid, but the
+   * provider's response was unexpected); 5xx/network → `provider_unreachable`.
+   */
   private async probe(baseUrl: string, apiKey: string): Promise<void> {
-    const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
-    let response: Response;
+    const root = baseUrl.replace(/\/+$/, '');
+    const authHeaders = { Authorization: `Bearer ${apiKey}` };
+
+    // ── Step 1: GET /models (auth-only validation) ─────────────────────
+    let modelsRes: Response;
     try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'probe',
-          messages: [{ role: 'user', content: 'ping' }],
-          max_tokens: 1,
-        }),
+      modelsRes = await fetch(`${root}/models`, {
+        method: 'GET',
+        headers: authHeaders,
       });
     } catch (err) {
       this.logger.warn(`Provider probe failed (network): ${(err as Error).message}`);
@@ -132,19 +145,94 @@ export class ProviderService {
       });
     }
 
-    if (!response.ok) {
+    if (modelsRes.ok) {
+      return; // credentials accepted
+    }
+
+    const modelsStatus = modelsRes.status;
+    if (modelsStatus === 401 || modelsStatus === 403) {
+      this.logger.warn(`Provider probe failed (status=${modelsStatus}): credentials rejected`);
+      throw new UnprocessableEntityException({
+        code: 'credentials_rejected',
+        message: `The AI provider rejected the credentials (HTTP ${modelsStatus}).`,
+      });
+    }
+
+    // 404/405 → /models isn't exposed by this provider. Fall through to
+    // the chat-completions probe. Anything else (5xx, other 4xx) is
+    // treated as unreachable.
+    if (modelsStatus !== 404 && modelsStatus !== 405) {
       let detail = '';
       try {
-        detail = (await response.text()).slice(0, 200);
+        detail = (await modelsRes.text()).slice(0, 200);
       } catch {
         /* ignore */
       }
-      this.logger.warn(`Provider probe failed (status=${response.status}): ${detail}`);
+      this.logger.warn(`Provider probe failed (status=${modelsStatus}): ${detail}`);
       throw new UnprocessableEntityException({
-        code: 'credentials_rejected',
-        message: `The AI provider rejected the credentials (HTTP ${response.status}).`,
+        code: 'provider_unreachable',
+        message: `The AI provider returned an unexpected status (HTTP ${modelsStatus}).`,
       });
     }
+
+    // ── Step 2: fallback probe via POST /chat/completions ──────────────
+    let chatRes: Response;
+    try {
+      chatRes = await fetch(`${root}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({
+          model: 'probe',
+          messages: [{ role: 'user', content: 'ping' }],
+          max_tokens: 1,
+        }),
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Provider probe failed (network, models=${modelsStatus}, chat=network): ${(err as Error).message}`,
+      );
+      throw new UnprocessableEntityException({
+        code: 'provider_unreachable',
+        message: 'The AI provider could not be reached. Check the base URL and try again.',
+      });
+    }
+
+    if (chatRes.ok) {
+      return;
+    }
+
+    const chatStatus = chatRes.status;
+    let detail = '';
+    try {
+      detail = (await chatRes.text()).slice(0, 200);
+    } catch {
+      /* ignore */
+    }
+    this.logger.warn(
+      `Provider probe failed (status=${chatStatus}, models=${modelsStatus}): ${detail}`,
+    );
+
+    if (chatStatus === 401 || chatStatus === 403) {
+      throw new UnprocessableEntityException({
+        code: 'credentials_rejected',
+        message: `The AI provider rejected the credentials (HTTP ${chatStatus}).`,
+      });
+    }
+    if (chatStatus >= 500) {
+      throw new UnprocessableEntityException({
+        code: 'provider_unreachable',
+        message: `The AI provider returned an unexpected status (HTTP ${chatStatus}).`,
+      });
+    }
+
+    // 400/404/etc — credentials appear valid (we got past auth on /models
+    // being reachable, and the provider still responded) but the test
+    // request itself was rejected. Don't falsely report this as a
+    // credentials failure.
+    throw new UnprocessableEntityException({
+      code: 'provider_request_invalid',
+      message: `The AI provider rejected the probe request (HTTP ${chatStatus}). The credentials appear valid but the provider's response to a test request was unexpected. Confirm the base URL points at the provider you intend.`,
+    });
   }
 
   private mask(plain: string): string {

@@ -379,7 +379,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '422': { $ref: '#/components/responses/ProviderProbeFailed' }
 
   /v1/admin/models:
     get:
@@ -602,6 +602,35 @@ components:
                 code: model_not_eligible_default
                 message: Only enabled models can be the default.
                 requestId: 550e8400-e29b-41d4-a716-446655440000
+    ProviderProbeFailed:
+      description: |
+        Provider probe failed; the prior configuration is preserved untouched.
+        The response body `code` is one of:
+        - `credentials_rejected` — the provider refused the API key (HTTP 401/403).
+        - `provider_request_invalid` — the provider accepted auth but rejected the test request (HTTP 400/404 etc.).
+        - `provider_unreachable` — the provider could not be reached or returned 5xx.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            credentials_rejected:
+              summary: API key rejected by the provider
+              value:
+                code: credentials_rejected
+                message: The AI provider rejected the credentials (HTTP 401).
+                requestId: 4c9ab911-b368-485c-8859-66a733478576
+            provider_request_invalid:
+              summary: Auth OK but probe request was rejected
+              value:
+                code: provider_request_invalid
+                message: The AI provider rejected the probe request (HTTP 400). The credentials appear valid but the provider's response to a test request was unexpected. Confirm the base URL points at the provider you intend.
+                requestId: 4c9ab911-b368-485c-8859-66a733478576
+            provider_unreachable:
+              summary: Provider could not be reached
+              value:
+                code: provider_unreachable
+                message: The AI provider could not be reached. Check the base URL and try again.
+                requestId: 4c9ab911-b368-485c-8859-66a733478576
     ProviderNotConfigured:
       description: Central provider has not been configured by an admin.
       content:

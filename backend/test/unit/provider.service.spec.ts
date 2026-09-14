@@ -80,7 +80,7 @@ describe('ProviderService', () => {
   });
 
   describe('update()', () => {
-    it('refuses to persist when the probe returns 401 (prior config untouched)', async () => {
+    it('refuses to persist when GET /models returns 401 (prior config untouched)', async () => {
       const { encrypt } = await import('../../src/common/crypto/credential-cipher');
       const prior = repo.create({
         id: 'singleton',
@@ -101,6 +101,15 @@ describe('ProviderService', () => {
       const after = await svc.read();
       expect((after as any).apiKeyMasked).toBe('***1234');
       expect((after as any).lastValidatedAt).toBe('2026-09-13T00:00:00.000Z');
+    });
+
+    it('classifies GET /models 401 as credentials_rejected', async () => {
+      fetchSpy.mockResolvedValue(new Response('', { status: 401 }));
+      await expect(
+        svc.update({ baseUrl: 'https://api.example.com/v1', apiKey: 'bad-key-1234' }),
+      ).rejects.toMatchObject({
+        response: { code: 'credentials_rejected' },
+      });
     });
 
     it('persists on a successful probe', async () => {
@@ -124,6 +133,95 @@ describe('ProviderService', () => {
       ).rejects.toMatchObject({ response: { code: 'provider_unreachable' } });
 
       expect(await svc.read()).toEqual({ isConfigured: false });
+    });
+  });
+
+  describe('probe() — via update() integration', () => {
+    const BASE = 'https://api.example.com/v1';
+    const KEY = 'sk-test-key-1234';
+
+    /** Wire fetchSpy to dispatch on URL between /models and /chat/completions. */
+    function routeFetch(models: Response, chat?: Response) {
+      fetchSpy.mockImplementation((input: any) => {
+        const url = typeof input === 'string' ? input : input?.url ?? '';
+        return Promise.resolve(url.includes('/chat/completions') ? chat ?? models : models);
+      });
+    }
+
+    it('persists when GET /models returns 200 (no chat-completions call needed)', async () => {
+      routeFetch(new Response('{"object":"list","data":[]}', { status: 200 }));
+
+      const result = await svc.update({ baseUrl: BASE, apiKey: KEY });
+      expect(result.isConfigured).toBe(true);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const calledUrl = String((fetchSpy.mock.calls[0][0] as Request | string) ?? '');
+      expect(calledUrl).toContain('/models');
+      expect(calledUrl).not.toContain('/chat/completions');
+    });
+
+    it('classifies GET /models 401 as credentials_rejected', async () => {
+      routeFetch(new Response('', { status: 401 }));
+      await expect(svc.update({ baseUrl: BASE, apiKey: KEY })).rejects.toMatchObject({
+        response: { code: 'credentials_rejected' },
+      });
+    });
+
+    it('classifies GET /models 403 as credentials_rejected', async () => {
+      routeFetch(new Response('', { status: 403 }));
+      await expect(svc.update({ baseUrl: BASE, apiKey: KEY })).rejects.toMatchObject({
+        response: { code: 'credentials_rejected' },
+      });
+    });
+
+    it('falls back to /chat/completions when /models returns 404', async () => {
+      const models = new Response('', { status: 404 });
+      const chat = new Response('{"choices":[]}', { status: 200 });
+      routeFetch(models, chat);
+
+      const result = await svc.update({ baseUrl: BASE, apiKey: KEY });
+      expect(result.isConfigured).toBe(true);
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('classifies fallback /chat/completions 401 as credentials_rejected', async () => {
+      const models = new Response('', { status: 404 });
+      const chat = new Response('', { status: 401 });
+      routeFetch(models, chat);
+
+      await expect(svc.update({ baseUrl: BASE, apiKey: KEY })).rejects.toMatchObject({
+        response: { code: 'credentials_rejected' },
+      });
+    });
+
+    it('classifies fallback /chat/completions 400 as provider_request_invalid (regression)', async () => {
+      // This is the user's exact bug: probe hit a real provider which
+      // returned 400 to a chat call. Old code mapped 400 → credentials_rejected.
+      // New code must map 400 (non-auth 4xx) → provider_request_invalid.
+      const models = new Response('', { status: 404 });
+      const chat = new Response('{"error":"model not found"}', { status: 400 });
+      routeFetch(models, chat);
+
+      await expect(svc.update({ baseUrl: BASE, apiKey: KEY })).rejects.toMatchObject({
+        response: { code: 'provider_request_invalid' },
+      });
+    });
+
+    it('classifies GET /models 500 as provider_unreachable (no fallback)', async () => {
+      routeFetch(new Response('', { status: 500 }));
+      await expect(svc.update({ baseUrl: BASE, apiKey: KEY })).rejects.toMatchObject({
+        response: { code: 'provider_unreachable' },
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(1); // did NOT fall back
+    });
+
+    it('classifies fallback /chat/completions 503 as provider_unreachable', async () => {
+      const models = new Response('', { status: 404 });
+      const chat = new Response('', { status: 503 });
+      routeFetch(models, chat);
+
+      await expect(svc.update({ baseUrl: BASE, apiKey: KEY })).rejects.toMatchObject({
+        response: { code: 'provider_unreachable' },
+      });
     });
   });
 
