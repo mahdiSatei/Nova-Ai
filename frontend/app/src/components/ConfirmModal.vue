@@ -56,7 +56,7 @@ onMounted(() => {
 <template>
   <dialog
     ref="dialog"
-    class="rounded-card border border-line bg-surface p-0 text-ink backdrop:bg-bg/70"
+    class="mx-auto my-auto rounded-card border border-line bg-surface p-0 text-ink backdrop:bg-bg/70"
     @close="emit('update:open', false)"
     @cancel.prevent="onCancel"
   >
