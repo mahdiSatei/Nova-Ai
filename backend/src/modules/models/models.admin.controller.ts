@@ -1,28 +1,96 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { ModelsService } from './models.service';
+import { ModelUpsertDto } from './dto/model-upsert.dto';
 
 /**
- * Admin-only routes for the models catalog. US5 establishes the role
- * boundary by mounting a single placeholder route that is protected by
- * both `JwtAuthGuard` and `RolesGuard` with `@Roles('admin')`. US7 / US8
- * add the real CRUD endpoints (`POST`, `PATCH`, `DELETE`) behind the
- * same guard pair.
+ * Admin-only CRUD for the model catalog. US7.
  *
- * The placeholder exists so that US5 is independently testable: a
- * regular user receives 403, an anonymous request receives 401, and an
- * admin receives 200 — without needing US6 / US7 / US8 to be complete.
+ * All endpoints require an admin JWT (JwtAuthGuard) plus the `admin`
+ * role (RolesGuard). The full set: list all (including disabled),
+ * create, partial update (displayName / actualName / enabled),
+ * delete (refused with 409 when the model is still the default or
+ * referenced by any conversation).
  */
 @Controller('v1/admin/models')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin')
 export class ModelsAdminController {
+  constructor(private readonly models: ModelsService) {}
+
   @Get()
-  list(): { ok: true; note: string } {
+  async list() {
+    const all = await this.models.listAll();
     return {
-      ok: true,
-      note: 'Admin route is reachable. Full CRUD is delivered by US7 / US8 (T009).',
+      items: all.map((m) => ({
+        id: m.id,
+        displayName: m.displayName,
+        actualName: m.actualName,
+        enabled: m.enabled,
+        isDefault: m.isDefault,
+        createdAt: m.createdAt.toISOString(),
+        updatedAt: m.updatedAt.toISOString(),
+      })),
+    };
+  }
+
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  async create(@Body() body: ModelUpsertDto) {
+    const m = await this.models.create({
+      displayName: body.displayName!,
+      actualName: body.actualName!,
+      enabled: body.enabled,
+    });
+    return this.toAdminShape(m);
+  }
+
+  @Patch(':id')
+  async update(@Param('id') id: string, @Body() body: ModelUpsertDto) {
+    const m = await this.models.update(id, {
+      displayName: body.displayName,
+      actualName: body.actualName,
+      enabled: body.enabled,
+    });
+    return this.toAdminShape(m);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async delete(@Param('id') id: string): Promise<void> {
+    await this.models.delete(id);
+  }
+
+  private toAdminShape(m: {
+    id: string;
+    displayName: string;
+    actualName: string;
+    enabled: boolean;
+    isDefault: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
+    return {
+      id: m.id,
+      displayName: m.displayName,
+      actualName: m.actualName,
+      enabled: m.enabled,
+      isDefault: m.isDefault,
+      createdAt: m.createdAt.toISOString(),
+      updatedAt: m.updatedAt.toISOString(),
     };
   }
 }

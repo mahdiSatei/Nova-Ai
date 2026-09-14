@@ -117,7 +117,8 @@ describe('Admin role boundary (US5)', () => {
         .get('/v1/admin/models')
         .set('Authorization', `Bearer ${adminAccessToken}`);
       expect(res.status).toBe(200);
-      expect(res.body.ok).toBe(true);
+      // The route returns { items: ModelAdmin[] } — see T009 (US7).
+      expect(Array.isArray(res.body.items)).toBe(true);
     });
 
     it('returns 401 for a tampered JWT (signature check fails before role check)', async () => {
