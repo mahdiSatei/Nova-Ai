@@ -1,0 +1,81 @@
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+
+const routes: RouteRecordRaw[] = [
+  { path: '/', redirect: '/chat' },
+
+  // ---- Visitor ----
+  {
+    path: '/login',
+    name: 'login',
+    component: () => import('@/views/LoginView.vue'),
+    meta: { guestOnly: true },
+  },
+  {
+    path: '/register',
+    name: 'register',
+    component: () => import('@/views/RegisterView.vue'),
+    meta: { guestOnly: true },
+  },
+
+  // ---- User ----
+  {
+    path: '/chat',
+    component: () => import('@/layouts/UserShell.vue'),
+    meta: { requiresAuth: true, role: 'user' },
+    children: [
+      { path: '', name: 'chat', component: () => import('@/views/ChatView.vue') },
+      { path: 'c/:id', name: 'chat-conversation', component: () => import('@/views/ChatView.vue'), props: true },
+      { path: 'history', name: 'history', component: () => import('@/views/HistoryView.vue') },
+      { path: 'history/:id', name: 'conversation', component: () => import('@/views/ConversationView.vue'), props: true },
+    ],
+  },
+
+  // ---- Admin ----
+  {
+    path: '/admin',
+    component: () => import('@/layouts/AdminShell.vue'),
+    meta: { requiresAuth: true, role: 'admin' },
+    children: [
+      { path: '', redirect: { name: 'admin-provider' } },
+      { path: 'provider', name: 'admin-provider', component: () => import('@/views/admin/ProviderView.vue') },
+      { path: 'models', name: 'admin-models', component: () => import('@/views/admin/ModelsView.vue') },
+      { path: 'default-model', name: 'admin-default-model', component: () => import('@/views/admin/DefaultModelView.vue') },
+    ],
+  },
+
+  { path: '/forbidden', name: 'forbidden', component: () => import('@/views/ForbiddenView.vue') },
+  { path: '/:pathMatch(.*)*', redirect: '/chat' },
+]
+
+export const homeFor = (role: 'user' | 'admin'): string =>
+  role === 'admin' ? '/admin/provider' : '/chat'
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes,
+})
+
+router.beforeEach(async (to) => {
+  const auth = useAuthStore()
+  if (!auth.ready) await auth.restore()
+
+  if (to.meta.requiresAuth) {
+    if (!auth.isAuthenticated) {
+      return { name: 'login', query: { redirect: to.fullPath } }
+    }
+    const requiredRole = to.meta.role as 'user' | 'admin' | undefined
+    const actualRole = auth.user?.role
+    if (requiredRole && actualRole !== requiredRole) {
+      return { name: 'forbidden' }
+    }
+  }
+
+  if (to.meta.guestOnly && auth.isAuthenticated) {
+    return homeFor(auth.user!.role)
+  }
+
+  return true
+})
+
+export default router

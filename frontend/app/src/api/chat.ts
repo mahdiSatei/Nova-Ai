@@ -1,0 +1,139 @@
+import { API_BASE, buildUrl, newRequestId, tokenStore } from '@/api/http'
+import { streamErrorMessage } from '@/utils/errors'
+import type { ChatRequest, SseDelta, SseError } from '@/types/api'
+
+export interface StreamHandlers {
+  onDelta: (text: string) => void
+  onDone: () => void
+  /** Backend may emit `event: started` with `{conversationId}` once the server
+   *  has created/picked a conversation. Used to update the URL on first message. */
+  onStarted?: (conversationId: string) => void
+  /** stream-level error event, HTTP-level error, or network failure */
+  onError: (err: { code: string; message: string }) => void
+}
+
+export interface SseStarted {
+  conversationId: string
+}
+
+/**
+ * POST /v1/chat/stream — text/event-stream.
+ * Parses `data: {"delta":"..."}` events until `event: done` or `event: error`.
+ * Aborts cleanly when the returned controller is aborted (FR-014).
+ */
+export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortController {
+  const controller = new AbortController()
+  const tokens = tokenStore.load()
+
+  void (async () => {
+    try {
+      const res = await fetch(buildUrl('/v1/chat/stream'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+          'X-Request-ID': newRequestId(),
+          ...(tokens ? { Authorization: `Bearer ${tokens.accessToken}` } : {}),
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+
+      if (!res.ok) {
+        let code = 'unknown_error'
+        let serverMessage = `Request failed with status ${res.status}`
+        try {
+          const errBody = await res.json()
+          code = errBody.code ?? code
+          serverMessage = errBody.message ?? serverMessage
+        } catch {
+          /* non-JSON error body */
+        }
+        handlers.onError({ code, message: streamErrorMessage(code, serverMessage) })
+        return
+      }
+      if (!res.body) {
+        handlers.onError({
+          code: 'no_stream',
+          message: streamErrorMessage('no_stream'),
+        })
+        return
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let done = false
+
+      while (!done) {
+        const { value, done: eof } = await reader.read()
+        if (eof) break
+        buffer += decoder.decode(value, { stream: true })
+
+        let sep: number
+        while ((sep = buffer.indexOf('\n\n')) !== -1) {
+          const rawEvent = buffer.slice(0, sep)
+          buffer = buffer.slice(sep + 2)
+
+          let eventName = 'message'
+          const dataLines: string[] = []
+          for (const line of rawEvent.split('\n')) {
+            if (line.startsWith('event:')) eventName = line.slice(6).trim()
+            else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
+          }
+          const payload = dataLines.join('\n')
+
+          if (eventName === 'done') {
+            handlers.onDone()
+            return
+          }
+          if (eventName === 'started') {
+            try {
+              const parsed = JSON.parse(payload) as SseStarted
+              if (parsed.conversationId && handlers.onStarted) handlers.onStarted(parsed.conversationId)
+            } catch {
+              /* malformed started frame — ignore */
+            }
+            continue
+          }
+          if (eventName === 'error') {
+            let parsed: Partial<SseError> = {}
+            try {
+              parsed = JSON.parse(payload) as SseError
+            } catch {
+              /* malformed payload */
+            }
+            const code = parsed.code ?? 'stream_error'
+            handlers.onError({
+              code,
+              message: streamErrorMessage(code, parsed.message),
+            })
+            return
+          }
+          if (payload) {
+            try {
+              const parsed = JSON.parse(payload) as SseDelta
+              if (typeof parsed.delta === 'string') handlers.onDelta(parsed.delta)
+            } catch {
+              /* ignore malformed data frame */
+            }
+          }
+        }
+      }
+      // Stream closed without an explicit done/error event.
+      handlers.onDone()
+    } catch (err) {
+      if (controller.signal.aborted) return
+      const fallback =
+        err instanceof Error && err.message ? err.message : undefined
+      handlers.onError({
+        code: 'network_error',
+        message: streamErrorMessage('network_error', fallback),
+      })
+    }
+  })()
+
+  return controller
+}
+
+export { API_BASE }
