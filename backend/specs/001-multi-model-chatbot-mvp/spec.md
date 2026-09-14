@@ -124,8 +124,12 @@ include earlier turns in the request payload sent to the provider.
    message, **Then** the prior messages in the session are included as context
    to the model.
 3. **Given** the user is mid-stream, **When** they navigate away or close the
-   browser, **Then** the server-side stream is terminated cleanly without
-   leaving an orphaned request.
+   browser, **Then** the server keeps generating the assistant's response to
+   completion (the upstream provider call is not cancelled) and persists the
+   FULL response to the conversation history, so the user can read the
+   complete assistant turn from the history view on return. The SSE socket
+   on the disconnected client is closed cleanly with no half-open connection
+   on the server.
 4. **Given** the streaming response completes, **When** the user reviews the
    conversation, **Then** both the user's message and the assistant's full
    response are visible in the conversation.

@@ -252,6 +252,15 @@ paths:
         **Active model resolution**: explicit `modelId` → caller's sticky
         choice → admin's default model. If no model is resolvable, the
         server returns 422 with `code = "no_model_available"`.
+
+        **Disconnect resilience**: if the client disconnects mid-stream
+        (browser closed, network dropped, navigation away, page refresh),
+        the server keeps generating the assistant response to completion
+        and persists the FULL response as a `role: "assistant"` message
+        on the conversation. No `event: done` is delivered to the
+        disconnected client (its socket is gone), but the server-side
+        work runs to the end. The user can read the persisted message
+        via `GET /v1/conversations/:id` after generation completes.
       security:
         - bearerAuth: []
       requestBody:
