@@ -58,7 +58,7 @@ const server = createServer(async (req, res) => {
   if (p === '/v1/auth/register' && m === 'POST') {
     const b = await readBody(req)
     if (!b.email || !b.password) return err(res, 400, 'validation_failed', 'One or more fields failed validation.')
-    if (b.password.length < 12) return err(res, 400, 'validation_failed', 'One or more fields failed validation.', )
+    if (b.password.length < 8) return err(res, 400, 'validation_failed', 'One or more fields failed validation.', )
     if (store.users.has(b.email)) return err(res, 409, 'email_taken', 'That email is already registered.')
     store.users.set(b.email, { password: b.password, role: 'user' })
     return json(res, 201, authResponse({ email: b.email, role: 'user' }))

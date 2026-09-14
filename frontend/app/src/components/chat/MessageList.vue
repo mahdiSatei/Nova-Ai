@@ -105,7 +105,13 @@ const items = computed(() => {
             </template>
           </template>
           <template v-else-if="item.kind === 'pending-user'">
-            <span>در حال ارسال…</span>
+            <template v-if="isStreaming">
+              <PhCircleNotch class="size-3 animate-spin" aria-hidden="true" />
+              <span>در حال ارسال…</span>
+            </template>
+            <template v-else>
+              <span class="font-mono">{{ formatDateTime(item.msg.createdAt) }}</span>
+            </template>
           </template>
           <template v-else>
             <span class="font-mono">{{ formatDateTime(item.msg.createdAt) }}</span>
