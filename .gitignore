@@ -1,0 +1,40 @@
+cd /home/mahdi/collge/Final_project
+
+# ساخت .gitignore با محتوای مناسب
+cat > .gitignore << 'EOF'
+# Dependencies
+node_modules/
+vendor/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+EOF
+
+git add .gitignore
+git commit -m "add .gitignore"
