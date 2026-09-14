@@ -264,7 +264,7 @@ Rules are normative and cannot be relaxed without an amendment.
 | ID | Rule |
 |---|---|
 | BR-001 | Email addresses must be syntactically valid (RFC 5322 shape), unique across all accounts, and stored in a case-insensitive canonical form. |
-| BR-002 | Passwords must be at least 12 characters and at most 128 characters. Passwords are stored only after being passed through a modern salted one-way function; plaintext is never persisted. |
+| BR-002 | Passwords must be at least 8 characters and at most 128 characters. Passwords are stored only after being passed through a modern salted one-way function; plaintext is never persisted. |
 | BR-003 | The actual AI model identifier (the string sent to the provider) is confidential end-user information and MUST NOT appear in any end-user-facing UI, network response, or log line that an end user could see. |
 | BR-004 | The display name of a model is the only name end users see. |
 | BR-005 | Display names must be 1–80 characters and unique across all models. |
@@ -418,7 +418,7 @@ Failure paths:
 - Password input.
 - Submit button.
 - Link to "Already have an account? Log in".
-- (Optional but recommended) Inline hint for password rules (12+
+- (Optional but recommended) Inline hint for password rules (8+
   characters).
 
 **Actions:**
