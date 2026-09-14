@@ -21,7 +21,15 @@ export class RequestIdInterceptor implements NestInterceptor {
     const incoming = request.headers['x-request-id'];
     const id = typeof incoming === 'string' && incoming.length > 0 ? incoming : randomUUID();
     (request as Request & { id: string }).id = id;
-    response.setHeader('x-request-id', id);
+    // Set x-request-id on the response header only if headers have not
+    // been sent yet. SSE endpoints begin streaming immediately and
+    // would throw ERR_HTTP_HEADERS_SENT if we tried to set this after
+    // the stream started; pino-http also writes the same header on the
+    // log line, so the log-side correlation still works without us
+    // touching the response object here.
+    if (!response.headersSent) {
+      response.setHeader('x-request-id', id);
+    }
 
     return next.handle().pipe(
       tap({

@@ -117,7 +117,7 @@ export class ChatService {
           let priorTurns: ChatMessage[];
 
           if (dto.conversationId) {
-            const existing = this.conversations.findById(dto.conversationId);
+            const existing = await this.conversations.findById(dto.conversationId);
             if (!existing) {
               observer.next({
                 event: 'error',
@@ -129,7 +129,7 @@ export class ChatService {
             conversationId = existing.id;
             priorTurns = existing.messages.map((m) => ({ role: m.role as ChatMessage['role'], content: m.content }));
           } else {
-            const conv = this.conversations.create({
+            const conv = await this.conversations.create({
               userId,
               modelId: model.id,
               userMessage: dto.message,
@@ -221,7 +221,7 @@ export class ChatService {
       }
     } finally {
       if (fullResponse) {
-        this.conversations.appendMessage(conversationId, fullResponse);
+        await this.conversations.appendMessage(conversationId, fullResponse);
       }
       observer.complete();
     }
