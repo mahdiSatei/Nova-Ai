@@ -1,6 +1,4 @@
 // Composable مرکزی چت: state machine برای streaming + transcript + abort.
-// طبق FR-011..FR-014، AC-009..AC-013. نگه‌داری انتخاب مدل در sessionStorage
-// (طبق تصمیم کاربر، صرفاً در همین جلسه مرورگر).
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { streamChat, type StreamHandlers } from '@/api/chat'
 import { getConversation, listConversations } from '@/api/conversations'
@@ -23,7 +21,7 @@ function saveModelId(id: string): void {
   try {
     sessionStorage.setItem(SESSION_KEY, id)
   } catch {
-    /* sessionStorage ممکن است در حالت private در دسترس نباشد — نادیده بگیر */
+    /* ignore */
   }
 }
 
@@ -35,7 +33,6 @@ export interface ChatStreamHandle {
   streamError: import('vue').Ref<{ code: string; message: string } | null>
   conversationId: import('vue').Ref<string | null>
   selectedModelId: import('vue').Ref<string | null>
-  /** زمان پایان موفق stream (برای timestamp در حالت optimistic). */
   streamCompletedAt: import('vue').Ref<string | null>
   isStreaming: import('vue').ComputedRef<boolean>
   setModel: (id: string | null) => void
@@ -103,17 +100,6 @@ export function useChatStream(): ChatStreamHandle {
     streamingText.value += text
   }
 
-  async function refreshTranscript(): Promise<void> {
-    const id = conversationId.value
-    if (!id) return
-    try {
-      const detail = await getConversation(id)
-      transcript.value = detail.messages
-    } catch {
-      /* ignore — the user will see whatever is already there */
-    }
-  }
-
   async function findLatestConversationId(): Promise<string | null> {
     try {
       const page = await listConversations({ limit: 1 })
@@ -127,15 +113,18 @@ export function useChatStream(): ChatStreamHandle {
     const trimmed = text.trim()
     if (!trimmed || phase.value === 'streaming') return Promise.resolve()
 
-    streamingText.value = ''
-    streamError.value = null
-    streamCompletedAt.value = null
-    pendingUser.value = {
-      id: `pending-${Date.now()}`,
+    // ۱. پیام کاربر را در همان لحظه در pendingUser می‌گذاریم
+    const userMsg: MessagePublic = {
+      id: `user-${Date.now()}`,
       role: 'user',
       content: trimmed,
       createdAt: new Date().toISOString(),
     }
+    pendingUser.value = userMsg
+
+    streamingText.value = ''
+    streamError.value = null
+    streamCompletedAt.value = null
     phase.value = 'streaming'
 
     const handlers: StreamHandlers = {
@@ -144,29 +133,53 @@ export function useChatStream(): ChatStreamHandle {
         conversationId.value = id
       },
       onDone: async () => {
-        // stream تمام شد → timestamp ثبت می‌شود تا در حالت optimistic، bubble
-        // بتواند timestamp نشان دهد (به‌جای «در حال تولید پاسخ…»).
         streamCompletedAt.value = new Date().toISOString()
-        phase.value = 'success'
+        phase.value = 'idle' // آماده برای دریافت پیام بعدی
+
+        // ۲. انتقال پیام کاربر از pendingUser به داخل transcript اصلی
+        if (pendingUser.value) {
+          transcript.value.push(pendingUser.value)
+          pendingUser.value = null
+        }
+
+        // ۳. انتقال متن تولید شده توسط هوش مصنوعی به داخل transcript اصلی
+        if (streamingText.value) {
+          transcript.value.push({
+            id: `assistant-${Date.now()}`,
+            role: 'assistant',
+            content: streamingText.value,
+            createdAt: new Date().toISOString(),
+          })
+          streamingText.value = ''
+        }
+
+        streamCompletedAt.value = null
+
+        // دریافت آی‌دی چت در صورت نیاز
         if (!conversationId.value) {
           const id = await findLatestConversationId()
           if (id) conversationId.value = id
         }
-        const id = conversationId.value
-        if (!id) return
-        const lengthBefore = transcript.value.length
-        await refreshTranscript()
-        if (transcript.value.length > lengthBefore) {
-          pendingUser.value = null
-          streamingText.value = ''
-          streamCompletedAt.value = null
-        }
       },
       onError: (err) => {
         streamError.value = err
-        // stream تمام شد (با خطا) → «در حال تولید» باید برود.
         streamCompletedAt.value = new Date().toISOString()
         phase.value = 'error'
+
+        // در صورت بروز خطا هم پیام‌ها را نگه دار تا چت خالی نشود
+        if (pendingUser.value) {
+          transcript.value.push(pendingUser.value)
+          pendingUser.value = null
+        }
+        if (streamingText.value) {
+          transcript.value.push({
+            id: `assistant-${Date.now()}`,
+            role: 'assistant',
+            content: streamingText.value,
+            createdAt: new Date().toISOString(),
+          })
+          streamingText.value = ''
+        }
       },
     }
 
@@ -188,8 +201,19 @@ export function useChatStream(): ChatStreamHandle {
       controller = null
     }
     if (phase.value === 'streaming') {
-      pendingUser.value = null
-      streamingText.value = ''
+      if (pendingUser.value) {
+        transcript.value.push(pendingUser.value)
+        pendingUser.value = null
+      }
+      if (streamingText.value) {
+        transcript.value.push({
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          content: streamingText.value,
+          createdAt: new Date().toISOString(),
+        })
+        streamingText.value = ''
+      }
       phase.value = 'idle'
     }
   }
