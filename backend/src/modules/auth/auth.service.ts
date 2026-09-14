@@ -6,7 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import type { AppConfig } from '../../config/configuration';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { User } from '../users/entities/user.entity';
@@ -129,6 +129,7 @@ export class AuthService {
    * Logout: writes the caller's access-token jti to the in-memory
    * revocation list (until natural expiry). Returns true on success.
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async logout(accessJti: string, accessExpiresAt: Date): Promise<void> {
     revokeJti(accessJti, accessExpiresAt);
   }
@@ -139,8 +140,8 @@ export class AuthService {
     const accessJti = this.randomJti();
     const refreshJti = this.randomJti();
 
-    const accessTtl = this.config.get('jwt.accessTtl', { infer: true }) as string;
-    const refreshTtl = this.config.get('jwt.refreshTtl', { infer: true }) as string;
+    const accessTtl = this.config.get('jwt.accessTtl', { infer: true });
+    const refreshTtl = this.config.get('jwt.refreshTtl', { infer: true });
 
     const accessClaims: Omit<JwtClaims, 'iat' | 'exp'> = {
       sub: user.id,
@@ -243,6 +244,4 @@ export class AuthService {
   }
 }
 
-// `LessThan` is re-exported above to keep the import list ergonomic
-// for the future GC sweeper (not used yet).
-void LessThan;
+

@@ -47,6 +47,6 @@ describe('AllExceptionsFilter', () => {
     const filter = new AllExceptionsFilter();
     const res = makeResponse();
     filter.catch(new HttpException('x', 404), makeHost(res, { 'x-request-id': 'abc-123' }));
-    expect((res.setHeader as jest.Mock).mock.calls).toContainEqual(['x-request-id', 'abc-123']);
+    expect((res.setHeader).mock.calls).toContainEqual(['x-request-id', 'abc-123']);
   });
 });

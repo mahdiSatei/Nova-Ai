@@ -193,7 +193,7 @@ export class ModelsService {
    * current default OR if any non-deleted conversation references it.
    */
   async delete(id: string): Promise<void> {
-    const model = await this.findById(id);
+    await this.findById(id);
 
     // 1. Cannot delete the system default.
     const cfg = await this.repo.manager

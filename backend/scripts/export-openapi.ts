@@ -13,14 +13,13 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { config as loadDotenv } from 'dotenv';
+import YAML from 'yaml';
 import { AppModule } from '../src/app.module';
 
 loadDotenv({ path: join(process.cwd(), '.env') });
 
 async function main(): Promise<void> {
-  // Use a Nest application context (no HTTP server) — SwaggerModule
-  // works without `listen()`.
-  const app = await NestFactory.createApplicationContext(AppModule, {
+  const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn'],
   });
 
@@ -32,12 +31,10 @@ async function main(): Promise<void> {
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
 
-  // Write a JSON document (YAML conversion is left to other tooling
-  // since the contracts/ directory is the canonical source of truth).
   const outDir = join(process.cwd(), 'contracts');
   mkdirSync(outDir, { recursive: true });
-  const outPath = join(outDir, 'openapi.generated.json');
-  writeFileSync(outPath, JSON.stringify(document, null, 2), 'utf8');
+  const outPath = join(outDir, 'openapi.yaml');
+  writeFileSync(outPath, YAML.stringify(document), 'utf8');
 
   // eslint-disable-next-line no-console
   console.log(`[openapi:export] wrote ${outPath}`);

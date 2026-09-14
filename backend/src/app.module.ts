@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { TypeOrmModule, type TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { mkdirSync } from 'fs';
@@ -90,11 +90,11 @@ import { AppConfigModule } from './modules/app-config/app-config.module';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService<AppConfig, true>) => {
+      useFactory: (config: ConfigService<AppConfig, true>): TypeOrmModuleOptions => {
         const driver = config.get('db.driver', { infer: true });
         if (driver === 'postgres') {
           return {
-            type: 'postgres' as const,
+            type: 'postgres',
             url: config.get('db.postgresUrl', { infer: true }),
             autoLoadEntities: true,
             synchronize: false,
@@ -103,8 +103,8 @@ import { AppConfigModule } from './modules/app-config/app-config.module';
           };
         }
         return {
-          type: 'sqlite' as const,
-          database: config.get('db.sqliteFile', { infer: true }) as string,
+          type: 'sqlite',
+          database: config.get('db.sqliteFile', { infer: true }),
           autoLoadEntities: true,
           synchronize: false,
           migrations: [migrationsGlob],

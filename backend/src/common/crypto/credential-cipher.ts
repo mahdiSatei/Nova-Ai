@@ -52,7 +52,7 @@ export function decrypt(json: string): string {
   const key = getKey();
   let payload: EncryptedPayload;
   try {
-    payload = JSON.parse(json);
+    payload = JSON.parse(json) as EncryptedPayload;
   } catch {
     throw new Error('Corrupt encrypted credential');
   }
@@ -64,7 +64,7 @@ export function decrypt(json: string): string {
   const decipher = createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAuthTag(tag);
   try {
-    return decipher.update(ciphertext) + decipher.final('utf8');
+    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
   } catch {
     throw new Error('Corrupt encrypted credential');
   }

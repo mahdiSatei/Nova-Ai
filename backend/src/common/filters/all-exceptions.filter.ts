@@ -97,7 +97,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
   }
 
   private codeForStatus(status: number): string {
-    switch (status) {
+    switch (status as HttpStatus) {
       case HttpStatus.BAD_REQUEST:
         return 'validation_failed';
       case HttpStatus.UNAUTHORIZED:

@@ -18,7 +18,7 @@ export class ModelsPublicController {
 
   @Get()
   @HttpCode(HttpStatus.OK)
-  async list(@CurrentUser() user: AuthenticatedUser) {
+  async list(@CurrentUser() _user: AuthenticatedUser) {
     const items = await this.models.listEnabled();
     return { items: items.map((m) => this.toPublic(m)) };
   }

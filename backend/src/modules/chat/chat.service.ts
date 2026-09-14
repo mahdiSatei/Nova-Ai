@@ -1,5 +1,5 @@
-import { Injectable, Logger, ConflictException } from '@nestjs/common';
-import { Observable, of } from 'rxjs';
+import { Injectable, Logger } from '@nestjs/common';
+import { Observable } from 'rxjs';
 import OpenAI from 'openai';
 import { ModelsService } from '../models/models.service';
 import { OpenAICompatibleClient } from './provider/openai-compatible.client';
@@ -70,7 +70,6 @@ export class ChatService {
    */
   streamChat(userId: string, dto: ChatRequestDto): Observable<ChatStreamEvent> {
     return new Observable<ChatStreamEvent>((observer) => {
-      let fullResponse = '';
       let aborted = false;
 
       const run = async () => {
@@ -153,7 +152,7 @@ export class ChatService {
           await this.consumeStream(model.actualName, providerMessages, conversationId, observer, { value: aborted });
         } catch (err) {
           if (!aborted) {
-            this.logger.error(`Chat setup error: ${err instanceof Error ? err.message : err}`);
+            this.logger.error(`Chat setup error: ${err instanceof Error ? err.message : String(err)}`);
             observer.next({
               event: 'error',
               data: { code: 'internal_error', message: 'An unexpected error occurred.' },
@@ -163,7 +162,7 @@ export class ChatService {
         }
       };
 
-      run();
+      void run();
 
       // Teardown: called when the client disconnects or the
       // Observable is unsubscribed.
@@ -213,7 +212,7 @@ export class ChatService {
       }
     } catch (err) {
       if (!abortedRef.value) {
-        this.logger.error(`Provider stream error: ${err instanceof Error ? err.message : err}`);
+        this.logger.error(`Provider stream error: ${err instanceof Error ? err.message : String(err)}`);
         observer.next({
           event: 'error',
           data: { code: 'provider_error', message: 'The model provider returned an error.' },
