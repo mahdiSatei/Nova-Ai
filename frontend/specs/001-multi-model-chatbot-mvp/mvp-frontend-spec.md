@@ -104,7 +104,15 @@ These are non-negotiable and come from governance:
 - **C2** — Provider API credentials are stored encrypted at rest.
 - **C3** — User passwords are never stored in cleartext and never returned in any response. Password reset / recovery is not in MVP.
 - **C4** — All client-visible error messages are sanitized. Stack traces and internal details appear only in server logs.
-- **C5** — Regular users cannot reach admin surfaces; auth enforcement is mandatory.
+- **C5** — Regular users cannot reach admin surfaces;╭─    ~/collge/Final_project  on   frontend ?4 ▓▒░                                                                    ░▒▓ ✔  at 10:38:01  
+╰─ claude
+ ▐▛███▛█   Claude Code v2.1.270
+▝▜██████▀  claude-main[1m] with high effort · API Usage Billing
+  ▝▝ ▝▝    ~/collge/Final_project
+
+  ⎿  SessionStart:startup says: codebase-memory-mcp: no CBM daemon is running, so graph augmentation is currently skipped. Run 
+     `codebase-memory-mcp daemon start` (or open an MCP session) to enable it.
+ auth enforcement is mandatory.
 - **C6** — The actual model identifier sent to the AI provider is **never** shown to end users. Only the human-facing model name is visible in the picker.
 
 ---
@@ -264,7 +272,7 @@ Rules are normative and cannot be relaxed without an amendment.
 | ID | Rule |
 |---|---|
 | BR-001 | Email addresses must be syntactically valid (RFC 5322 shape), unique across all accounts, and stored in a case-insensitive canonical form. |
-| BR-002 | Passwords must be at least 12 characters and at most 128 characters. Passwords are stored only after being passed through a modern salted one-way function; plaintext is never persisted. |
+| BR-002 | Passwords must be at least 8 characters and at most 128 characters. Passwords are stored only after being passed through a modern salted one-way function; plaintext is never persisted. |
 | BR-003 | The actual AI model identifier (the string sent to the provider) is confidential end-user information and MUST NOT appear in any end-user-facing UI, network response, or log line that an end user could see. |
 | BR-004 | The display name of a model is the only name end users see. |
 | BR-005 | Display names must be 1–80 characters and unique across all models. |
