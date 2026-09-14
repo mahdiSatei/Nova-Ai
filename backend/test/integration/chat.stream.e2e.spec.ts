@@ -104,6 +104,23 @@ describe('Chat stream — e2e', () => {
     expect(res.body.code).toBe('invalid_token');
   });
 
+  it('POST /v1/chat/stream — accepts explicit null conversationId (new-chat payload shape from the frontend)', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/v1/chat/stream')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .set('Accept', 'text/event-stream')
+      .send({
+        conversationId: null,
+        message: 'یک توضیح کوتاه از هوش مصنوعی بده.',
+        modelId: 'model-1',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/event-stream');
+    // Validation must not reject the explicit nulls.
+    expect(res.text ?? '').not.toMatch(/Bad Request/);
+  });
+
   it('POST /v1/chat/stream — accepts the connection and returns SSE headers for valid input', async () => {
     const res = await request(app.getHttpServer())
       .post('/v1/chat/stream')

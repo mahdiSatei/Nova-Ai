@@ -1,4 +1,4 @@
-import { IsString, MaxLength, MinLength } from 'class-validator';
+import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 /**
  * Request body for POST /v1/chat/stream.
@@ -11,11 +11,13 @@ export class ChatRequestDto {
   @MaxLength(32000, { message: 'message must be at most 32000 characters' })
   message!: string;
 
-  /** Optional: resume an existing conversation. */
+  /** Optional: resume an existing conversation. `null` is accepted for new chats. */
+  @IsOptional()
   @IsString()
   conversationId?: string;
 
-  /** Optional: override the active model for this turn. */
+  /** Optional: override the active model for this turn. `null` falls back to sticky/default. */
+  @IsOptional()
   @IsString()
   modelId?: string;
 }
