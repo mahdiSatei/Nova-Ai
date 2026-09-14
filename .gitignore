@@ -1,0 +1,8 @@
+# Monorepo specific
+**/node_modules/
+**/.env
+**/dist/
+**/build/
+**/.next/
+**/data
+**/logs
