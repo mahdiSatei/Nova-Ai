@@ -1,0 +1,71 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Vazirmatn:wght@400;500;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+@import 'tailwindcss';
+
+/* Design system: AI-Native UI (ui-ux-pro-max) — dark, precision, streaming-first
+ * Persian-first (fa, rtl): Vazirmatn for Persian, Poppins for Latin (matched to
+ * p1.html reference); JetBrains Mono for code-style (error codes, request ids).
+ * Flow direction inherits from <html dir="rtl">. Phosphor icons are mostly
+ * symmetric; mark directional ones with `.flip-rtl` to mirror them in RTL.
+ *
+ * Vazirmatn has no 600 weight in the reference, so `font-semibold` (600) is
+ * remapped to 700 — the closest emphasis weight in the loaded set. */
+@theme {
+  --font-sans: 'Poppins', 'Vazirmatn', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  --font-weight-semibold: 700;
+
+  --color-bg: #0f172a;
+  --color-surface: #111827;
+  --color-elevated: #1e293b;
+  --color-line: #334155;
+  --color-ink: #f8fafc;
+  --color-ink-muted: #cbd5e1;
+
+  --color-primary: #7c3aed;
+  --color-primary-hover: #8b5cf6;
+  --color-on-primary: #ffffff;
+  --color-accent: #0891b2;
+  --color-danger: #dc2626;
+  --color-warning: #f59e0b;
+  --color-success: #16a34a;
+
+  --radius-card: 0.75rem;
+
+  --animate-pulse-dot: pulse-dot 1.2s ease-in-out infinite;
+  @keyframes pulse-dot {
+    0%,
+    100% {
+      opacity: 0.35;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-bg font-sans text-ink antialiased;
+}
+
+*:focus-visible {
+  @apply outline-2 outline-offset-2 outline-primary;
+}
+
+/* Direction-aware icons (e.g. sign-out arrow, chevrons) mirror in RTL.
+ * Use sparingly — only for icons whose meaning is "direction of flow". */
+[dir='rtl'] .flip-rtl {
+  transform: scaleX(-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
