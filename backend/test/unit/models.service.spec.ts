@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, UnprocessableEntityException } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ModelsService } from '../../src/modules/models/models.service';
 import { Model } from '../../src/modules/models/entities/model.entity';
@@ -20,6 +20,18 @@ describe('ModelsService', () => {
       select: jest.fn().mockReturnThis(),
       from: jest.fn().mockReturnThis(),
       manager: undefined as any,
+    };
+    // EntityManager stand-in: getRepository(Entity).update() returns scripted
+    // affected counts, delete() is recorded, counts run through the shared qb.
+    const em: any = {
+      createQueryBuilder: () => qb,
+      getRepository: (entity: any) => ({
+        update: jest.fn(async () => ({
+          affected: (em.__updates[entity?.name] ?? []).shift() ?? 0,
+        })),
+      }),
+      delete: jest.fn(async () => ({ affected: 1 })),
+      __updates: {} as Record<string, number[]>,
     };
     return {
       find: jest.fn(async ({ where, order }: any) => {
@@ -57,6 +69,7 @@ describe('ModelsService', () => {
       manager: undefined as any,
       __rows: rows,
       __qb: qb,
+      __em: em,
       __setRows: (next: Model[]) => { rows.length = 0; rows.push(...next); },
     };
   }
@@ -73,10 +86,12 @@ describe('ModelsService', () => {
 
     svc = moduleRef.get(ModelsService);
 
-    // Wire the manager-based queries back to repo so createQueryBuilder().manager.X works.
+    // Wire the manager-based queries back to repo so createQueryBuilder().manager.X
+    // and manager.transaction(cb) work against the same scripted query builder.
     const qb = repo.createQueryBuilder();
     qb.manager = {
       createQueryBuilder: () => qb,
+      transaction: (cb: any) => cb(repo.__em),
     };
     repo.manager = qb.manager;
   });
@@ -134,34 +149,110 @@ describe('ModelsService', () => {
   });
 
   describe('delete()', () => {
+    const model = (id: string, over: Partial<Model> = {}): Model =>
+      ({
+        id,
+        displayName: id,
+        actualName: `actual-${id}`,
+        enabled: true,
+        isDefault: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ...over,
+      }) as Model;
+
+    // countReferences() reads: conversations COUNT, users COUNT, app_config.
+    function scriptCounts(conv: string | null, users: string | null, defaultId: string | null) {
+      repo.__qb.getRawOne
+        .mockResolvedValueOnce(conv === null ? undefined : { c: conv })
+        .mockResolvedValueOnce(users === null ? undefined : { c: users })
+        .mockResolvedValueOnce(defaultId === null ? undefined : { default_model_id: defaultId });
+    }
+
     it('refuses with 409 when the model is the current default', async () => {
-      const row: Model = { id: 'm1', displayName: 'A', actualName: 'a', enabled: true, isDefault: true, createdAt: new Date(), updatedAt: new Date() } as Model;
-      repo.__setRows([row]);
-      // First call: app_config (default_model_id = 'm1'); second would be COUNT.
-      repo.__qb.getRawOne.mockResolvedValueOnce({ default_model_id: 'm1' });
+      repo.__setRows([model('m1', { isDefault: true })]);
+      scriptCounts('0', '0', 'm1');
 
       await expect(svc.delete('m1')).rejects.toBeInstanceOf(ConflictException);
+      expect(repo.delete).not.toHaveBeenCalled();
     });
 
     it('refuses with 409 when conversations reference the model', async () => {
-      const row: Model = { id: 'm1', displayName: 'A', actualName: 'a', enabled: true, isDefault: false, createdAt: new Date(), updatedAt: new Date() } as Model;
-      repo.__setRows([row]);
-      repo.__qb.getRawOne
-        .mockResolvedValueOnce({ default_model_id: null })
-        .mockResolvedValueOnce({ c: '3' });
+      repo.__setRows([model('m1')]);
+      scriptCounts('3', '0', null);
 
       await expect(svc.delete('m1')).rejects.toBeInstanceOf(ConflictException);
+      expect(repo.delete).not.toHaveBeenCalled();
+    });
+
+    it('refuses with 409 when only user sticky picks reference the model', async () => {
+      repo.__setRows([model('m1')]);
+      scriptCounts('0', '2', null);
+
+      await expect(svc.delete('m1')).rejects.toBeInstanceOf(ConflictException);
+      expect(repo.delete).not.toHaveBeenCalled();
     });
 
     it('deletes successfully when neither default nor referenced', async () => {
-      const row: Model = { id: 'm1', displayName: 'A', actualName: 'a', enabled: true, isDefault: false, createdAt: new Date(), updatedAt: new Date() } as Model;
-      repo.__setRows([row]);
-      repo.__qb.getRawOne
-        .mockResolvedValueOnce({ default_model_id: null })
-        .mockResolvedValueOnce({ c: '0' });
+      repo.__setRows([model('m1')]);
+      scriptCounts('0', '0', null);
 
-      await svc.delete('m1');
+      const result = await svc.delete('m1');
+      expect(result).toBeNull();
       expect(repo.delete).toHaveBeenCalledWith('m1');
+    });
+
+    it('rejects migrating a model onto itself', async () => {
+      repo.__setRows([model('m1')]);
+      scriptCounts('0', '0', null);
+
+      await expect(svc.delete('m1', 'm1')).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('rejects a missing replacement model with 422', async () => {
+      repo.__setRows([model('m1')]);
+      scriptCounts('1', '0', null);
+
+      await expect(svc.delete('m1', 'nope')).rejects.toBeInstanceOf(UnprocessableEntityException);
+    });
+
+    it('rejects a disabled replacement model with 422', async () => {
+      repo.__setRows([model('m1'), model('m2', { enabled: false })]);
+      scriptCounts('1', '0', null);
+
+      await expect(svc.delete('m1', 'm2')).rejects.toBeInstanceOf(UnprocessableEntityException);
+    });
+
+    it('migrates references, switches the default, then deletes', async () => {
+      repo.__setRows([model('m1', { isDefault: true }), model('m2')]);
+      // countReferences: 3 conversations, 2 users, m1 is the app default.
+      scriptCounts('3', '2', 'm1');
+      // tx repository updates: conversations→3 rows, users→2, app_config→1 (default moved).
+      repo.__em.__updates = { Conversation: [3], User: [2], AppConfig: [1] };
+      // leftover verification: everything re-pointed away from m1.
+      repo.__qb.getRawOne
+        .mockResolvedValueOnce({ c: '0' })
+        .mockResolvedValueOnce({ c: '0' })
+        .mockResolvedValueOnce({ d: 'm2' });
+
+      const result = await svc.delete('m1', 'm2');
+
+      expect(result).toEqual({
+        deleted: true,
+        migrated: { conversations: 3, users: 2, defaultSwitched: true },
+      });
+      expect(repo.__em.delete).toHaveBeenCalledWith(Model, 'm1');
+    });
+
+    it('aborts (no delete) when references remain after migration updates', async () => {
+      repo.__setRows([model('m1'), model('m2')]);
+      scriptCounts('1', '0', null);
+      repo.__em.__updates = { Conversation: [0], User: [0], AppConfig: [0] };
+      // leftover conversations count still shows a reference to m1.
+      repo.__qb.getRawOne.mockResolvedValueOnce({ c: '1' });
+
+      await expect(svc.delete('m1', 'm2')).rejects.toBeInstanceOf(ConflictException);
+      expect(repo.__em.delete).not.toHaveBeenCalled();
     });
   });
 });

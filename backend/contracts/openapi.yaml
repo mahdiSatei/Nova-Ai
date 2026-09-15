@@ -105,8 +105,16 @@ paths:
           in: path
           schema:
             type: string
+        - name: migrateTo
+          required: false
+          in: query
+          description: Optional replacement model id. When present, all references to the
+            deleted model (conversations, user sticky picks, app default) are
+            re-pointed to it inside one verified transaction before deletion.
+          schema:
+            type: string
       responses:
-        "204":
+        "200":
           description: ""
   /v1/auth/register:
     post:

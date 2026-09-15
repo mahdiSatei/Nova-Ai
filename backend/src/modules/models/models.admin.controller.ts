@@ -8,12 +8,16 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
+import { ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { ModelsService } from './models.service';
+import { ModelsService, DeleteModelMigrationResult } from './models.service';
 import { ModelUpsertDto } from './dto/model-upsert.dto';
 
 /**
@@ -22,8 +26,10 @@ import { ModelUpsertDto } from './dto/model-upsert.dto';
  * All endpoints require an admin JWT (JwtAuthGuard) plus the `admin`
  * role (RolesGuard). The full set: list all (including disabled),
  * create, partial update (displayName / actualName / enabled),
- * delete (refused with 409 when the model is still the default or
- * referenced by any conversation).
+ * delete — refused with 409 while the model is still referenced
+ * anywhere, unless `?migrateTo=<replacementId>` first re-points every
+ * reference (conversations, user sticky picks, app default) to the
+ * replacement model inside a single verified transaction.
  */
 @Controller('v1/admin/models')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -68,10 +74,37 @@ export class ModelsAdminController {
     return this.toAdminShape(m);
   }
 
+  /**
+   * Delete a model. Plain delete returns 204 and refuses with 409
+   * while the model is still referenced anywhere. Passing
+   * `?migrateTo=<replacementId>` first re-points every reference
+   * (conversations, user sticky picks, app default) to the
+   * replacement inside a single transaction, verifies zero remaining
+   * references, and only then deletes — returning 200 with the
+   * migration counts. Nothing is ever force-deleted.
+   */
+  @ApiQuery({
+    name: 'migrateTo',
+    required: false,
+    type: String,
+    description:
+      'Optional replacement model id. When present, all references to the ' +
+      'deleted model (conversations, user sticky picks, app default) are ' +
+      're-pointed to it inside one verified transaction before deletion.',
+  })
   @Delete(':id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async delete(@Param('id') id: string): Promise<void> {
-    await this.models.delete(id);
+  async delete(
+    @Param('id') id: string,
+    @Query('migrateTo') migrateTo: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<DeleteModelMigrationResult | undefined> {
+    const result = await this.models.delete(id, migrateTo ?? null);
+    if (!result) {
+      res.status(HttpStatus.NO_CONTENT);
+      return undefined;
+    }
+    res.status(HttpStatus.OK);
+    return result;
   }
 
   private toAdminShape(m: {

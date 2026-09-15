@@ -136,6 +136,7 @@ function onCancel(): void {
             <BaseInput
               v-model="form.displayName"
               label="نام نمایشی"
+              dir="ltr"
               hint="۱ تا ۸۰ کاراکتر؛ باید یکتا باشد"
               autocomplete="off"
               :error="fieldErrors.displayName"
@@ -144,6 +145,7 @@ function onCancel(): void {
             <BaseInput
               v-model="form.actualName"
               label="نام سمت ارائه‌دهنده"
+              dir="ltr"
               hint="۱ تا ۲۰۰ کاراکتر؛ به‌طور داخلی استفاده می‌شود"
               autocomplete="off"
               :error="fieldErrors.actualName"

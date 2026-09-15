@@ -87,10 +87,25 @@ const server = createServer(async (req, res) => {
     if (!authUser(req)) return err(res, 401, 'invalid_token', 'invalid')
     const b = await readBody(req)
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' })
-    const text = `Hello! You said: "${b.message}". This is a mocked streamed reply.`
-    for (const word of text.split(' ')) {
-      res.write(`data: ${JSON.stringify({ delta: word + ' ' })}\n\n`)
-      await new Promise((r) => setTimeout(r, 80))
+    const text = [
+      'Hello! You said: "' + b.message + '".',
+      '',
+      'Here is **markdown** rendering:',
+      '',
+      '- a *bullet* list',
+      '- with `inline code`',
+      '',
+      '```js',
+      'function greet(name) {',
+      '  return `hi ${name}`',
+      '}',
+      '```',
+      '',
+      'Done.',
+    ].join('\n')
+    for (const ch of Array.from(text)) {
+      res.write(`data: ${JSON.stringify({ delta: ch })}\n\n`)
+      await new Promise((r) => setTimeout(r, 10))
     }
     res.write('event: done\ndata: {}\n\n')
     return res.end()

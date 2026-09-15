@@ -56,10 +56,15 @@ function startDelete(id: string): void {
 </script>
 
 <template>
-  <section class="flex flex-col gap-4 py-4">
+  <section class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto py-4">
     <header class="flex items-center gap-3">
-      <PhClockCounterClockwise class="size-5 text-primary" aria-hidden="true" />
-      <h1 class="text-base font-semibold">تاریخچه گفتگوها</h1>
+      <span class="flex size-9 items-center justify-center rounded-xl bg-primary-soft">
+        <PhClockCounterClockwise class="size-4.5 text-primary" aria-hidden="true" />
+      </span>
+      <div>
+        <h1 class="text-base font-semibold">تاریخچه گفتگوها</h1>
+        <p class="text-xs text-ink-muted">گفتگوهای اخیر شما؛ برای حذف یا ادامه انتخاب کنید.</p>
+      </div>
     </header>
 
     <ErrorBanner
@@ -85,11 +90,11 @@ function startDelete(id: string): void {
       <BaseButton size="sm" variant="primary" @click="router.push({ name: 'chat' })">شروع گفتگو</BaseButton>
     </EmptyState>
 
-    <ul v-else class="flex flex-col gap-2" role="list">
+    <ul v-else class="mx-auto flex w-full max-w-3xl flex-col gap-2" role="list">
       <li
         v-for="c in items"
         :key="c.id"
-        class="group flex items-center gap-3 rounded-lg border border-line bg-surface px-4 py-3 transition-colors hover:border-primary/40"
+        class="group flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 shadow-sm transition-all duration-150 hover:-translate-y-px hover:border-primary/40 hover:shadow-md"
       >
         <button
           type="button"

@@ -2,10 +2,14 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Model } from './entities/model.entity';
+import { AppConfig } from '../app-config/entities/app-config.entity';
+import { Conversation } from '../conversations/entities/conversation.entity';
+import { User } from '../users/entities/user.entity';
 
 export interface CreateModelInput {
   displayName: string;
@@ -17,6 +21,21 @@ export interface UpdateModelInput {
   displayName?: string;
   actualName?: string;
   enabled?: boolean;
+}
+
+export interface DeleteModelMigrationResult {
+  deleted: true;
+  migrated: {
+    conversations: number;
+    users: number;
+    defaultSwitched: boolean;
+  };
+}
+
+interface ModelReferences {
+  conversations: number;
+  users: number;
+  isDefault: boolean;
 }
 
 /**
@@ -189,40 +208,159 @@ export class ModelsService {
   }
 
   /**
-   * Admin: delete a model. Refuses with 409 if the model is the
-   * current default OR if any non-deleted conversation references it.
+   * Count every live reference to a model: conversations (history),
+   * user sticky selections, and the app default pointer.
    */
-  async delete(id: string): Promise<void> {
-    await this.findById(id);
-
-    // 1. Cannot delete the system default.
-    const cfg = await this.repo.manager
+  async countReferences(id: string): Promise<ModelReferences> {
+    const manager = this.repo.manager;
+    const convCount = await manager
       .createQueryBuilder()
-      .select('ac.default_model_id')
-      .from('app_config', 'ac')
-      .where('ac.id = :sid', { sid: 'singleton' })
-      .getRawOne<{ default_model_id: string }>();
-    if (cfg?.default_model_id === id) {
-      throw new ConflictException({
-        code: 'model_in_use',
-        message: 'Cannot delete the current default model. Set a different default first.',
-      });
-    }
-
-    // 2. Cannot delete a model referenced by any conversation.
-    const convCount = await this.repo.manager
-      .createQueryBuilder()
-      .select('COUNT(*) as c')
+      .select('COUNT(*)', 'c')
       .from('conversations', 'c')
       .where('c.model_id = :id', { id })
       .getRawOne<{ c: string }>();
-    if (Number(convCount?.c ?? 0) > 0) {
+    const userCount = await manager
+      .createQueryBuilder()
+      .select('COUNT(*)', 'c')
+      .from('users', 'u')
+      .where('u.last_selected_model_id = :id', { id })
+      .getRawOne<{ c: string }>();
+    const cfg = await manager
+      .createQueryBuilder()
+      .select('ac.default_model_id', 'default_model_id')
+      .from('app_config', 'ac')
+      .where('ac.id = :sid', { sid: 'singleton' })
+      .getRawOne<{ default_model_id: string | null }>();
+    return {
+      conversations: Number(convCount?.c ?? 0),
+      users: Number(userCount?.c ?? 0),
+      isDefault: cfg?.default_model_id === id,
+    };
+  }
+
+  /**
+   * Admin: delete a model.
+   *
+   * Without `migrateTo`: refuses with 409 when the model is still
+   * referenced anywhere (default pointer, conversations, user sticky
+   * picks) — the message reports the reference counts.
+   *
+   * With `migrateTo`: performs the safe migration first — inside a
+   * single transaction every reference (conversations, users,
+   * app default + is_default flag) is switched to the replacement
+   * model, the remaining-reference count is verified to be zero, and
+   * only then is the old model deleted. Nothing is force-deleted:
+   * history is re-pointed, not destroyed, so the chatbot keeps
+   * working on the replacement with zero downtime.
+   */
+  async delete(id: string, migrateTo?: string | null): Promise<DeleteModelMigrationResult | null> {
+    await this.findById(id);
+
+    const refs = await this.countReferences(id);
+
+    if (!migrateTo) {
+      if (refs.isDefault) {
+        throw new ConflictException({
+          code: 'model_in_use',
+          message: `Cannot delete: this model is the system default. Set a different default first (or delete with migrateTo=<replacementId>).`,
+        });
+      }
+      if (refs.conversations > 0 || refs.users > 0) {
+        throw new ConflictException({
+          code: 'model_in_use',
+          message: `Cannot delete: still referenced by ${refs.conversations} conversation(s) and ${refs.users} user selection(s). Delete with migrateTo=<replacementId> to switch them to another model first.`,
+        });
+      }
+      await this.repo.delete(id);
+      return null;
+    }
+
+    // ── Migration path: switch everything to the replacement, then delete.
+    if (migrateTo === id) {
       throw new ConflictException({
-        code: 'model_in_use',
-        message: 'Cannot delete a model referenced by one or more conversations.',
+        code: 'replacement_not_available',
+        message: 'The replacement model must be a different model.',
+      });
+    }
+    const replacement = await this.repo.findOne({ where: { id: migrateTo } });
+    if (!replacement) {
+      throw new UnprocessableEntityException({
+        code: 'replacement_not_available',
+        message: 'The replacement model does not exist.',
+      });
+    }
+    if (!replacement.enabled) {
+      throw new UnprocessableEntityException({
+        code: 'replacement_not_available',
+        message: 'Only enabled models can replace a deleted model.',
       });
     }
 
-    await this.repo.delete(id);
+    return this.repo.manager.transaction(async (em) => {
+      const convResult = await em
+        .getRepository(Conversation)
+        .update({ modelId: id }, { modelId: migrateTo });
+      const userResult = await em
+        .getRepository(User)
+        .update({ lastSelectedModelId: id }, { lastSelectedModelId: migrateTo });
+
+      // The old model being the app default: promote the replacement to
+      // default (clearing any stale is_default flags) before removing it.
+      const cfgResult = await em
+        .getRepository(AppConfig)
+        .update({ defaultModelId: id }, { defaultModelId: migrateTo });
+      const defaultSwitched = Number(cfgResult.affected ?? 0) > 0;
+      if (defaultSwitched) {
+        await em
+          .getRepository(Model)
+          .update({ isDefault: true }, { isDefault: false });
+        await em
+          .getRepository(Model)
+          .update({ id: migrateTo }, { isDefault: true });
+      }
+
+      // Verify no references remain BEFORE the delete (step 3 of the
+      // safe-deletion protocol). A non-zero count aborts the whole
+      // transaction, so the old model stays fully intact.
+      const leftoverConvs = await em
+        .createQueryBuilder()
+        .select('COUNT(*)', 'c')
+        .from('conversations', 'c')
+        .where('c.model_id = :id', { id })
+        .getRawOne<{ c: string }>();
+      const leftoverUsers = await em
+        .createQueryBuilder()
+        .select('COUNT(*)', 'c')
+        .from('users', 'u')
+        .where('u.last_selected_model_id = :id', { id })
+        .getRawOne<{ c: string }>();
+      const leftoverCfg = await em
+        .createQueryBuilder()
+        .select('ac.default_model_id', 'd')
+        .from('app_config', 'ac')
+        .where('ac.id = :sid', { sid: 'singleton' })
+        .getRawOne<{ d: string | null }>();
+      if (
+        Number(leftoverConvs?.c ?? 0) > 0 ||
+        Number(leftoverUsers?.c ?? 0) > 0 ||
+        leftoverCfg?.d === id
+      ) {
+        throw new ConflictException({
+          code: 'model_in_use',
+          message: 'Migration verification failed: references to the model still exist. Nothing was deleted.',
+        });
+      }
+
+      await em.delete(Model, id);
+
+      return {
+        deleted: true as const,
+        migrated: {
+          conversations: Number(convResult.affected ?? 0),
+          users: Number(userResult.affected ?? 0),
+          defaultSwitched,
+        },
+      };
+    });
   }
 }

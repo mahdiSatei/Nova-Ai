@@ -1,16 +1,19 @@
 <script setup lang="ts">
-// ChatView: صفحه اصلی چت — طراحی AI-Native با تمرکز بر streaming.
+// ChatView: صفحه اصلی چت — استریم‌محور با Markdown.
 // states per FR-015 + BR-014: empty / no-models / streaming / error / success.
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { PhPlus, PhArrowsClockwise, PhSparkle, PhWarning } from '@phosphor-icons/vue'
-import BaseButton from '@/components/ui/BaseButton.vue'
+import { PhArrowsClockwise, PhSparkle, PhWarning, PhCaretDown, PhBrain, PhCode, PhBookOpenText, PhTranslate } from '@phosphor-icons/vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import ModelPicker from '@/components/chat/ModelPicker.vue'
 import MessageList from '@/components/chat/MessageList.vue'
 import MessageInput from '@/components/chat/MessageInput.vue'
 import { useChatStream } from '@/composables/useChatStream'
+import { useNewChatSignal } from '@/composables/useNewChatSignal'
 import { useModelsStore } from '@/stores/models'
+import { apiErrorMessage } from '@/utils/errors'
+
+const { tick: newChatTick } = useNewChatSignal()
 
 const props = defineProps<{ id?: string }>()
 
@@ -23,12 +26,20 @@ const inputText = ref('')
 const justStartedConversation = ref(false)
 const scrollRoot = useTemplateRef<HTMLDivElement>('scrollRoot')
 
+// scroll هوشمند: فقط وقتی کاربر پایین است خودکار پایین می‌رود.
+const pinnedToBottom = ref(true)
+const showScrollButton = ref(false)
+
 const noModels = computed(() => models.loaded && models.isEmpty)
+const hasMessages = computed(
+  () =>
+    chat.transcript.value.length > 0 ||
+    Boolean(chat.pendingUser.value) ||
+    Boolean(chat.streamingText.value) ||
+    chat.isStreaming.value,
+)
 const inputDisabled = computed(
   () => chat.isStreaming.value || noModels.value || chat.phase.value === 'loading',
-)
-const currentModelName = computed(
-  () => models.displayName(chat.selectedModelId.value, '—') || 'مدل انتخاب نشده',
 )
 
 function resolvedId(): string | undefined {
@@ -36,13 +47,28 @@ function resolvedId(): string | undefined {
   return typeof raw === 'string' && raw.length > 0 ? raw : undefined
 }
 
-// auto-scroll به پایین هنگام تغییر ترنسکریپت یا streaming text
+function onScroll(): void {
+  const el = scrollRoot.value
+  if (!el) return
+  const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+  pinnedToBottom.value = distance < 120
+  showScrollButton.value = distance > 400
+}
+
+function scrollToBottom(smooth = true): void {
+  const el = scrollRoot.value
+  if (!el) return
+  el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+  pinnedToBottom.value = true
+  showScrollButton.value = false
+}
+
+// auto-scroll به پایین هنگام تغییر ترنسکریپت یا streaming text (اگر کاربر چسبیده باشد)
 watch(
   () => [chat.transcript.value, chat.streamingText.value, chat.pendingUser.value],
   async () => {
     await nextTick()
-    const el = scrollRoot.value
-    if (el) el.scrollTop = el.scrollHeight
+    if (pinnedToBottom.value) scrollToBottom(false)
   },
   { deep: true },
 )
@@ -52,6 +78,9 @@ watch(
   async (id) => {
     if (id) await chat.loadConversation(id)
     else chat.resetConversation()
+    pinnedToBottom.value = true
+    await nextTick()
+    scrollToBottom(false)
   },
   { immediate: true },
 )
@@ -79,21 +108,24 @@ watch(
   },
 )
 
+// «گفتگوی جدید» از سایدبار وقتی همین‌جا هستیم: reset مستقیم (بدون تغییر مسیر)
+watch(newChatTick, () => {
+  if (resolvedId() || route.name !== 'chat') return
+  inputText.value = ''
+  chat.resetConversation()
+})
+
 async function onSubmit(): Promise<void> {
   const text = inputText.value
   if (!text.trim() || inputDisabled.value) return
   if (!resolvedId()) justStartedConversation.value = true
   inputText.value = ''
+  pinnedToBottom.value = true
   await chat.send(text)
 }
 
-async function onNewChat(): Promise<void> {
-  inputText.value = ''
-  if (route.name === 'chat-conversation') {
-    await router.push({ name: 'chat' })
-  } else {
-    chat.resetConversation()
-  }
+function onStop(): void {
+  chat.abort()
 }
 
 async function onRefreshModels(): Promise<void> {
@@ -102,36 +134,45 @@ async function onRefreshModels(): Promise<void> {
 
 function useSuggestedPrompt(text: string): void {
   inputText.value = text
+  nextTick(() => scrollToBottom())
 }
 
 const suggestedPrompts = [
-  'یک توضیح کوتاه از هوش مصنوعی بده.',
-  'چه فرقی بین REST و GraphQL هست؟',
-  'یک شعر کوتاه درباره تهران بنویس.',
+  { icon: PhSparkle, text: 'یک توضیح کوتاه از هوش مصنوعی بده.' },
+  { icon: PhCode, text: 'یک تابع پایتونی برای بررسی اعداد اول بنویس.' },
+  { icon: PhBookOpenText, text: 'چه فرقی بین REST و GraphQL هست؟' },
+  { icon: PhTranslate, text: 'یک شعر کوتاه درباره تهران بنویس.' },
 ]
 </script>
 
 <template>
-  <section class="flex flex-1 flex-col py-3 sm:py-4">
-    <!-- هدر با model picker به‌صورت chip -->
-    <header class="mb-3 flex items-center gap-3 px-1 sm:mb-4">
+  <section class="flex min-h-0 flex-1 flex-col py-2 sm:py-3">
+    <!-- هدر شناور: چیپ وضعیت + مدل + ابزارها -->
+    <header class="flex h-11 shrink-0 items-center gap-2 px-1">
       <div
-        class="inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 px-3 py-1.5 text-xs transition-colors"
+        class="inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 py-1 pe-1 ps-3 text-xs shadow-sm backdrop-blur transition-colors"
       >
         <span
           class="size-1.5 rounded-full"
-          :class="chat.isStreaming.value ? 'bg-primary animate-pulse' : 'bg-success'"
+          :class="chat.isStreaming.value ? 'animate-pulse bg-primary' : 'bg-success'"
           aria-hidden="true"
         />
-        <span class="font-medium text-ink">{{ currentModelName }}</span>
-        <span v-if="chat.isStreaming.value" class="text-ink-muted">· در حال پاسخ…</span>
-        <span v-else class="text-ink-muted/70">· آماده</span>
+        <span class="font-medium text-ink">
+          {{ chat.isStreaming.value ? 'در حال پاسخ…' : 'آماده' }}
+        </span>
+        <span v-if="!noModels" class="h-4 w-px bg-line" aria-hidden="true" />
+        <ModelPicker
+          v-if="!noModels"
+          v-model="chat.selectedModelId.value"
+          :disabled="chat.isStreaming.value"
+          inline
+        />
       </div>
 
-      <div class="ms-auto flex items-center gap-1.5">
+      <div class="ms-auto flex items-center gap-1">
         <button
           type="button"
-          class="inline-flex size-9 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-elevated hover:text-ink focus-visible:text-ink"
+          class="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink focus-visible:text-ink"
           :class="{ 'animate-spin': models.loading }"
           :disabled="models.loading"
           aria-label="به‌روزرسانی مدل‌ها"
@@ -139,108 +180,119 @@ const suggestedPrompts = [
         >
           <PhArrowsClockwise class="size-4" aria-hidden="true" />
         </button>
-        <BaseButton
-          variant="secondary"
-          size="sm"
-          :disabled="chat.isStreaming.value || (!id && chat.transcript.value.length === 0)"
-          @click="onNewChat"
-        >
-          <PhPlus class="size-4" aria-hidden="true" />
-          <span>گفتگوی جدید</span>
-        </BaseButton>
       </div>
     </header>
 
-    <!-- کارت اصلی چت -->
-    <div
-      class="flex flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-surface/40 backdrop-blur-sm"
-    >
-      <!-- Model picker خطی در بالای محتوا، فقط وقتی مدل فعال است -->
+    <!-- ناحیه پیام‌ها -->
+    <div class="relative min-h-0 flex-1">
       <div
-        v-if="!noModels"
-        class="flex items-center gap-3 border-b border-line/60 bg-elevated/30 px-4 py-2.5"
+        ref="scrollRoot"
+        class="absolute inset-0 overflow-y-auto scroll-smooth px-2 sm:px-4"
+        @scroll="onScroll"
       >
-        <PhSparkle class="size-3.5 text-primary" aria-hidden="true" />
-        <ModelPicker v-model="chat.selectedModelId.value" :disabled="chat.isStreaming.value" inline />
-      </div>
-
-      <!-- ناحیه پیام‌ها با auto-scroll -->
-      <div ref="scrollRoot" class="relative flex-1 overflow-y-auto px-3 sm:px-6">
-        <!-- empty state با prompt‌های پیشنهادی -->
+        <!-- empty state: hero + کارت‌های پیشنهاد -->
         <div
-          v-if="chat.transcript.value.length === 0 && !chat.pendingUser.value && !chat.streamingText.value"
-          class="flex min-h-full flex-col items-center justify-center gap-6 py-12 text-center"
+          v-if="!hasMessages"
+          class="flex min-h-full flex-col items-center justify-center gap-8 py-10 text-center"
         >
-          <div class="flex flex-col items-center gap-3">
-            <div class="flex size-12 items-center justify-center rounded-2xl bg-primary/15">
-              <PhSparkle class="size-6 text-primary" aria-hidden="true" />
+          <div class="flex flex-col items-center gap-4">
+            <div
+              class="flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-accent/70 text-white shadow-lg shadow-primary/20"
+            >
+              <PhBrain class="size-7" aria-hidden="true" />
             </div>
             <div>
-              <p class="text-base font-semibold text-ink">
-                {{ noModels ? 'چت هنوز آماده نیست' : 'گفتگو را شروع کنید' }}
-              </p>
-              <p class="mt-1 text-sm text-ink-muted">
-                {{ noModels ? 'مدیر سیستم باید ابتدا یک مدل فعال اضافه کند.' : 'پیام خود را بنویسید یا یکی از پیشنهادها را انتخاب کنید.' }}
+              <h1 class="text-xl font-bold text-ink sm:text-2xl">
+                {{ noModels ? 'چت هنوز آماده نیست' : 'چطور می‌تونم کمکت کنم؟' }}
+              </h1>
+              <p class="mt-1.5 text-sm text-ink-muted">
+                {{
+                  noModels
+                    ? 'مدیر سیستم باید ابتدا یک مدل فعال اضافه کند.'
+                    : 'پیام خود را بنویسید یا یکی از پیشنهادها را انتخاب کنید.'
+                }}
               </p>
             </div>
           </div>
 
-          <ul v-if="!noModels" class="grid w-full max-w-md gap-2">
-            <li v-for="p in suggestedPrompts" :key="p">
+          <ul v-if="!noModels" class="grid w-full max-w-xl grid-cols-1 gap-2.5 px-2 sm:grid-cols-2">
+            <li v-for="p in suggestedPrompts" :key="p.text">
               <button
                 type="button"
-                class="w-full cursor-pointer rounded-xl border border-line/60 bg-surface px-4 py-3 text-start text-sm text-ink-muted transition-colors hover:border-primary/40 hover:bg-elevated/40 hover:text-ink"
-                @click="useSuggestedPrompt(p)"
+                class="group flex h-full w-full cursor-pointer items-start gap-3 rounded-xl border border-line/70 bg-surface px-4 py-3.5 text-start shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md"
+                @click="useSuggestedPrompt(p.text)"
               >
-                {{ p }}
+                <span
+                  class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary transition-colors group-hover:bg-primary group-hover:text-on-primary"
+                >
+                  <component :is="p.icon" class="size-4" aria-hidden="true" />
+                </span>
+                <span class="text-sm leading-6 text-ink-muted transition-colors group-hover:text-ink">
+                  {{ p.text }}
+                </span>
               </button>
             </li>
           </ul>
         </div>
 
-        <!-- error model load (مدیر سیستم دسترسی مشکل دارد) -->
-        <div v-if="models.error" class="mx-auto max-w-md py-6">
-          <ErrorBanner
-            :message="models.error.message"
-            :code="models.error.code"
-            :request-id="models.error.requestId"
-            :show-code="true"
-          />
-        </div>
+        <template v-else>
+          <!-- error model load -->
+          <div v-if="models.error" class="mx-auto max-w-3xl py-4">
+            <ErrorBanner
+              :message="apiErrorMessage(models.error)"
+              :code="models.error.code"
+              :request-id="models.error.requestId"
+              :show-code="true"
+            />
+          </div>
 
-        <!-- لیست پیام‌ها -->
-        <MessageList
-          v-if="chat.transcript.value.length > 0 || chat.pendingUser.value || chat.streamingText.value"
-          :messages="chat.transcript.value"
-          :pending-user="chat.pendingUser.value"
-          :streaming-text="chat.streamingText.value"
-          :is-streaming="chat.isStreaming.value"
-          :stream-completed-at="chat.streamCompletedAt.value"
-        />
+          <!-- خطای استریم داخل فید -->
+          <div v-if="chat.streamError.value" class="mx-auto max-w-3xl">
+            <ErrorBanner
+              :message="chat.streamError.value.message"
+              :code="chat.streamError.value.code"
+              :show-code="true"
+            />
+            <div
+              v-if="chat.transcript.value.length > 0"
+              class="mt-2 mb-1 flex items-center gap-1.5 px-3 text-[11px] text-warning"
+            >
+              <PhWarning class="size-3" aria-hidden="true" />
+              پاسخ ناقص — متن قبل از خطا حفظ شده است.
+            </div>
+          </div>
+
+          <MessageList
+            :messages="chat.transcript.value"
+            :pending-user="chat.pendingUser.value"
+            :streaming-text="chat.streamingText.value"
+            :is-streaming="chat.isStreaming.value"
+          />
+        </template>
       </div>
 
-      <!-- پایین: خطای استریم + input -->
-      <div class="border-t border-line/60 bg-elevated/30 px-3 py-3 sm:px-6 sm:py-4">
-        <ErrorBanner
-          v-if="chat.streamError.value"
-          :message="chat.streamError.value.message"
-          :code="chat.streamError.value.code"
-          :show-code="true"
-          class="mb-3"
-        />
-        <div
-          v-if="chat.streamError.value && chat.streamingText.value"
-          class="mb-2 flex items-center gap-1.5 text-[11px] text-warning"
-        >
-          <PhWarning class="size-3" aria-hidden="true" />
-          پاسخ ناقص — متن قبل از خطا حفظ شده است.
-        </div>
+      <!-- دکمه اسکرول به پایین -->
+      <button
+        v-if="showScrollButton && hasMessages"
+        type="button"
+        class="absolute bottom-4 left-1/2 z-10 inline-flex size-9 -translate-x-1/2 cursor-pointer items-center justify-center rounded-full border border-line bg-surface text-ink-muted shadow-lg transition-all hover:bg-elevated hover:text-ink"
+        aria-label="رفتن به پایین آخرین پیام"
+        @click="scrollToBottom()"
+      >
+        <PhCaretDown class="size-4" aria-hidden="true" />
+      </button>
+    </div>
+
+    <!-- پایین: ورودی شناور -->
+    <div class="shrink-0 px-1 pb-2 pt-1 sm:pb-3">
+      <div class="mx-auto w-full max-w-3xl">
         <MessageInput
           v-model="inputText"
-          :placeholder="noModels ? 'مدلی برای گفتگو موجود نیست.' : 'پیام خود را بنویسید… (Enter برای ارسال، Shift+Enter خط جدید)'"
+          :placeholder="noModels ? 'مدلی برای گفتگو موجود نیست.' : 'پیام خود را بنویسید…'"
           :disabled="inputDisabled"
           :busy="chat.isStreaming.value"
           @submit="onSubmit"
+          @stop="onStop"
         />
       </div>
     </div>

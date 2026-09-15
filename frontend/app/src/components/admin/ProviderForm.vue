@@ -3,7 +3,7 @@
 // قبل از ذخیره، سرور credential را probe می‌کند؛ در خطا هیچ‌چیز ذخیره نمی‌شود.
 // Cleartext credential هرگز به UI نمی‌آید؛ فقط `apiKeyMasked`.
 import { reactive, ref } from 'vue'
-import { PhFloppyDisk, PhArrowsCounterClockwise } from '@phosphor-icons/vue'
+import { PhFloppyDisk, PhArrowsCounterClockwise, PhEye, PhEyeSlash } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
@@ -20,10 +20,12 @@ const form = reactive({ baseUrl: props.provider?.baseUrl ?? '', apiKey: '' })
 const fieldErrors = reactive<{ baseUrl: string | null; apiKey: string | null }>({ baseUrl: null, apiKey: null })
 const submitError = ref<{ message: string; code?: string; requestId?: string } | null>(null)
 const submitting = ref(false)
+const apiKeyRevealed = ref(false)
 
 function reset(): void {
   form.baseUrl = props.provider?.baseUrl ?? ''
   form.apiKey = ''
+  apiKeyRevealed.value = false
   fieldErrors.baseUrl = null
   fieldErrors.apiKey = null
   submitError.value = null
@@ -93,6 +95,7 @@ defineExpose({ reset, reload: async () => { const p = await getProvider(); form.
       v-model="form.baseUrl"
       label="آدرس پایه (Base URL)"
       type="url"
+      dir="ltr"
       hint="مثلاً https://api.example.com/v1"
       autocomplete="off"
       :error="fieldErrors.baseUrl"
@@ -107,16 +110,33 @@ defineExpose({ reset, reload: async () => { const p = await getProvider(); form.
         </span>
       </label>
 
-      <input
-        id="provider-apikey"
-        v-model="form.apiKey"
-        type="password"
-        autocomplete="off"
-        placeholder="sk-..."
-        :aria-invalid="fieldErrors.apiKey ? 'true' : undefined"
-        class="w-full rounded-lg border bg-surface px-3.5 py-2.5 font-mono text-sm text-ink placeholder:text-ink-muted/50 transition-colors"
-        :class="fieldErrors.apiKey ? 'border-danger' : 'border-line focus:border-primary'"
-      />
+      <div class="relative">
+        <input
+          id="provider-apikey"
+          v-model="form.apiKey"
+          :type="apiKeyRevealed ? 'text' : 'password'"
+          autocomplete="new-password"
+          placeholder="sk-..."
+          dir="ltr"
+          lang="en"
+          :aria-invalid="fieldErrors.apiKey ? 'true' : undefined"
+          class="w-full rounded-lg border bg-surface px-3.5 py-2.5 pr-10 font-mono text-left text-sm text-ink placeholder:text-ink-muted/50 transition-colors"
+          :class="fieldErrors.apiKey ? 'border-danger' : 'border-line focus:border-primary'"
+        />
+        <button
+          type="button"
+          tabindex="-1"
+          class="absolute inset-y-0 right-0 flex w-9 cursor-pointer items-center justify-center rounded-r-lg text-ink-muted transition-colors hover:text-ink focus-visible:text-ink"
+          :aria-label="apiKeyRevealed ? 'پنهان کردن کلید API' : 'نمایش کلید API'"
+          :aria-pressed="apiKeyRevealed"
+          :title="apiKeyRevealed ? 'پنهان کردن' : 'نمایش'"
+          @mousedown.prevent
+          @click="apiKeyRevealed = !apiKeyRevealed"
+        >
+          <PhEyeSlash v-if="apiKeyRevealed" class="size-4" aria-hidden="true" />
+          <PhEye v-else class="size-4" aria-hidden="true" />
+        </button>
+      </div>
 
       <p
         v-if="fieldErrors.apiKey"
