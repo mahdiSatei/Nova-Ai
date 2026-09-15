@@ -9,15 +9,11 @@ import {
   PhList,
   PhPushPin,
   PhSignOut,
-  PhSun,
-  PhMoon,
-  PhArrowSquareOut,
   PhChatsCircle,
   PhTrash,
 } from '@phosphor-icons/vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import { useAuthStore } from '@/stores/auth'
-import { useTheme } from '@/composables/useTheme'
 import { requestNewChat } from '@/composables/useNewChatSignal'
 import { listConversations, deleteConversation, setConversationPinned } from '@/api/conversations'
 import { relativeTime } from '@/utils/time'
@@ -27,7 +23,6 @@ const emit = defineEmits<{ navigate: [] }>()
 const mobileOpen = defineModel<boolean>('mobileOpen', { required: true })
 
 const auth = useAuthStore()
-const theme = useTheme()
 const route = useRoute()
 const router = useRouter()
 
@@ -250,14 +245,6 @@ watch(
               >
                 <PhPushPin class="size-3.5" :weight="c.pinned ? 'fill' : 'regular'" aria-hidden="true" />
               </button>
-              <RouterLink
-                :to="{ name: 'conversation', params: { id: c.id } }"
-                class="hidden size-7 items-center justify-center rounded-md text-ink-muted/70 transition-colors hover:bg-hover hover:text-ink group-hover:inline-flex"
-                aria-label="جزئیات گفتگو"
-                @click="closeMobile"
-              >
-                <PhArrowSquareOut class="size-3.5" aria-hidden="true" />
-              </RouterLink>
               <button
                 type="button"
                 class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md text-ink-muted/70 transition-colors hover:bg-danger-soft hover:text-danger"
@@ -273,7 +260,7 @@ watch(
       </ul>
     </nav>
 
-    <!-- فوتر: حالت مدیر، موضوع، کاربر -->
+    <!-- فوتر: حالت مدیر، کاربر -->
     <div class="shrink-0 border-t border-line/70 p-2">
       <RouterLink
         v-if="auth.isAdmin"
@@ -286,16 +273,6 @@ watch(
       </RouterLink>
 
       <div class="mt-1 flex items-center gap-1" :class="{ 'flex-col': rail }">
-        <button
-          type="button"
-          class="flex h-9 flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg text-[13px] text-ink-muted transition-colors hover:bg-hover hover:text-ink"
-          :aria-label="theme.theme.value === 'light' ? 'حالت تاریک' : 'حالت روشن'"
-          @click="theme.toggleTheme()"
-        >
-          <PhMoon v-if="theme.theme.value === 'light'" class="size-4" aria-hidden="true" />
-          <PhSun v-else class="size-4" aria-hidden="true" />
-          <span v-if="!rail">{{ theme.theme.value === 'light' ? 'تاریک' : 'روشن' }}</span>
-        </button>
         <button
           v-if="!rail"
           type="button"
