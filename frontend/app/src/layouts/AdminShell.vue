@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { RouterLink, RouterView, useRouter } from 'vue-router'
-import { PhGear, PhListBullets, PhPlugsConnected, PhSignOut, PhStar } from '@phosphor-icons/vue'
+import { PhGear, PhListBullets, PhPlugsConnected, PhSignOut, PhStar, PhMoon, PhSun } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useTheme } from '@/composables/useTheme'
 
 const auth = useAuthStore()
 const router = useRouter()
+const { theme, toggleTheme } = useTheme()
 
 const nav = [
   { to: { name: 'admin-provider' }, label: 'ارائه‌دهنده', icon: PhPlugsConnected },
@@ -37,7 +39,12 @@ async function onSignOut(): Promise<void> {
           {{ item.label }}
         </RouterLink>
       </nav>
-      <div class="mt-auto p-3">
+      <div class="mt-auto flex flex-col gap-1 p-3">
+        <BaseButton variant="ghost" size="sm" class="w-full justify-start" @click="toggleTheme">
+          <PhSun v-if="theme === 'dark'" class="size-4" aria-hidden="true" />
+          <PhMoon v-else class="size-4" aria-hidden="true" />
+          {{ theme === 'dark' ? 'حالت روشن' : 'حالت تاریک' }}
+        </BaseButton>
         <BaseButton variant="ghost" size="sm" class="w-full justify-start" @click="onSignOut">
           <PhSignOut class="flip-rtl size-4" aria-hidden="true" />
           خروج
