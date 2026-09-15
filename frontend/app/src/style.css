@@ -1,37 +1,121 @@
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Vazirmatn:wght@400;500;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
 @import 'tailwindcss';
 
-/* Design system: AI-Native UI (ui-ux-pro-max) — dark, precision, streaming-first
- * Persian-first (fa, rtl): Vazirmatn for Persian, Poppins for Latin (matched to
- * p1.html reference); JetBrains Mono for code-style (error codes, request ids).
- * Flow direction inherits from <html dir="rtl">. Phosphor icons are mostly
- * symmetric; mark directional ones with `.flip-rtl` to mirror them in RTL.
+/* Design system: slate/zinc neutrals, soft borders, light + dark runtime themes.
+ * Theme switching: `@theme inline` makes every utility reference the `--app-*`
+ * custom properties directly, so flipping them on <html class="light"> restyles
+ * the whole app with zero dark: variants. Persian-first (fa, rtl): Vazirmatn
+ * for Persian, Poppins for Latin; JetBrains Mono for code.
  *
  * Vazirmatn has no 600 weight in the reference, so `font-semibold` (600) is
  * remapped to 700 — the closest emphasis weight in the loaded set. */
-@theme {
+
+:root {
+  --app-bg: #0e1116;
+  --app-surface: #151a21;
+  --app-elevated: #1d242e;
+  --app-line: #2b3340;
+  --app-ink: #e6eaf2;
+  --app-ink-muted: #98a2b3;
+
+  --app-primary: #8b5cf6;
+  --app-primary-hover: #a78bfa;
+  --app-primary-soft: rgba(139, 92, 246, 0.14);
+  --app-on-primary: #ffffff;
+  --app-accent: #22d3ee;
+  --app-danger: #f87171;
+  --app-danger-soft: rgba(248, 113, 113, 0.1);
+  --app-warning: #fbbf24;
+  --app-success: #4ade80;
+
+  --app-code-bg: #0b0f14;
+  --app-inline-code-bg: rgba(148, 163, 184, 0.14);
+  --app-hover: rgba(148, 163, 184, 0.08);
+  --app-shadow: rgba(0, 0, 0, 0.45);
+
+  /* highlight.js token colors — one-One Dark inspired */
+  --hl-keyword: #c678dd;
+  --hl-string: #98c379;
+  --hl-number: #d19a66;
+  --hl-comment: #7f848e;
+  --hl-function: #61afef;
+  --hl-title: #e5c07b;
+  --hl-tag: #e06c75;
+  --hl-attr: #d19a66;
+  --hl-meta: #56b6c2;
+  --hl-variable: #e06c75;
+  --hl-literal: #d19a66;
+  --hl-type: #e5c07b;
+}
+
+html.light {
+  --app-bg: #f6f7f9;
+  --app-surface: #fdfdfe;
+  --app-elevated: #eef0f4;
+  --app-line: #dfe3e9;
+  --app-ink: #22272e;
+  --app-ink-muted: #5f6b7a;
+
+  --app-primary: #6d28d9;
+  --app-primary-hover: #7c3aed;
+  --app-primary-soft: rgba(109, 40, 217, 0.1);
+  --app-on-primary: #ffffff;
+  --app-accent: #0e7490;
+  --app-danger: #dc2626;
+  --app-danger-soft: rgba(220, 38, 38, 0.06);
+  --app-warning: #d97706;
+  --app-success: #16a34a;
+
+  --app-code-bg: #f3f5f8;
+  --app-inline-code-bg: rgba(100, 116, 139, 0.12);
+  --app-hover: rgba(100, 116, 139, 0.1);
+  --app-shadow: rgba(15, 23, 42, 0.12);
+
+  /* github-light inspired */
+  --hl-keyword: #cf222e;
+  --hl-string: #0a3069;
+  --hl-number: #0550ae;
+  --hl-comment: #6e7781;
+  --hl-function: #8250df;
+  --hl-title: #6639ba;
+  --hl-tag: #116329;
+  --hl-attr: #0550ae;
+  --hl-meta: #1b7f83;
+  --hl-variable: #953800;
+  --hl-literal: #0550ae;
+  --hl-type: #953800;
+}
+
+@theme inline {
   --font-sans: 'Poppins', 'Vazirmatn', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
   --font-weight-semibold: 700;
 
-  --color-bg: #0f172a;
-  --color-surface: #111827;
-  --color-elevated: #1e293b;
-  --color-line: #334155;
-  --color-ink: #f8fafc;
-  --color-ink-muted: #cbd5e1;
+  --color-bg: var(--app-bg);
+  --color-surface: var(--app-surface);
+  --color-elevated: var(--app-elevated);
+  --color-line: var(--app-line);
+  --color-ink: var(--app-ink);
+  --color-ink-muted: var(--app-ink-muted);
 
-  --color-primary: #7c3aed;
-  --color-primary-hover: #8b5cf6;
-  --color-on-primary: #ffffff;
-  --color-accent: #0891b2;
-  --color-danger: #dc2626;
-  --color-warning: #f59e0b;
-  --color-success: #16a34a;
+  --color-primary: var(--app-primary);
+  --color-primary-hover: var(--app-primary-hover);
+  --color-primary-soft: var(--app-primary-soft);
+  --color-on-primary: var(--app-on-primary);
+  --color-accent: var(--app-accent);
+  --color-danger: var(--app-danger);
+  --color-danger-soft: var(--app-danger-soft);
+  --color-warning: var(--app-warning);
+  --color-success: var(--app-success);
+
+  --color-hover: var(--app-hover);
 
   --radius-card: 0.75rem;
 
   --animate-pulse-dot: pulse-dot 1.2s ease-in-out infinite;
+  --animate-typing-bounce: typing-bounce 1.1s ease-in-out infinite;
+  --animate-fade-slide-in: fade-slide-in 0.25s ease-out both;
+
   @keyframes pulse-dot {
     0%,
     100% {
@@ -41,10 +125,35 @@
       opacity: 1;
     }
   }
+  @keyframes typing-bounce {
+    0%,
+    60%,
+    100% {
+      transform: translateY(0);
+      opacity: 0.4;
+    }
+    30% {
+      transform: translateY(-4px);
+      opacity: 1;
+    }
+  }
+  @keyframes fade-slide-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 }
 
 html {
   color-scheme: dark;
+}
+html.light {
+  color-scheme: light;
 }
 
 body {
@@ -59,6 +168,244 @@ body {
  * Use sparingly — only for icons whose meaning is "direction of flow". */
 [dir='rtl'] .flip-rtl {
   transform: scaleX(-1);
+}
+
+/* Subtle, theme-aware scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--app-line) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--app-line);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- Markdown (assistant messages) ---------- */
+.chat-md {
+  direction: ltr;
+  text-align: start;
+  word-break: break-word;
+}
+.chat-md > :first-child {
+  margin-top: 0;
+}
+.chat-md > :last-child {
+  margin-bottom: 0;
+}
+.chat-md p,
+.chat-md ul,
+.chat-md ol,
+.chat-md blockquote,
+.chat-md table,
+.chat-md pre {
+  margin-block: 0.65em;
+}
+.chat-md h1,
+.chat-md h2,
+.chat-md h3,
+.chat-md h4 {
+  font-weight: 700;
+  line-height: 1.4;
+  margin-block: 1.1em 0.4em;
+}
+.chat-md h1 {
+  font-size: 1.35em;
+}
+.chat-md h2 {
+  font-size: 1.2em;
+}
+.chat-md h3 {
+  font-size: 1.08em;
+}
+.chat-md ul,
+.chat-md ol {
+  padding-inline-start: 1.5em;
+}
+.chat-md ul {
+  list-style: disc;
+}
+.chat-md ol {
+  list-style: decimal;
+}
+.chat-md li {
+  margin-block: 0.25em;
+}
+.chat-md li > p {
+  margin-block: 0.1em;
+}
+.chat-md a {
+  color: var(--app-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.chat-md a:hover {
+  color: var(--app-primary-hover);
+}
+.chat-md blockquote {
+  border-inline-start: 3px solid var(--app-line);
+  padding-inline-start: 0.9em;
+  color: var(--app-ink-muted);
+}
+.chat-md table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.925em;
+  display: block;
+  overflow-x: auto;
+}
+.chat-md th,
+.chat-md td {
+  border: 1px solid var(--app-line);
+  padding: 0.4em 0.75em;
+  text-align: start;
+}
+.chat-md th {
+  background: var(--app-elevated);
+  font-weight: 700;
+}
+.chat-md hr {
+  border: 0;
+  border-top: 1px solid var(--app-line);
+  margin-block: 1.25em;
+}
+.chat-md :not(pre) > code {
+  background: var(--app-inline-code-bg);
+  border: 1px solid var(--app-line);
+  border-radius: 6px;
+  padding: 0.12em 0.38em;
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+}
+
+/* fenced code blocks */
+.chat-md pre {
+  position: relative;
+  background: var(--app-code-bg);
+  border: 1px solid var(--app-line);
+  border-radius: 12px;
+  padding: 0.9em 1em;
+  overflow-x: auto;
+  direction: ltr;
+}
+.chat-md pre code {
+  font-family: var(--font-mono);
+  font-size: 0.825rem;
+  line-height: 1.65;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+.md-copy-btn {
+  position: absolute;
+  top: 0.45rem;
+  inset-inline-end: 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--app-line);
+  border-radius: 8px;
+  background: var(--app-elevated);
+  color: var(--app-ink-muted);
+  font-size: 0.7rem;
+  padding: 0.22rem 0.55rem;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
+}
+.chat-md pre:hover .md-copy-btn {
+  opacity: 1;
+}
+.md-copy-btn:hover {
+  color: var(--app-ink);
+  background: var(--app-line);
+}
+.md-lang-chip {
+  position: absolute;
+  top: 0.45rem;
+  inset-inline-start: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--app-ink-muted);
+  opacity: 0.75;
+  pointer-events: none;
+}
+.chat-md pre:hover .md-lang-chip {
+  opacity: 0;
+}
+
+/* highlight.js token colors (theme-aware via CSS vars) */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-doctag {
+  color: var(--hl-keyword);
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition {
+  color: var(--hl-string);
+}
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--hl-number);
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--hl-comment);
+  font-style: italic;
+}
+.hljs-function .hljs-keyword,
+.hljs-built_in {
+  color: var(--hl-function);
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-section {
+  color: var(--hl-function);
+}
+.hljs-title.class_,
+.hljs-type,
+.hljs-selector-class,
+.hljs-selector-id {
+  color: var(--hl-type);
+}
+.hljs-tag,
+.hljs-name,
+.hljs-deletion {
+  color: var(--hl-tag);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-property {
+  color: var(--hl-attr);
+}
+.hljs-meta,
+.hljs-link {
+  color: var(--hl-meta);
+}
+.hljs-variable,
+.hljs-template-variable,
+.hljs-params {
+  color: var(--hl-variable);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 700;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,0 +1,262 @@
+<script setup lang="ts">
+// نوار کنایی مدرن: گفتگوی جدید + آخرین گفتگوها + تاریخچه/حالت + کاربر.
+// دسکتاپ: جمع‌شونده به ریل آیکون (localStorage)؛ موبایل: کشوی روی‌صفحه‌ای.
+import { computed, onMounted, ref, watch } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
+import {
+  PhChatCircleText,
+  PhPlus,
+  PhClockCounterClockwise,
+  PhList,
+  PhSignOut,
+  PhSun,
+  PhMoon,
+  PhArrowSquareOut,
+  PhChatsCircle,
+} from '@phosphor-icons/vue'
+import { useAuthStore } from '@/stores/auth'
+import { useTheme } from '@/composables/useTheme'
+import { requestNewChat } from '@/composables/useNewChatSignal'
+import { listConversations } from '@/api/conversations'
+import { relativeTime } from '@/utils/time'
+import type { ConversationSummary } from '@/types/api'
+
+const emit = defineEmits<{ navigate: [] }>()
+const mobileOpen = defineModel<boolean>('mobileOpen', { required: true })
+
+const auth = useAuthStore()
+const theme = useTheme()
+const route = useRoute()
+const router = useRouter()
+
+const collapsed = ref(localStorage.getItem('mmcb.sidebar') === 'collapsed')
+const items = ref<ConversationSummary[]>([])
+const loading = ref(false)
+
+const rail = computed(() => collapsed.value && !mobileOpen.value)
+const activeId = computed(() =>
+  route.name === 'chat-conversation' ? String(route.params.id ?? '') : null,
+)
+
+const initials = computed(() => auth.user?.email.slice(0, 2).toUpperCase() ?? '··')
+
+async function refresh(): Promise<void> {
+  loading.value = true
+  try {
+    const page = await listConversations({ limit: 25 })
+    items.value = page.items
+  } catch {
+    /* sidebar is non-critical; keep previous list */
+  } finally {
+    loading.value = false
+  }
+}
+
+function toggleCollapse(): void {
+  collapsed.value = !collapsed.value
+  try {
+    localStorage.setItem('mmcb.sidebar', collapsed.value ? 'collapsed' : 'expanded')
+  } catch {
+    /* ignore */
+  }
+}
+
+function closeMobile(): void {
+  mobileOpen.value = false
+}
+
+function go(id: string): void {
+  closeMobile()
+  emit('navigate')
+  void router.push({ name: 'chat-conversation', params: { id } })
+}
+
+async function onNewChat(): Promise<void> {
+  closeMobile()
+  emit('navigate')
+  if (route.name === 'chat-conversation' || route.name === 'conversation') {
+    await router.push({ name: 'chat' })
+  } else {
+    requestNewChat()
+  }
+}
+
+async function onSignOut(): Promise<void> {
+  await auth.signOut()
+  closeMobile()
+  await router.push('/login')
+}
+
+onMounted(refresh)
+
+// بعد از بازگشت به /chat یا تغییر گفتگو، لیست را تازه نگه دار.
+watch(
+  () => [route.name, activeId.value],
+  () => {
+    void refresh()
+  },
+)
+</script>
+
+<template>
+  <!-- backdrop موبایل -->
+  <div
+    v-if="mobileOpen"
+    class="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm lg:hidden"
+    @click="closeMobile"
+    aria-hidden="true"
+  />
+
+  <aside
+    class="fixed inset-y-0 start-0 z-40 flex flex-col border-e border-line bg-surface transition-[width,transform] duration-300 ease-out lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0!"
+    :class="[
+      rail ? 'w-16' : 'w-72',
+      mobileOpen ? 'translate-x-0' : 'ltr:-translate-x-full rtl:translate-x-full',
+    ]"
+    :aria-label="'نوار کنایی'"
+  >
+    <!-- هدر: لوگو + جمع‌کردن -->
+    <div class="flex h-14 shrink-0 items-center gap-2 px-3">
+      <RouterLink to="/chat" class="flex min-w-0 items-center gap-2" @click="closeMobile">
+        <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft">
+          <PhChatCircleText class="size-4.5 text-primary" aria-hidden="true" />
+        </span>
+        <span v-if="!rail" class="truncate text-sm font-semibold text-ink">چت‌بات چند مدله</span>
+      </RouterLink>
+      <!-- جمع‌کردن (حالت باز) / بازکردن (حالت ریل) -->
+      <button
+        type="button"
+        class="ms-auto hidden size-8 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink lg:inline-flex"
+        :aria-label="rail ? 'باز کردن نوار کناری' : 'جمع کردن نوار کناری'"
+        @click="toggleCollapse"
+      >
+        <PhList class="size-4" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        class="ms-auto size-8 inline-flex cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink lg:hidden"
+        aria-label="بستن منو"
+        @click="closeMobile"
+      >
+        <span class="text-lg leading-none" aria-hidden="true">×</span>
+      </button>
+    </div>
+
+    <!-- گفتگوی جدید -->
+    <div class="px-3">
+      <button
+        type="button"
+        class="flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary text-sm font-medium text-on-primary shadow-sm transition-colors hover:bg-primary-hover"
+        :title="'گفتگوی جدید'"
+        @click="onNewChat"
+      >
+        <PhPlus class="size-4 shrink-0" aria-hidden="true" />
+        <span v-if="!rail">گفتگوی جدید</span>
+      </button>
+    </div>
+
+    <!-- آخرین گفتگوها -->
+    <nav class="mt-4 min-h-0 flex-1 overflow-y-auto px-2 pb-2" :aria-label="'آخرین گفتگوها'">
+      <p v-if="!rail" class="px-2 pb-1 text-[11px] font-medium uppercase tracking-wider text-ink-muted/70">
+        آخرین گفتگوها
+      </p>
+      <div v-if="loading && items.length === 0" class="flex flex-col gap-1.5 px-1">
+        <div v-for="i in 5" :key="i" class="h-9 animate-pulse rounded-lg bg-elevated" :class="{ 'ms-4': rail }" />
+      </div>
+      <p v-else-if="items.length === 0" class="px-3 py-6 text-center text-xs text-ink-muted/70">
+        {{ rail ? '' : 'هنوز گفتگویی ندارید.' }}
+      </p>
+      <ul v-else class="flex flex-col gap-0.5">
+        <li v-for="c in items" :key="c.id">
+          <div
+            class="group relative flex items-center"
+            :class="{ 'justify-center': rail }"
+          >
+            <button
+              type="button"
+              class="flex h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg px-2 text-start text-[13px] transition-colors"
+              :class="
+                activeId === c.id
+                  ? 'bg-primary-soft font-medium text-primary'
+                  : 'text-ink-muted hover:bg-hover hover:text-ink'
+              "
+              :style="rail ? 'flex:0 0 auto' : ''"
+              :title="c.title?.trim() || 'بدون عنوان'"
+              @click="go(c.id)"
+            >
+              <PhChatsCircle class="size-4 shrink-0" aria-hidden="true" />
+              <template v-if="!rail">
+                <span class="min-w-0 flex-1 truncate">{{ c.title?.trim() || 'بدون عنوان' }}</span>
+                <span class="shrink-0 text-[10px] text-ink-muted/60">{{ relativeTime(c.updatedAt) }}</span>
+              </template>
+            </button>
+            <RouterLink
+              v-if="!rail"
+              :to="{ name: 'conversation', params: { id: c.id } }"
+              class="me-1 hidden size-7 shrink-0 items-center justify-center rounded-md text-ink-muted/70 transition-colors hover:bg-hover hover:text-ink group-hover:inline-flex"
+              aria-label="جزئیات گفتگو"
+              @click="closeMobile"
+            >
+              <PhArrowSquareOut class="size-3.5" aria-hidden="true" />
+            </RouterLink>
+          </div>
+        </li>
+      </ul>
+    </nav>
+
+    <!-- فوتر: تاریخچه/حالت، موضوع، کاربر -->
+    <div class="shrink-0 border-t border-line/70 p-2">
+      <RouterLink
+        v-if="auth.isAdmin"
+        to="/admin/provider"
+        class="flex h-9 cursor-pointer items-center justify-center gap-2 rounded-lg text-[13px] text-ink-muted transition-colors hover:bg-hover hover:text-ink lg:justify-start"
+        @click="closeMobile"
+      >
+        <span class="min-w-9 flex justify-center"><PhList class="size-4" aria-hidden="true" /></span>
+        <span v-if="!rail">حالت مدیر</span>
+      </RouterLink>
+      <RouterLink
+        to="/chat/history"
+        class="flex h-9 cursor-pointer items-center gap-2 rounded-lg px-2 text-[13px] text-ink-muted transition-colors hover:bg-hover hover:text-ink"
+        :class="{ 'justify-center px-0': rail }"
+        @click="closeMobile"
+      >
+        <PhClockCounterClockwise class="size-4 shrink-0" aria-hidden="true" />
+        <span v-if="!rail">تاریخچه</span>
+      </RouterLink>
+
+      <div class="mt-1 flex items-center gap-1" :class="{ 'flex-col': rail }">
+        <button
+          type="button"
+          class="flex h-9 flex-1 cursor-pointer items-center justify-center gap-2 rounded-lg text-[13px] text-ink-muted transition-colors hover:bg-hover hover:text-ink"
+          :aria-label="theme.theme.value === 'light' ? 'حالت تاریک' : 'حالت روشن'"
+          @click="theme.toggleTheme()"
+        >
+          <PhMoon v-if="theme.theme.value === 'light'" class="size-4" aria-hidden="true" />
+          <PhSun v-else class="size-4" aria-hidden="true" />
+          <span v-if="!rail">{{ theme.theme.value === 'light' ? 'تاریک' : 'روشن' }}</span>
+        </button>
+        <button
+          v-if="!rail"
+          type="button"
+          class="flex size-9 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-danger-soft hover:text-danger"
+          aria-label="خروج از حساب"
+          @click="onSignOut"
+        >
+          <PhSignOut class="flip-rtl size-4" aria-hidden="true" />
+        </button>
+      </div>
+
+      <div
+        class="mt-2 flex items-center gap-2 rounded-lg px-1.5 py-1.5"
+        :class="{ 'justify-center px-0': rail }"
+        :title="auth.user?.email"
+      >
+        <span class="flex size-7 shrink-0 items-center justify-center rounded-full bg-elevated text-[10px] font-bold text-ink-muted">
+          {{ initials }}
+        </span>
+        <span v-if="!rail" class="min-w-0 flex-1 truncate text-xs text-ink-muted" dir="ltr">{{ auth.user?.email }}</span>
+      </div>
+    </div>
+  </aside>
+</template>

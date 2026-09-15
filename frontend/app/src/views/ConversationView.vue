@@ -64,7 +64,7 @@ function onContinue(): void {
 </script>
 
 <template>
-  <section class="flex flex-1 flex-col gap-4 py-4">
+  <section class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto py-4">
     <div v-if="loading" class="flex flex-col gap-3">
       <div class="h-12 animate-pulse rounded-lg bg-surface" />
       <div class="h-64 animate-pulse rounded-lg bg-surface" />
@@ -83,7 +83,7 @@ function onContinue(): void {
     </template>
 
     <template v-else-if="conversation">
-      <header class="flex flex-wrap items-center gap-3">
+      <header class="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 shadow-sm">
         <div class="min-w-0 flex-1">
           <p class="truncate text-sm font-semibold">
             {{ conversation.title?.trim() || 'بدون عنوان' }}
