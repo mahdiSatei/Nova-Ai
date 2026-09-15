@@ -148,7 +148,7 @@ AppConfig (singleton, 1 row)
 
 - `User` delete → cascades `RefreshToken`, `Conversation` (and its `Message`).
 - `Conversation` delete → cascades `Message`.
-- `Model` delete → refused if referenced by `AppConfig.defaultModelId` (409). Existing `Conversation.modelId` references become historical; new messages on those conversations fail with "model no longer available".
+- `Model` delete → refused with 409 while referenced anywhere (`AppConfig.defaultModelId`, `Conversation.modelId`, or `User.lastSelectedModelId`). Passing `?migrateTo=<replacementId>` first re-points every reference to the replacement model inside one transaction, verifies zero remaining references, and only then deletes (200 with migration counts). References are migrated, never destroyed.
 
 ---
 
@@ -202,7 +202,7 @@ Conventions:
 | GET | `/v1/admin/models` | List all models, including disabled. | admin | n/a | `200` `{ items: ModelAdmin[] }` | `401`, `403` | Yes | n/a |
 | POST | `/v1/admin/models` | Create a model. | admin | `ModelUpsertRequest` | `201` `ModelAdmin` | `400`, `401`, `403`, `409` (displayName in use) | No (409 on displayName clash) | n/a |
 | PATCH | `/v1/admin/models/:id` | Update `displayName`, `actualName`, and/or `enabled`. | admin | `ModelUpsertRequest` (partial) | `200` `ModelAdmin` | `400`, `401`, `403`, `404` | Yes | n/a |
-| DELETE | `/v1/admin/models/:id` | Delete a model. | admin | n/a | `204` | `401`, `403`, `404`, `409` (still default, or referenced by conversations) | Yes | n/a |
+| DELETE | `/v1/admin/models/:id` | Delete a model. Optional `?migrateTo=<replacementId>` switches every reference (conversations, sticky picks, app default) to the replacement first, verifies none remain, then deletes. | admin | n/a | `204` (plain), `200` `{ deleted, migrated: { conversations, users, defaultSwitched } }` (with `migrateTo`) | `401`, `403`, `404`, `409` (`model_in_use` — counts in message; `replacement_not_available` for same-target), `422` (`replacement_not_available` — missing/disabled target) | Yes | n/a |
 
 ### 3.6 Admin — Config (`/v1/admin`)
 
@@ -275,7 +275,8 @@ Stable error codes used in MVP:
 | `not_found` | 404 | any | Resource doesn't exist OR caller can't see it. |
 | `email_taken` | 409 | register | Email already registered. |
 | `display_name_taken` | 409 | create model | `displayName` already used by another model. |
-| `model_in_use` | 409 | delete model | Model is referenced by AppConfig or by a conversation. |
+| `model_in_use` | 409 | delete model | Model is still referenced (app default, conversations, and/or user sticky picks); the message reports the counts. Delete with `migrateTo` to re-point first. |
+| `replacement_not_available` | 409 (same-target) / 422 (missing or disabled target) | delete model with `migrateTo` | The replacement model must exist, be enabled, and differ from the deleted model. |
 | `validation_failed` | 400 | any DTO-bound route | Body or query failed validation. `details` lists field errors. |
 | `provider_not_configured` | 409 | chat stream | Admin has not saved central provider config. |
 | `no_model_available` | 422 | chat stream | No explicit `modelId`, no sticky choice, no admin default. |

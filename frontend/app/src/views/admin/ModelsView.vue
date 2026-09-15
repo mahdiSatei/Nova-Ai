@@ -1,22 +1,28 @@
 <script setup lang="ts">
 // کاتالوگ مدل‌ها: لیست، افزودن، ویرایش، فعال/غیرفعال، حذف.
-// طبق BR-008 حذف در صورت ارجاع (پیش‌فرض یا گفتگو) با 409 رد می‌شود.
+// طبق BR-008 حذف در صورت ارجاع (پیش‌فرض یا گفتگو) با 409 رد می‌شود؛
+// در این حالت دیالوگ «مهاجرت و حذف» باز می‌شود تا ارجاع‌ها اول به یک
+// مدل جایگزین فعال منتقل شوند و سپس مدل قدیمی حذف شود (بدون Force Delete).
 // طبق FR-034 غیرفعال‌سازی مدل پیش‌فرض، پیش‌فرض را پاک می‌کند.
 import { computed, ref } from 'vue'
-import { PhListBullets, PhPlus } from '@phosphor-icons/vue'
+import { PhCheckCircle, PhListBullets, PhPlus, PhX } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import ModelFormModal from '@/components/admin/ModelFormModal.vue'
+import ModelMigrateModal from '@/components/admin/ModelMigrateModal.vue'
 import ModelTable from '@/components/admin/ModelTable.vue'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
-import { listAdminModels, updateModel, deleteModel, getConfig } from '@/api/admin'
+import { deleteModel, getConfig, listAdminModels, updateModel } from '@/api/admin'
+import type { DeleteModelMigrationResult } from '@/api/admin'
 import { usePagination } from '@/composables/usePagination'
+import { useModelsStore } from '@/stores/models'
 import type { ModelAdmin } from '@/types/api'
 
 const page = usePagination<ModelAdmin>(listAdminModels, { limit: 50 })
+const publicModels = useModelsStore()
 
 const formOpen = ref(false)
 const editing = ref<ModelAdmin | null>(null)
@@ -25,7 +31,14 @@ const deleteBusy = ref(false)
 const actionError = ref<ApiError | null>(null)
 const defaultModelId = ref<string | null>(null)
 
+const migrateFor = ref<ModelAdmin | null>(null)
+const migrateBusy = ref(false)
+const lastMigrated = ref<DeleteModelMigrationResult | null>(null)
+
 const items = computed(() => page.items.value)
+const migrateCandidates = computed(
+  () => items.value.filter((m) => m.enabled && m.id !== migrateFor.value?.id),
+)
 
 async function refreshDefaultId(): Promise<void> {
   try {
@@ -80,16 +93,41 @@ async function onConfirmDelete(): Promise<void> {
     await deleteModel(m.id)
     page.remove((it) => it.id === m.id)
     toDelete.value = null
+    lastMigrated.value = null
+    void publicModels.load(true)
   } catch (err) {
     if (err instanceof ApiError) {
-      if (err.status === 409) {
-        actionError.value = new ApiError(409, { code: 'model_in_use', message: 'این مدل توسط گفتگوها یا پیش‌فرض سیستم ارجاع داده می‌شود و قابل حذف نیست.' }, '')
+      if (err.status === 409 || err.status === 422) {
+        // مدل در حال استفاده است (model_in_use / replacement_* ) → به‌جای
+        // نمایش خطای مبهم، مسیر امن «انتخاب مدل جایگزین → انتقال ارجاع‌ها
+        // → حذف» را باز می‌کنیم.
+        toDelete.value = null
+        migrateFor.value = m
       } else {
         actionError.value = err
       }
     }
   } finally {
     deleteBusy.value = false
+  }
+}
+
+async function onConfirmMigrate(replacementId: string): Promise<void> {
+  const m = migrateFor.value
+  if (!m || !replacementId) return
+  migrateBusy.value = true
+  actionError.value = null
+  try {
+    const result = await deleteModel(m.id, replacementId)
+    if (result) lastMigrated.value = result
+    await page.refresh()
+    await refreshDefaultId()
+    void publicModels.load(true)
+    migrateFor.value = null
+  } catch (err) {
+    if (err instanceof ApiError) actionError.value = err
+  } finally {
+    migrateBusy.value = false
   }
 }
 </script>
@@ -106,6 +144,28 @@ async function onConfirmDelete(): Promise<void> {
         </BaseButton>
       </div>
     </header>
+
+    <div
+      v-if="lastMigrated"
+      class="mb-3 flex items-start gap-3 rounded-lg border border-success/40 bg-success/10 px-4 py-3"
+    >
+      <PhCheckCircle class="mt-0.5 size-5 shrink-0 text-success" aria-hidden="true" />
+      <p class="flex-1 text-sm text-ink">
+        مدل حذف شد؛
+        <span dir="ltr">{{ lastMigrated.migrated.conversations }}</span> گفتگو و
+        <span dir="ltr">{{ lastMigrated.migrated.users }}</span> انتخاب کاربر به مدل جایگزین
+        منتقل شد<span v-if="lastMigrated.migrated.defaultSwitched"> و مدل پیش‌فرض سیستم هم
+        به‌روزرسانی شد</span>.
+      </p>
+      <button
+        type="button"
+        class="cursor-pointer rounded-md p-1 text-ink-muted transition-colors hover:bg-hover hover:text-ink"
+        aria-label="بستن پیام"
+        @click="lastMigrated = null"
+      >
+        <PhX class="size-4" aria-hidden="true" />
+      </button>
+    </div>
 
     <ErrorBanner
       v-if="actionError"
@@ -168,6 +228,15 @@ async function onConfirmDelete(): Promise<void> {
       :busy="deleteBusy"
       @update:open="(v: boolean) => { if (!v) toDelete = null }"
       @confirm="onConfirmDelete"
+    />
+
+    <ModelMigrateModal
+      :open="migrateFor !== null"
+      :target="migrateFor"
+      :candidates="migrateCandidates"
+      :busy="migrateBusy"
+      @update:open="(v: boolean) => { if (!v && !migrateBusy) migrateFor = null }"
+      @confirm="onConfirmMigrate"
     />
   </section>
 </template>

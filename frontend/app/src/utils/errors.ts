@@ -24,6 +24,7 @@ const MESSAGES: Record<string, string> = {
   // Models / chat
   model_unavailable: 'این مدل در دسترس نیست.',
   model_in_use: 'این مدل در حال استفاده است و قابل حذف نیست.',
+  replacement_not_available: 'مدل جایگزین معتبر نیست؛ باید یک مدل فعالِ متفاوت باشد.',
   no_default_model: 'مدل پیش‌فرضی انتخاب نشده است.',
   provider_not_configured: 'ارائه‌دهنده پیکربندی نشده است.',
   provider_unreachable: 'ارائه‌دهنده در دسترس نیست یا کلید API نامعتبر است.',

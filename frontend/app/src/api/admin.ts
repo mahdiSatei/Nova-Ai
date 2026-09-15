@@ -30,8 +30,23 @@ export function updateModel(id: string, body: ModelUpsertRequest): Promise<Model
   return request<ModelAdmin>(`/v1/admin/models/${id}`, { method: 'PATCH', body })
 }
 
-export function deleteModel(id: string): Promise<void> {
-  return request<void>(`/v1/admin/models/${id}`, { method: 'DELETE' })
+export interface DeleteModelMigrationResult {
+  deleted: true
+  migrated: {
+    conversations: number
+    users: number
+    defaultSwitched: boolean
+  }
+}
+
+export function deleteModel(
+  id: string,
+  migrateTo?: string | null,
+): Promise<DeleteModelMigrationResult | undefined> {
+  return request<DeleteModelMigrationResult | undefined>(`/v1/admin/models/${id}`, {
+    method: 'DELETE',
+    query: migrateTo ? { migrateTo } : undefined,
+  })
 }
 
 export function getConfig(): Promise<AppConfigPublic> {
