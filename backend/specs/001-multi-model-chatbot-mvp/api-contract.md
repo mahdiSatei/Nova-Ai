@@ -1,8 +1,8 @@
 # API Contract: Multi-Model Chatbot (MVP)
 
 **Version**: 1.0.0 (MVP)
-**Source artifacts**: `spec.md`, `plan.md`, `data-model.md`, `contracts/openapi.yaml`, `research.md`
-**Status**: Active contract of record. The machine-readable companion is [`contracts/openapi.yaml`](contracts/openapi.yaml); this document is the human-readable contract that frontend, backend, and tests MUST agree on.
+**Source artifacts**: `spec.md`, `plan.md`, `data-model.md`, `openapi-3.1.yaml`, `research.md`
+**Status**: Active contract of record. The machine-readable companion is [`openapi-3.1.yaml`](openapi-3.1.yaml); this document is the human-readable contract that frontend, backend, and tests MUST agree on.
 
 This document is intentionally one file. It is the single place to read when asking "what does the API actually do?" — endpoints, shapes, naming, error format, versioning, date format, and the agreed-upon names of things.
 
@@ -154,7 +154,7 @@ AppConfig (singleton, 1 row)
 
 ## 3. Endpoint List (the "verbs")
 
-Every endpoint below is in `contracts/openapi.yaml`. This table is the
+Every endpoint below is in `openapi-3.1.yaml`. This table is the
 human-readable contract — wire the frontend to this, not to the YAML.
 
 Conventions:
@@ -491,7 +491,7 @@ like `nginx`/`cloudflare`) so as not to leak the application framework.
 
 ## 6. Cross-references
 
-- Authoritative machine-readable contract: [`contracts/openapi.yaml`](contracts/openapi.yaml)
+- Authoritative machine-readable contract: [`openapi-3.1.yaml`](openapi-3.1.yaml)
 - Field-level data model: [`data-model.md`](data-model.md)
 - Stack and architecture decisions: [`plan.md`](plan.md), [`research.md`](research.md)
 - User-facing behavior: [`spec.md`](spec.md)

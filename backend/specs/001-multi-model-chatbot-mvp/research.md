@@ -202,7 +202,7 @@ credential is stored as `{ ciphertext, iv, authTag }` in a single column.
 
 **Decision**: `@nestjs/swagger` is configured to emit an OpenAPI document
 at bootstrap. The document is written to
-`backend/contracts/openapi.yaml` (a post-build step in `package.json`'s
+`backend/specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml` (a post-build step in `package.json`'s
 `build` script). The committed YAML is the contract of record.
 
 **Rationale**:

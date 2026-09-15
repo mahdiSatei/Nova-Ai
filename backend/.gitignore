@@ -83,10 +83,10 @@ $RECYCLE.BIN/
 System Volume Information/
 
 # ── NestJS / framework specific ─────────────────────────────────────────────
-# Auto-generated OpenAPI export (regenerate via `npm run openapi:export`)
-# Comment out the next line if your team prefers to commit the generated
-# YAML and review diffs in PRs instead.
-contracts/openapi.generated.yaml
+# The OpenAPI export script (`npm run openapi:export`) writes directly to
+# the source-of-truth artifact at
+# `specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml`, which is
+# committed. There is no longer a separate generated file to ignore.
 
 # ── Tooling caches ──────────────────────────────────────────────────────────
 .eslintcache

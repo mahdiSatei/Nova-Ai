@@ -28,7 +28,7 @@ Current MVP stack (recorded under "Technical Choices" in
 | Auth | JWT (HS256) access + refresh, DB-tracked refresh tokens |
 | Logging | `nestjs-pino` → JSON files in `backend/logs/` via `pino-roll` |
 | Validation | `class-validator` with strict whitelist |
-| API contract | OpenAPI 3.0.3 at `specs/001-multi-model-chatbot-mvp/contracts/openapi.yaml` |
+| API contract | OpenAPI 3.1 at `specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml` (source of truth) |
 
 ---
 
@@ -113,7 +113,7 @@ violation unless explicitly approved and recorded in the artifact.
 2. `/speckit-specify` — write `spec.md` for the feature.
 3. `/speckit-clarify` — resolve underspecified areas.
 4. `/speckit-plan` — produce `plan.md`, `research.md`, `data-model.md`,
-   `contracts/openapi.yaml`, `quickstart.md`.
+   `specs/.../contracts/openapi-3.1.yaml`, `quickstart.md`.
 5. `/speckit-tasks` — produce dependency-ordered `tasks.md`.
 6. `/speckit-implement` — execute tasks in order.
 7. `/speckit-analyze` — cross-artifact consistency check.
@@ -178,7 +178,7 @@ Either amend the spec or add a follow-up task.
 | Active feature spec | `specs/001-multi-model-chatbot-mvp/spec.md` |
 | Implementation plan | `specs/001-multi-model-chatbot-mvp/plan.md` |
 | Data model | `specs/001-multi-model-chatbot-mvp/data-model.md` |
-| OpenAPI contract | `specs/001-multi-model-chatbot-mvp/contracts/openapi.yaml` |
+| OpenAPI contract (source of truth) | `specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml` |
 | Human-readable API contract | `specs/001-multi-model-chatbot-mvp/api-contract.md` |
 | Tasks (decomposition) | `specs/001-multi-model-chatbot-mvp/tasks.md` |
 | Quickstart validation | `specs/001-multi-model-chatbot-mvp/quickstart.md` |

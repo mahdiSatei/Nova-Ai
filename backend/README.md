@@ -58,7 +58,7 @@ The service listens on `http://localhost:3000`.
 | `npm run migration:generate` | Generate a new TypeORM migration |
 | `npm run migration:run` | Apply pending migrations |
 | `npm run migration:revert` | Revert last migration |
-| `npm run openapi:export` | Regenerate `contracts/openapi.yaml` from live routes |
+| `npm run openapi:export` | Regenerate `specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml` from live routes |
 | `npm run seed:admin` | Seed an admin user (see below) |
 
 ## Seeding an Admin User
@@ -75,7 +75,7 @@ Log in at `POST /v1/auth/login` with these credentials to access admin endpoints
 
 Swagger UI is served at `http://localhost:3000/api/docs` when the server is running.
 
-The machine-readable OpenAPI contract is at [`specs/001-multi-model-chatbot-mvp/contracts/openapi.yaml`](../../specs/001-multi-model-chatbot-mvp/contracts/openapi.yaml) and is regenerated via `npm run openapi:export`.
+The machine-readable OpenAPI contract is at [`specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml`](../../specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml) (the canonical source of truth) and is regenerated via `npm run openapi:export`.
 
 ## Running Tests
 

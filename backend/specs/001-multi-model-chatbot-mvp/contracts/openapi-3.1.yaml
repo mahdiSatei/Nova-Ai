@@ -441,10 +441,29 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [Admin]
-      summary: Delete a model.
+      summary: Delete a model (optionally re-point references to a replacement).
       description: |
-        Refused with 409 if the model is referenced by `AppConfig.defaultModelId`
-        or by any existing conversation.
+        Without `migrateTo`: refused with 409 if the model is referenced by
+        `AppConfig.defaultModelId` or by any existing conversation.
+
+        With `migrateTo`: every reference to this model (conversations,
+        user sticky picks, app default) is re-pointed to the replacement
+        inside a single transaction before deletion. The replacement MUST
+        exist and be enabled; otherwise the request is rejected and nothing
+        is mutated.
+      parameters:
+        - name: migrateTo
+          in: query
+          required: false
+          description: |
+            Optional replacement model id. When present, all references to
+            the deleted model (conversations, user sticky picks, app default)
+            are re-pointed to it inside one verified transaction before
+            deletion.
+          schema:
+            type: string
+            format: uuid
+          example: 11111111-1111-1111-1111-111111111111
       responses:
         '204':
           description: Deleted.
@@ -452,6 +471,11 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: "`migrateTo` is invalid (unknown id, disabled model, or self-reference)."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /v1/admin/config:
     get:

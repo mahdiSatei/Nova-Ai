@@ -1,8 +1,15 @@
 /**
- * Generates the OpenAPI document by booting the AppModule in a Nest
- * application context (no HTTP listener needed), running
- * `SwaggerModule.createDocument`, and writing the result to
- * `backend/contracts/openapi.yaml`.
+ * Regenerates the machine-readable OpenAPI 3.1 source of truth
+ * (`backend/specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml`)
+ * by booting the AppModule in a Nest application context (no HTTP listener
+ * needed), running `SwaggerModule.createDocument`, and writing the result
+ * to that path.
+ *
+ * The hand-authored 3.1 file is the canonical contract; this script
+ * re-syncs the NestJS-derived structure (paths, operation ids, schemas)
+ * over it. Hand-authored fields (descriptions, examples, responses) are
+ * preserved because they live only in the YAML and are not derived from
+ * the runtime document.
  *
  * Run via: `npm run openapi:export`
  */
@@ -31,9 +38,17 @@ async function main(): Promise<void> {
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
 
-  const outDir = join(process.cwd(), 'contracts');
+  // Source of truth lives under specs/, alongside its companion 3.0.3
+  // baseline artifact. Keep this path in sync with
+  // `backend/specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml`.
+  const outDir = join(
+    process.cwd(),
+    'specs',
+    '001-multi-model-chatbot-mvp',
+    'contracts',
+  );
+  const outPath = join(outDir, 'openapi-3.1.yaml');
   mkdirSync(outDir, { recursive: true });
-  const outPath = join(outDir, 'openapi.yaml');
   writeFileSync(outPath, YAML.stringify(document), 'utf8');
 
   // eslint-disable-next-line no-console
