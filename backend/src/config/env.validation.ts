@@ -48,6 +48,27 @@ export class EnvironmentVariables {
 
   @IsString()
   @IsOptional()
+  POSTGRES_HOST = 'localhost';
+
+  @Type(() => Number)
+  @IsNumber()
+  @IsOptional()
+  POSTGRES_PORT = 5432;
+
+  @IsString()
+  @IsOptional()
+  POSTGRES_USER = 'postgres';
+
+  @IsString()
+  @IsOptional()
+  POSTGRES_PASSWORD = '';
+
+  @IsString()
+  @IsOptional()
+  POSTGRES_DB = 'chatbot_db';
+
+  @IsString()
+  @IsOptional()
   LOG_LEVEL = 'info';
 
   @IsString()

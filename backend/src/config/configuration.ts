@@ -24,6 +24,13 @@ export interface AppConfig {
     driver: 'sqlite' | 'postgres';
     sqliteFile: string;
     postgresUrl: string;
+    postgres: {
+      host: string;
+      port: number;
+      user: string;
+      password: string;
+      db: string;
+    };
   };
   log: {
     level: string;
@@ -47,6 +54,13 @@ export default (): AppConfig => ({
     driver: (process.env.DB_DRIVER as AppConfig['db']['driver']) ?? 'sqlite',
     sqliteFile: process.env.SQLITE_FILE ?? './data/app.sqlite',
     postgresUrl: process.env.POSTGRES_URL ?? '',
+    postgres: {
+      host: process.env.POSTGRES_HOST ?? 'localhost',
+      port: Number(process.env.POSTGRES_PORT ?? 5432),
+      user: process.env.POSTGRES_USER ?? 'postgres',
+      password: process.env.POSTGRES_PASSWORD ?? '',
+      db: process.env.POSTGRES_DB ?? 'chatbot_db',
+    },
   },
   log: {
     level: process.env.LOG_LEVEL ?? 'info',
