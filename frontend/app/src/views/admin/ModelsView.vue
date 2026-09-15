@@ -33,6 +33,7 @@ const defaultModelId = ref<string | null>(null)
 
 const migrateFor = ref<ModelAdmin | null>(null)
 const migrateBusy = ref(false)
+const migrateError = ref<ApiError | null>(null)
 const lastMigrated = ref<DeleteModelMigrationResult | null>(null)
 
 const items = computed(() => page.items.value)
@@ -97,11 +98,12 @@ async function onConfirmDelete(): Promise<void> {
     void publicModels.load(true)
   } catch (err) {
     if (err instanceof ApiError) {
-      if (err.status === 409 || err.status === 422) {
-        // مدل در حال استفاده است (model_in_use / replacement_* ) → به‌جای
-        // نمایش خطای مبهم، مسیر امن «انتخاب مدل جایگزین → انتقال ارجاع‌ها
-        // → حذف» را باز می‌کنیم.
+      if (err.status === 409) {
+        // مدل در حال استفاده است (model_in_use) → به‌جای نمایش خطای مبهم،
+        // مسیر امن «انتخاب مدل جایگزین → انتقال ارجاع‌ها → حذف» را باز
+        // می‌کنیم.
         toDelete.value = null
+        migrateError.value = null
         migrateFor.value = m
       } else {
         actionError.value = err
@@ -116,7 +118,7 @@ async function onConfirmMigrate(replacementId: string): Promise<void> {
   const m = migrateFor.value
   if (!m || !replacementId) return
   migrateBusy.value = true
-  actionError.value = null
+  migrateError.value = null
   try {
     const result = await deleteModel(m.id, replacementId)
     if (result) lastMigrated.value = result
@@ -125,7 +127,8 @@ async function onConfirmMigrate(replacementId: string): Promise<void> {
     void publicModels.load(true)
     migrateFor.value = null
   } catch (err) {
-    if (err instanceof ApiError) actionError.value = err
+    // خطا داخل خود دیالوگ نمایش داده می‌شود تا پشت overlay پنهان نماند.
+    if (err instanceof ApiError) migrateError.value = err
   } finally {
     migrateBusy.value = false
   }
@@ -235,6 +238,7 @@ async function onConfirmMigrate(replacementId: string): Promise<void> {
       :target="migrateFor"
       :candidates="migrateCandidates"
       :busy="migrateBusy"
+      :error="migrateError"
       @update:open="(v: boolean) => { if (!v && !migrateBusy) migrateFor = null }"
       @confirm="onConfirmMigrate"
     />

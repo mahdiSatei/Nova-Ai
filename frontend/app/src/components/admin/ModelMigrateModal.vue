@@ -7,6 +7,8 @@ import { computed, ref, watch } from 'vue'
 import { PhArrowSquareOut, PhWarningCircle } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
+import type { ApiError } from '@/api/http'
+import { apiErrorMessage } from '@/utils/errors'
 import type { ModelAdmin } from '@/types/api'
 
 const props = defineProps<{
@@ -14,6 +16,8 @@ const props = defineProps<{
   target: ModelAdmin | null
   candidates: ModelAdmin[]
   busy?: boolean
+  /** خطای تلاشِ قبلیِ «انتقال و حذف» — داخل خود دیالوگ نمایش داده می‌شود. */
+  error?: ApiError | null
 }>()
 
 const emit = defineEmits<{
@@ -62,6 +66,15 @@ function close(): void {
               </p>
             </div>
           </header>
+
+          <ErrorBanner
+            v-if="error"
+            :message="apiErrorMessage(error)"
+            :code="error.code"
+            :request-id="error.requestId"
+            :show-code="true"
+            class="mt-4"
+          />
 
           <div v-if="candidates.length === 0" class="mt-4">
             <ErrorBanner

@@ -11,6 +11,7 @@ import MessageInput from '@/components/chat/MessageInput.vue'
 import { useChatStream } from '@/composables/useChatStream'
 import { useNewChatSignal } from '@/composables/useNewChatSignal'
 import { useModelsStore } from '@/stores/models'
+import { apiErrorMessage } from '@/utils/errors'
 
 const { tick: newChatTick } = useNewChatSignal()
 
@@ -238,7 +239,7 @@ const suggestedPrompts = [
           <!-- error model load -->
           <div v-if="models.error" class="mx-auto max-w-3xl py-4">
             <ErrorBanner
-              :message="models.error.message"
+              :message="apiErrorMessage(models.error)"
               :code="models.error.code"
               :request-id="models.error.requestId"
               :show-code="true"
