@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:18
+    ports:
+      - "5433:5432"
+    container_name: nova-ai-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: novadb
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+volumes:
+  postgres_data:

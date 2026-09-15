@@ -89,9 +89,13 @@ import { AppConfigModule } from './modules/app-config/app-config.module';
       useFactory: (config: ConfigService<AppConfig, true>): TypeOrmModuleOptions => {
         const driver = config.get('db.driver', { infer: true });
         if (driver === 'postgres') {
+          const pg = config.get('db.postgres', { infer: true });
+          const url =
+            config.get('db.postgresUrl', { infer: true }) ||
+            `postgres://${encodeURIComponent(pg.user)}:${encodeURIComponent(pg.password)}@${pg.host}:${pg.port}/${pg.db}`;
           return {
             type: 'postgres',
-            url: config.get('db.postgresUrl', { infer: true }),
+            url,
             autoLoadEntities: true,
             synchronize: false,
             migrations: [migrationsGlob],

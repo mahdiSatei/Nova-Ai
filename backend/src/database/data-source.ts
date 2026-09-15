@@ -16,11 +16,24 @@ loadDotenv({ path: join(process.cwd(), '.env') });
 
 const driver = (process.env.DB_DRIVER ?? 'sqlite') as 'sqlite' | 'postgres';
 
+function buildPostgresUrl(): string {
+  // Prefer individual connection vars; fall back to POSTGRES_URL if provided.
+  if (process.env.POSTGRES_URL) {
+    return process.env.POSTGRES_URL;
+  }
+  const host = process.env.POSTGRES_HOST ?? 'localhost';
+  const port = process.env.POSTGRES_PORT ?? '5432';
+  const user = process.env.POSTGRES_USER ?? 'postgres';
+  const password = encodeURIComponent(process.env.POSTGRES_PASSWORD ?? '');
+  const db = process.env.POSTGRES_DB ?? 'chatbot_db';
+  return `postgres://${user}:${password}@${host}:${port}/${db}`;
+}
+
 export const dataSourceOptions: DataSourceOptions =
   driver === 'postgres'
     ? {
         type: 'postgres',
-        url: process.env.POSTGRES_URL,
+        url: buildPostgresUrl(),
         entities: [User, RefreshToken, CentralProvider, Model, AppConfig, Conversation, Message],
         migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
         synchronize: false,

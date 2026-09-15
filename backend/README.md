@@ -119,6 +119,12 @@ See `validateEnv()` in `src/config/env.validation.ts` for the full list. Key var
 | `JWT_REFRESH_TTL` | 7d | Refresh token TTL |
 | `DB_DRIVER` | sqlite | `sqlite` or `postgres` |
 | `SQLITE_FILE` | ./data/app.sqlite | SQLite file path |
+| `POSTGRES_URL` | *(empty)* | Full PostgreSQL connection URL (alternative to individual vars below) |
+| `POSTGRES_HOST` | localhost | PostgreSQL host |
+| `POSTGRES_PORT` | 5432 | PostgreSQL port |
+| `POSTGRES_USER` | postgres | PostgreSQL user |
+| `POSTGRES_PASSWORD` | *(empty)* | PostgreSQL password |
+| `POSTGRES_DB` | chatbot_db | PostgreSQL database name |
 | `LOG_LEVEL` | info | Pino log level |
 | `LOG_DIR` | ./logs | Log file directory |
 | `PROVIDER_ENCRYPTION_KEY` | *(required)* | AES-256-GCM key for encrypting the provider API key |
@@ -130,7 +136,7 @@ Structured JSON logs are written to `backend/logs/app-YYYY-MM-DD.log` (14-day re
 ## Database
 
 - **Development**: SQLite at `backend/data/app.sqlite` (auto-created on first migration run)
-- **Production**: PostgreSQL — set `DB_DRIVER=postgres` and `DB_POSTGRES_URL`
+- **Production**: PostgreSQL — set `DB_DRIVER=postgres` and either `POSTGRES_URL` or the individual `POSTGRES_HOST`/`POSTGRES_PORT`/`POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` variables
 
 Wipe the SQLite DB to start fresh:
 ```bash

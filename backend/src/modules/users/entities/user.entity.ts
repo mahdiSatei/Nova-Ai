@@ -27,10 +27,10 @@ export class User {
   @Column({ name: 'last_selected_model_id', type: 'text', nullable: true })
   lastSelectedModelId!: string | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'datetime' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
   createdAt!: Date;
 
-  @Column({ name: 'last_login_at', type: 'datetime', nullable: true })
+  @Column({ name: 'last_login_at', type: 'timestamp', nullable: true })
   lastLoginAt!: Date | null;
 
   @OneToMany(() => RefreshToken, (t) => t.user)

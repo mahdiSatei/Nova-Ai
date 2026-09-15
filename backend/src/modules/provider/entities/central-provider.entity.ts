@@ -1,10 +1,10 @@
 import {
   Column,
-  CreateDateColumn,
   Entity,
   PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { Model } from '../../models/entities/model.entity';
 
 /**
  * Singleton row holding the central provider's configuration. The
@@ -24,12 +24,12 @@ export class CentralProvider {
   @Column({ name: 'api_key_encrypted', type: 'text' })
   apiKeyEncrypted!: string;
 
-  @Column({ name: 'last_validated_at', type: 'datetime', nullable: true })
+  @Column({ name: 'last_validated_at', type: 'timestamp', nullable: true })
   lastValidatedAt!: Date | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'datetime' })
+  @Column({ name: 'created_at', type: 'timestamp' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'datetime' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamp' })
   updatedAt!: Date;
 }
