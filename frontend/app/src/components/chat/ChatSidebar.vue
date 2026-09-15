@@ -1,23 +1,25 @@
 <script setup lang="ts">
-// نوار کنایی مدرن: گفتگوی جدید + آخرین گفتگوها + تاریخچه/حالت + کاربر.
+// نوار کنایی مدرن: گفتگوی جدید + آخرین گفتگوها (پین/حذف) + حالت/کاربر.
 // دسکتاپ: جمع‌شونده به ریل آیکون (localStorage)؛ موبایل: کشوی روی‌صفحه‌ای.
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   PhChatCircleText,
   PhPlus,
-  PhClockCounterClockwise,
   PhList,
+  PhPushPin,
   PhSignOut,
   PhSun,
   PhMoon,
   PhArrowSquareOut,
   PhChatsCircle,
+  PhTrash,
 } from '@phosphor-icons/vue'
+import ConfirmModal from '@/components/ConfirmModal.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useTheme } from '@/composables/useTheme'
 import { requestNewChat } from '@/composables/useNewChatSignal'
-import { listConversations } from '@/api/conversations'
+import { listConversations, deleteConversation, setConversationPinned } from '@/api/conversations'
 import { relativeTime } from '@/utils/time'
 import type { ConversationSummary } from '@/types/api'
 
@@ -32,6 +34,9 @@ const router = useRouter()
 const collapsed = ref(localStorage.getItem('mmcb.sidebar') === 'collapsed')
 const items = ref<ConversationSummary[]>([])
 const loading = ref(false)
+const pinBusyIds = ref<Set<string>>(new Set())
+const deletingId = ref<string | null>(null)
+const deleteBusy = ref(false)
 
 const rail = computed(() => collapsed.value && !mobileOpen.value)
 const activeId = computed(() =>
@@ -85,6 +90,49 @@ async function onSignOut(): Promise<void> {
   await auth.signOut()
   closeMobile()
   await router.push('/login')
+}
+
+async function onTogglePin(c: ConversationSummary): Promise<void> {
+  if (pinBusyIds.value.has(c.id)) return
+  const next = !c.pinned
+  pinBusyIds.value = new Set(pinBusyIds.value).add(c.id)
+  try {
+    await setConversationPinned(c.id, next)
+    const target = items.value.find((x) => x.id === c.id)
+    if (target) target.pinned = next
+    await refresh()
+  } catch {
+    /* keep optimistic state out; list stays as-is on failure */
+  } finally {
+    const s = new Set(pinBusyIds.value)
+    s.delete(c.id)
+    pinBusyIds.value = s
+  }
+}
+
+function startDelete(id: string): void {
+  deletingId.value = id
+}
+
+async function onConfirmDelete(): Promise<void> {
+  const id = deletingId.value
+  if (!id) return
+  deleteBusy.value = true
+  try {
+    await deleteConversation(id)
+    items.value = items.value.filter((c) => c.id !== id)
+    deletingId.value = null
+    if (activeId.value === id) {
+      closeMobile()
+      emit('navigate')
+      await router.push({ name: 'chat' })
+    }
+  } catch {
+    /* surface by refreshing; deleted row simply remains if the call failed */
+    await refresh()
+  } finally {
+    deleteBusy.value = false
+  }
 }
 
 onMounted(refresh)
@@ -190,21 +238,42 @@ watch(
                 <span class="shrink-0 text-[10px] text-ink-muted/60">{{ relativeTime(c.updatedAt) }}</span>
               </template>
             </button>
-            <RouterLink
-              v-if="!rail"
-              :to="{ name: 'conversation', params: { id: c.id } }"
-              class="me-1 hidden size-7 shrink-0 items-center justify-center rounded-md text-ink-muted/70 transition-colors hover:bg-hover hover:text-ink group-hover:inline-flex"
-              aria-label="جزئیات گفتگو"
-              @click="closeMobile"
-            >
-              <PhArrowSquareOut class="size-3.5" aria-hidden="true" />
-            </RouterLink>
+            <div v-if="!rail" class="flex shrink-0 items-center">
+              <button
+                type="button"
+                class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md transition-colors"
+                :class="c.pinned ? 'text-primary' : 'text-ink-muted/70 hover:bg-hover hover:text-ink'"
+                :aria-label="c.pinned ? 'برداشتن پین گفتگو' : 'پین کردن گفتگو'"
+                :title="c.pinned ? 'برداشتن پین' : 'پین کردن'"
+                :disabled="pinBusyIds.has(c.id)"
+                @click="onTogglePin(c)"
+              >
+                <PhPushPin class="size-3.5" :weight="c.pinned ? 'fill' : 'regular'" aria-hidden="true" />
+              </button>
+              <RouterLink
+                :to="{ name: 'conversation', params: { id: c.id } }"
+                class="hidden size-7 items-center justify-center rounded-md text-ink-muted/70 transition-colors hover:bg-hover hover:text-ink group-hover:inline-flex"
+                aria-label="جزئیات گفتگو"
+                @click="closeMobile"
+              >
+                <PhArrowSquareOut class="size-3.5" aria-hidden="true" />
+              </RouterLink>
+              <button
+                type="button"
+                class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md text-ink-muted/70 transition-colors hover:bg-danger-soft hover:text-danger"
+                aria-label="حذف گفتگو"
+                title="حذف گفتگو"
+                @click="startDelete(c.id)"
+              >
+                <PhTrash class="size-3.5" aria-hidden="true" />
+              </button>
+            </div>
           </div>
         </li>
       </ul>
     </nav>
 
-    <!-- فوتر: تاریخچه/حالت، موضوع، کاربر -->
+    <!-- فوتر: حالت مدیر، موضوع، کاربر -->
     <div class="shrink-0 border-t border-line/70 p-2">
       <RouterLink
         v-if="auth.isAdmin"
@@ -214,15 +283,6 @@ watch(
       >
         <span class="min-w-9 flex justify-center"><PhList class="size-4" aria-hidden="true" /></span>
         <span v-if="!rail">حالت مدیر</span>
-      </RouterLink>
-      <RouterLink
-        to="/chat/history"
-        class="flex h-9 cursor-pointer items-center gap-2 rounded-lg px-2 text-[13px] text-ink-muted transition-colors hover:bg-hover hover:text-ink"
-        :class="{ 'justify-center px-0': rail }"
-        @click="closeMobile"
-      >
-        <PhClockCounterClockwise class="size-4 shrink-0" aria-hidden="true" />
-        <span v-if="!rail">تاریخچه</span>
       </RouterLink>
 
       <div class="mt-1 flex items-center gap-1" :class="{ 'flex-col': rail }">
@@ -259,4 +319,14 @@ watch(
       </div>
     </div>
   </aside>
+
+  <ConfirmModal
+    :open="deletingId !== null"
+    title="حذف گفتگو"
+    description="این گفتگو و تمام پیام‌های آن برای همیشه حذف می‌شوند. این عملیات قابل بازگشت نیست."
+    confirm-label="حذف"
+    :busy="deleteBusy"
+    @update:open="(v: boolean) => { if (!v) deletingId = null }"
+    @confirm="onConfirmDelete"
+  />
 </template>

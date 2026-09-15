@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { ConversationsService } from '../../src/modules/conversations/conversations.service';
 import { Conversation } from '../../src/modules/conversations/entities/conversation.entity';
 import { Message } from '../../src/modules/conversations/entities/message.entity';
@@ -123,7 +123,7 @@ describe('ConversationsService', () => {
 
       expect(conversationRepo.find).toHaveBeenCalledWith({
         where: { userId: 'u1' },
-        order: { updatedAt: 'DESC' },
+        order: { pinned: 'DESC', updatedAt: 'DESC' },
         take: 10,
         skip: 0,
       });
@@ -149,6 +149,42 @@ describe('ConversationsService', () => {
     it('returns undefined when conversation does not exist', async () => {
       const result = await svc.appendMessage('missing', 'reply');
       expect(result).toBeUndefined();
+    });
+  });
+
+  // ─── setPinned ─────────────────────────────────────────────────────────
+
+  describe('setPinned', () => {
+    it('updates the pin flag when the requester is the owner', async () => {
+      const conv = await svc.create({ userId: 'u1', modelId: 'm1', userMessage: 'hi' });
+
+      const result = await svc.setPinned(conv.id, 'u1', true);
+
+      expect(conversationRepo.update).toHaveBeenCalledWith(conv.id, { pinned: true });
+      expect(result).not.toBeNull();
+      expect(result?.pinned).toBe(true);
+    });
+
+    it('can unpin an existing conversation', async () => {
+      const conv = await svc.create({ userId: 'u1', modelId: 'm1', userMessage: 'hi' });
+
+      const result = await svc.setPinned(conv.id, 'u1', false);
+
+      expect(conversationRepo.update).toHaveBeenCalledWith(conv.id, { pinned: false });
+      expect(result?.pinned).toBe(false);
+    });
+
+    it('returns null when conversation does not exist', async () => {
+      const result = await svc.setPinned('missing', 'u1', true);
+      expect(result).toBeNull();
+      expect(conversationRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('throws ForbiddenException when requester is not the owner', async () => {
+      const conv = await svc.create({ userId: 'u2', modelId: 'm1', userMessage: 'hi' });
+
+      expect(svc.setPinned(conv.id, 'u1', true)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(conversationRepo.update).not.toHaveBeenCalled();
     });
   });
 

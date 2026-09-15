@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
 } from '@nestjs/common';
@@ -96,16 +97,44 @@ export class ConversationsService {
   }
 
   /**
-   * List conversations for a user, ordered by most recent activity
-   * (updatedAt desc). Supports limit/offset for pagination.
+   * List conversations for a user, pinned first and otherwise ordered
+   * by most recent activity (updatedAt desc). Supports limit/offset
+   * for pagination.
    */
   async findByUser(userId: string, limit = 20, offset = 0): Promise<Conversation[]> {
     return this.conversationRepo.find({
       where: { userId },
-      order: { updatedAt: 'DESC' },
+      order: { pinned: 'DESC', updatedAt: 'DESC' },
       take: limit,
       skip: offset,
     });
+  }
+
+  /**
+   * Pin or unpin a conversation. Returns the updated conversation, or
+   * null if it does not exist. Throws ForbiddenException when the
+   * requester is not the owner.
+   */
+  async setPinned(
+    id: string,
+    requesterId: string,
+    pinned: boolean,
+  ): Promise<Conversation | null> {
+    const conversation = await this.conversationRepo.findOne({
+      where: { id },
+      select: ['id', 'userId'],
+    });
+
+    if (!conversation) return null;
+    if (conversation.userId !== requesterId) {
+      throw new ForbiddenException({
+        code: 'forbidden',
+        message: 'You do not own this conversation.',
+      });
+    }
+
+    await this.conversationRepo.update(id, { pinned });
+    return { ...conversation, pinned };
   }
 
   /**
