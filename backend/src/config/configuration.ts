@@ -1,3 +1,5 @@
+import { join } from 'path';
+
 /**
  * Typed configuration tree.
  *
@@ -48,7 +50,7 @@ export default (): AppConfig => ({
   },
   log: {
     level: process.env.LOG_LEVEL ?? 'info',
-    dir: process.env.LOG_DIR ?? './logs',
+    dir: process.env.LOG_DIR ?? join(__dirname, '..', '..', 'logs'),
   },
   provider: {
     encryptionKeyBase64: process.env.PROVIDER_ENCRYPTION_KEY ?? '',
