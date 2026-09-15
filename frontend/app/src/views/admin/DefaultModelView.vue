@@ -140,7 +140,7 @@ function effectiveSelection(): string | null {
         </label>
       </fieldset>
 
-      <div class="flex items-center justify-end gap-2">
+      <div class="flex items-center justify-start gap-2">
         <BaseButton variant="ghost" size="sm" :disabled="currentDefaultId === null || submitting" @click="askClear">
           <PhEraser class="size-4" aria-hidden="true" />
           پاک کردن پیش‌فرض
