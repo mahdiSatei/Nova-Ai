@@ -47,28 +47,24 @@ import { AppConfigModule } from './modules/app-config/app-config.module';
         } catch {
           /* dev fallback to stdout-only */
         }
-        const isDev = process.env.NODE_ENV !== 'production';
         return {
           pinoHttp: {
             level,
-            transport: isDev
-              ? undefined
-              : {
-                  targets: [
-                    {
-                      target: 'pino-roll',
-                      options: {
-                        file: join(dir, 'app.log'),
-                        frequency: 'daily',
-                        mkdir: true,
-                        dateFormat: 'yyyy-MM-dd',
-                        extension: '.log',
-                      },
-                      level,
-                    },
-                    { target: 'pino/file', options: { destination: 1 }, level },
-                  ],
+            transport: {
+              targets: [
+                {
+                  target: 'pino-roll',
+                  options: {
+                    file: join(dir, 'app'),
+                    frequency: 'daily',
+                    mkdir: true,
+                    dateFormat: 'yyyy-MM-dd',
+                    extension: '.log',
+                  },
+                  level,
                 },
+              ],
+            },
             customProps: () => ({ context: 'HTTP' }),
             redact: {
               paths: [
