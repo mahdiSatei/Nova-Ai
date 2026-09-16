@@ -16,7 +16,6 @@ import ConfirmModal from '@/components/ConfirmModal.vue'
 import { useAuthStore } from '@/stores/auth'
 import { requestNewChat } from '@/composables/useNewChatSignal'
 import { listConversations, deleteConversation, setConversationPinned } from '@/api/conversations'
-import { relativeTime } from '@/utils/time'
 import type { ConversationSummary } from '@/types/api'
 
 const emit = defineEmits<{ navigate: [] }>()
@@ -313,7 +312,6 @@ watch(
               >
                 <PhChatsCircle class="size-4 shrink-0" aria-hidden="true" />
                 <span class="min-w-0 flex-1 truncate">{{ c.title?.trim() || 'بدون عنوان' }}</span>
-                <span class="shrink-0 text-[10px] text-ink-muted/60">{{ relativeTime(c.updatedAt) }}</span>
               </button>
               <div class="flex shrink-0 items-center">
                 <button
@@ -379,7 +377,6 @@ watch(
               <PhChatsCircle class="size-4 shrink-0" aria-hidden="true" />
               <template v-if="!rail">
                 <span class="min-w-0 flex-1 truncate">{{ c.title?.trim() || 'بدون عنوان' }}</span>
-                <span class="shrink-0 text-[10px] text-ink-muted/60">{{ relativeTime(c.updatedAt) }}</span>
               </template>
             </button>
             <div v-if="!rail" class="flex shrink-0 items-center">
