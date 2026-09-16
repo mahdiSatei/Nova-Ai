@@ -96,6 +96,7 @@ export class ConversationsController {
         role: m.role,
         content: m.content,
         createdAt: m.createdAt.toISOString(),
+        status: m.status,
       })),
     };
   }

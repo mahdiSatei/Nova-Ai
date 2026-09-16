@@ -1,6 +1,8 @@
 import {
   Body,
   Controller,
+  NotFoundException,
+  Param,
   Post,
   Sse,
   UseGuards,
@@ -30,5 +32,42 @@ export class ChatController {
   @Sse('text/event-stream')
   stream(@CurrentUser() user: AuthenticatedUser, @Body() dto: ChatRequestDto): Observable<ChatStreamEvent> {
     return this.chat.streamChat(user.id, dto);
+  }
+
+  /**
+   * Cancel the active generation for a conversation.
+   */
+  @Post(':conversationId/cancel')
+  async cancel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('conversationId') conversationId: string,
+  ): Promise<{ messageId: string; status: string }> {
+    const result = await this.chat.cancelGeneration(conversationId, user.id);
+    if (!result) {
+      throw new NotFoundException({
+        code: 'no_active_generation',
+        message: 'No active generation to cancel.',
+      });
+    }
+    return { messageId: result.id, status: 'cancelled' };
+  }
+
+  /**
+   * Retry a failed or cancelled generation.
+   */
+  @Post(':conversationId/retry')
+  async retry(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('conversationId') conversationId: string,
+    @Body() dto: { failedMessageId: string },
+  ): Promise<{ messageId: string; status: string }> {
+    const result = await this.chat.retryGeneration(conversationId, dto.failedMessageId, user.id);
+    if (!result) {
+      throw new NotFoundException({
+        code: 'conversation_not_found',
+        message: 'Conversation not found.',
+      });
+    }
+    return { messageId: result.id, status: 'streaming' };
   }
 }
