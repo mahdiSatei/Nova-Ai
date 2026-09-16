@@ -286,13 +286,13 @@ paths:
     get:
       tags: [User]
       summary: List the caller's conversations.
-      description: Ordered by `updatedAt` descending.
+      description: Pinned conversations first, then ordered by `updatedAt` descending.
       parameters:
         - $ref: '#/components/parameters/LimitParam'
         - $ref: '#/components/parameters/OffsetParam'
       responses:
         '200':
-          description: Conversations ordered by most recent activity.
+          description: Conversations ordered pinned-first, then by most recent activity.
           content:
             application/json:
               schema:
@@ -309,6 +309,7 @@ paths:
                       - id: 33333333-3333-3333-3333-333333333333
                         modelId: 11111111-1111-1111-1111-111111111111
                         title: "Hello, who are you?"
+                        pinned: false
                         createdAt: '2026-09-13T16:42:11Z'
                         updatedAt: '2026-09-13T16:43:00Z'
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -334,6 +335,45 @@ paths:
       responses:
         '204':
           description: Deleted.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/conversations/{id}/pin:
+    parameters:
+      - $ref: '#/components/parameters/PathId'
+    patch:
+      tags: [User]
+      summary: Pin or unpin a conversation.
+      description: |
+        Idempotent full-state replacement of the conversation's pin flag.
+        Pinned conversations are listed before unpinned ones.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pinned]
+              properties:
+                pinned:
+                  type: boolean
+                  example: true
+      responses:
+        '200':
+          description: Updated pin state.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, pinned]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  pinned:
+                    type: boolean
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -947,7 +987,7 @@ components:
 
     ConversationSummary:
       type: object
-      required: [id, modelId, createdAt, updatedAt]
+      required: [id, modelId, pinned, createdAt, updatedAt]
       description: Conversation entry in a list view. No messages.
       properties:
         id:
@@ -963,6 +1003,10 @@ components:
           type: [string, 'null']
           description: Conversation title (defaults to first user message truncated to 80 chars).
           example: Hello, who are you?
+        pinned:
+          type: boolean
+          description: Whether the conversation is pinned to the top of the list.
+          example: false
         createdAt:
           type: string
           format: date-time

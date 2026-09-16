@@ -65,111 +65,36 @@ export class ChatService {
    *
    * The controller returns this Observable synchronously to the
    * `@Sse()` decorator. All async setup (model resolution, provider
-   * check, conversation creation) runs inside the Observable so
-   * the controller method stays synchronous.
+   * check, conversation creation) and the consume-and-persist loop run
+   * inside `runStream`, which is launched as a detached background
+   * task via `void runStream(...)`.
+   *
+   * **Disconnect resilience**: when the client unsubscribes (browser
+   * closed, network dropped, refresh), the RxJS teardown flips
+   * `clientConnected` to false. From that point on, `runStream` stops
+   * forwarding events to the observer (its socket is gone — we must
+   * not write to it), but it keeps consuming the provider stream and
+   * persists the FULL assistant response via
+   * `ConversationsService.appendMessage` once the consume loop exits
+   * for any reason (normal completion, provider error, or stream end).
+   *
+   * The user can read the persisted message via `GET /v1/conversations/:id`
+   * after the response is complete.
    */
   streamChat(userId: string, dto: ChatRequestDto): Observable<ChatStreamEvent> {
     return new Observable<ChatStreamEvent>((observer) => {
-      let aborted = false;
+      let clientConnected = true;
 
-      const run = async () => {
-        try {
-          // 1. Resolve the active model.
-          const model = await this.models.resolveActiveModel({
-            explicitModelId: dto.modelId ?? null,
-            userId,
-          });
+      // Kick off the detached consume-and-persist task. It runs to
+      // completion regardless of whether anyone is still subscribed.
+      void this.runStream(userId, dto, observer, () => clientConnected);
 
-          if (!model) {
-            observer.next({
-              event: 'error',
-              data: { code: 'no_model_available', message: 'No model is available. Ask an admin to set a default model or select one explicitly.' },
-            });
-            observer.complete();
-            return;
-          }
-
-          // 2. Verify central provider is configured.
-          try {
-            await this.providerClient.getClient();
-          } catch {
-            observer.next({
-              event: 'error',
-              data: { code: 'provider_not_configured', message: 'Central provider is not configured. Ask an admin to set it up.' },
-            });
-            observer.complete();
-            return;
-          }
-
-          // 3. Validate message length (FR-014).
-          if (dto.message.length < 1 || dto.message.length > 32000) {
-            observer.next({
-              event: 'error',
-              data: { code: 'invalid_message', message: 'Message must be 1..32000 characters.' },
-            });
-            observer.complete();
-            return;
-          }
-
-          // 4. Resolve or create conversation.
-          let conversationId: string;
-          let priorTurns: ChatMessage[];
-
-          if (dto.conversationId) {
-            const existing = await this.conversations.findById(dto.conversationId);
-            if (!existing) {
-              observer.next({
-                event: 'error',
-                data: { code: 'conversation_not_found', message: 'Conversation not found.' },
-              });
-              observer.complete();
-              return;
-            }
-            conversationId = existing.id;
-            priorTurns = existing.messages.map((m) => ({ role: m.role as ChatMessage['role'], content: m.content }));
-          } else {
-            const conv = await this.conversations.create({
-              userId,
-              modelId: model.id,
-              userMessage: dto.message,
-            });
-            conversationId = conv.id;
-            priorTurns = [{ role: 'user', content: dto.message }];
-          }
-
-          // 5. Persist sticky model choice (fire-and-forget).
-          this.updateUserLastSelectedModel(userId, model.id).catch(() => {
-            this.logger.warn(`Failed to update lastSelectedModelId for user ${userId}`);
-          });
-
-          // 6. Build the messages array for the provider (FR-015).
-          const providerMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-            ...priorTurns,
-            { role: 'user', content: dto.message },
-          ];
-
-          // 7. Stream from the provider.
-          await this.consumeStream(model.actualName, providerMessages, conversationId, observer, { value: aborted });
-        } catch (err) {
-          if (!aborted) {
-            this.logger.error(`Chat setup error: ${err instanceof Error ? err.message : String(err)}`);
-            observer.next({
-              event: 'error',
-              data: { code: 'internal_error', message: 'An unexpected error occurred.' },
-            });
-            observer.complete();
-          }
-        }
-      };
-
-      void run();
-
-      // Teardown: called when the client disconnects or the
-      // Observable is unsubscribed.
-      return {
-        unsubscribe() {
-          aborted = true;
-        },
+      // Teardown: when the client disconnects (or the Observable is
+      // unsubscribed for any other reason), mark the client as gone.
+      // The consume loop will continue running and persist the full
+      // response, but will skip writing SSE events to the closed socket.
+      return () => {
+        clientConnected = false;
       };
     });
   }
@@ -181,46 +106,169 @@ export class ChatService {
   }
 
   /**
-   * Consume the OpenAI stream and emit SSE events.
+   * Background task that owns the consume-and-persist flow.
+   *
+   * Persistence contract: in the inner `finally` block, whatever
+   * assistant text was accumulated into `fullResponse` is appended to
+   * the conversation via `ConversationsService.appendMessage` — even
+   * if the client has long since disconnected. An empty `fullResponse`
+   * (zero tokens observed before the stream ended) is NOT persisted.
+   *
+   * The `isClientConnected` callback guards every `observer.next(...)`
+   * call so we never write to a closed SSE socket.
    */
-  private async consumeStream(
-    actualModelName: string,
-    messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-    conversationId: string,
+  private async runStream(
+    userId: string,
+    dto: ChatRequestDto,
     observer: { next: (e: ChatStreamEvent) => void; complete: () => void },
-    abortedRef: { value: boolean },
+    isClientConnected: () => boolean,
   ): Promise<void> {
+    let conversationId: string | undefined;
     let fullResponse = '';
 
     try {
-      const stream = await this.providerClient.stream({
-        model: actualModelName,
-        messages,
+      // ── setup phase ─────────────────────────────────────────────────
+      // 1. Resolve the active model.
+      const model = await this.models.resolveActiveModel({
+        explicitModelId: dto.modelId ?? null,
+        userId,
+      });
+      if (!model) {
+        if (isClientConnected()) {
+          observer.next({
+            event: 'error',
+            data: {
+              code: 'no_model_available',
+              message: 'No model is available. Ask an admin to set a default model or select one explicitly.',
+            },
+          });
+        }
+        observer.complete();
+        return;
+      }
+
+      // 2. Verify central provider is configured.
+      try {
+        await this.providerClient.getClient();
+      } catch {
+        if (isClientConnected()) {
+          observer.next({
+            event: 'error',
+            data: {
+              code: 'provider_not_configured',
+              message: 'Central provider is not configured. Ask an admin to set it up.',
+            },
+          });
+        }
+        observer.complete();
+        return;
+      }
+
+      // 3. Validate message length (FR-014).
+      if (dto.message.length < 1 || dto.message.length > 32000) {
+        if (isClientConnected()) {
+          observer.next({
+            event: 'error',
+            data: { code: 'invalid_message', message: 'Message must be 1..32000 characters.' },
+          });
+        }
+        observer.complete();
+        return;
+      }
+
+      // 4. Resolve or create conversation.
+      let priorTurns: ChatMessage[];
+      if (dto.conversationId) {
+        const existing = await this.conversations.findById(dto.conversationId);
+        if (!existing) {
+          if (isClientConnected()) {
+            observer.next({
+              event: 'error',
+              data: { code: 'conversation_not_found', message: 'Conversation not found.' },
+            });
+          }
+          observer.complete();
+          return;
+        }
+        conversationId = existing.id;
+        priorTurns = existing.messages.map(
+          (m) => ({ role: m.role as ChatMessage['role'], content: m.content }),
+        );
+      } else {
+        const conv = await this.conversations.create({
+          userId,
+          modelId: model.id,
+          userMessage: dto.message,
+        });
+        conversationId = conv.id;
+        priorTurns = [{ role: 'user', content: dto.message }];
+      }
+
+      // 5. Persist sticky model choice (fire-and-forget).
+      this.updateUserLastSelectedModel(userId, model.id).catch(() => {
+        this.logger.warn(`Failed to update lastSelectedModelId for user ${userId}`);
       });
 
-      for await (const chunk of stream as unknown as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>) {
-        if (abortedRef.value) break;
-        const delta = chunk.choices?.[0]?.delta?.content;
-        if (delta) {
-          fullResponse += delta;
-          observer.next({ data: { delta } });
-        }
-      }
+      // 6. Build the messages array for the provider (FR-015).
+      const providerMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+        ...priorTurns,
+        { role: 'user', content: dto.message },
+      ];
 
-      if (!abortedRef.value) {
-        observer.next({ event: 'done', data: {} });
+      // ── consume phase ───────────────────────────────────────────────
+      try {
+        const stream = await this.providerClient.stream({
+          model: model.actualName,
+          messages: providerMessages,
+        });
+
+        for await (const chunk of stream as unknown as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>) {
+          const delta = chunk.choices?.[0]?.delta?.content;
+          if (delta) {
+            fullResponse += delta;
+            if (isClientConnected()) {
+              observer.next({ data: { delta } });
+            }
+          }
+        }
+
+        if (isClientConnected()) {
+          observer.next({ event: 'done', data: {} });
+        }
+      } catch (err) {
+        this.logger.error(
+          `Provider stream error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        if (isClientConnected()) {
+          observer.next({
+            event: 'error',
+            data: {
+              code: 'provider_error',
+              message: 'The model provider returned an error.',
+            },
+          });
+        }
+      } finally {
+        // Persistence ALWAYS runs in the consume-phase finally, even if
+        // the client disconnected long ago. This is the core invariant
+        // of this plan: the user's message is not lost to a network
+        // failure, tab close, or page refresh.
+        if (fullResponse && conversationId) {
+          await this.conversations.appendMessage(conversationId, fullResponse);
+        }
+        observer.complete();
       }
     } catch (err) {
-      if (!abortedRef.value) {
-        this.logger.error(`Provider stream error: ${err instanceof Error ? err.message : String(err)}`);
+      // Setup-phase catch (errors from model resolution / DB lookups,
+      // not from the provider stream itself).
+      this.logger.error(
+        `Chat setup error: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      if (isClientConnected()) {
         observer.next({
           event: 'error',
-          data: { code: 'provider_error', message: 'The model provider returned an error.' },
+          data: { code: 'internal_error', message: 'An unexpected error occurred.' },
         });
-      }
-    } finally {
-      if (fullResponse) {
-        await this.conversations.appendMessage(conversationId, fullResponse);
       }
       observer.complete();
     }

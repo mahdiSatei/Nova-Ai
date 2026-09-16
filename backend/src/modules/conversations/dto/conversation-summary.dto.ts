@@ -7,6 +7,7 @@ export class ConversationSummaryDto {
   id!: string;
   modelId!: string;
   title!: string | null;
+  pinned!: boolean;
   createdAt!: string;
   updatedAt!: string;
 }
