@@ -42,6 +42,9 @@ export class Conversation {
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamp' })
   updatedAt!: Date;
 
+  @Column({ default: false })
+  pinned!: boolean;
+
   @OneToMany(() => Message, (m) => m.conversation, { cascade: true })
   messages!: Message[];
 }
