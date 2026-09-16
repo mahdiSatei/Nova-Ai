@@ -27,10 +27,10 @@ export class Model {
   @Column({ name: 'is_default', type: 'boolean', default: false })
   isDefault!: boolean;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamp' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @OneToMany(() => Conversation, (c) => c.model)

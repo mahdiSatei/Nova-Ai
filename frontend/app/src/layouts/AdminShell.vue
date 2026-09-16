@@ -17,7 +17,7 @@ const nav = [
 
 async function onSignOut(): Promise<void> {
   await auth.signOut()
-  await router.push('/login')
+  await router.push('/admin/login')
 }
 </script>
 

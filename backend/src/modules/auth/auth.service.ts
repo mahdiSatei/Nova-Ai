@@ -197,7 +197,6 @@ export class AuthService {
         userId: user.id,
         jti: refreshJti,
         expiresAt: refreshExpiresAt,
-        revokedAt: null,
       }),
     );
 

@@ -3,6 +3,8 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  JoinColumn,
+  ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm';
@@ -27,11 +29,11 @@ export class User {
   @Column({ name: 'last_selected_model_id', type: 'text', nullable: true })
   lastSelectedModelId!: string | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @Column({ name: 'last_login_at', type: 'timestamp', nullable: true })
-  lastLoginAt!: Date | null;
+  @Column({ name: 'last_login_at', nullable: true })
+  lastLoginAt?: Date;
 
   @OneToMany(() => RefreshToken, (t) => t.user)
   refreshTokens!: RefreshToken[];

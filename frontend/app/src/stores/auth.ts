@@ -68,6 +68,13 @@ export const useAuthStore = defineStore('auth', () => {
     return res.user
   }
 
+  async function adminLogin(req: LoginRequest): Promise<UserPublic> {
+    const res = await authApi.adminLogin(req)
+    applySession(res.user, pairFromExpires(res.accessToken, res.refreshToken, res.expiresIn))
+    persistUser(res.user)
+    return res.user
+  }
+
   function clearSession(): void {
     user.value = null
     tokenStore.clear()
@@ -85,5 +92,5 @@ export const useAuthStore = defineStore('auth', () => {
 
   onSessionExpired(clearSession)
 
-  return { user, ready, isAuthenticated, isAdmin, restore, register, login, signOut, clearSession }
+  return { user, ready, isAuthenticated, isAdmin, restore, register, login, adminLogin, signOut, clearSession }
 })

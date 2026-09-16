@@ -32,14 +32,18 @@ describe('AuthService', () => {
   const TEST_PASSWORD = 'correct-horse-battery-staple';
   let TEST_HASH: string;
 
-  const validUser = (): User =>
+  const validUser = (overrides: Partial<User> = {}): User =>
     ({
       id: 'u-1',
       email: 'a@example.com',
       passwordHash: TEST_HASH,
       role: 'user',
       createdAt: new Date(),
-      lastLoginAt: null,
+      lastLoginAt: undefined,
+      lastSelectedModelId: null,
+      refreshTokens: [],
+      conversations: [],
+      ...overrides,
     } as User);
 
   beforeAll(() => {

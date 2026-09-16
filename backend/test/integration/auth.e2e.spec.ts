@@ -108,4 +108,58 @@ describe('Auth (e2e)', () => {
     expect((await request(server).get('/healthz')).status).toBe(200);
     expect((await request(server).get('/readyz')).status).toBe(200);
   });
+
+  describe('Admin auth', () => {
+    it('admin login with valid admin credentials returns 200 with role=admin', async () => {
+      const server = app.getHttpServer();
+      const email = 'e2e-admin@example.com';
+      const password = 'correct-horse-battery-staple';
+
+      // Seed an admin directly (registration endpoint always creates role=user).
+      await request(server).post('/v1/auth/register').send({ email, password });
+      const ds = app.get(DataSource);
+      await ds.getRepository('users').update({ email }, { role: 'admin' });
+
+      const res = await request(server)
+        .post('/v1/admin/auth/login')
+        .send({ email, password });
+      expect(res.status).toBe(200);
+      expect(res.body.accessToken).toBeDefined();
+      expect(res.body.user.email).toBe(email);
+      expect(res.body.user.role).toBe('admin');
+    });
+
+    it('admin login with valid non-admin credentials returns generic 401', async () => {
+      const server = app.getHttpServer();
+      const email = 'e2e-non-admin@example.com';
+      const password = 'correct-horse-battery-staple';
+      await request(server).post('/v1/auth/register').send({ email, password }); // role=user
+
+      const res = await request(server)
+        .post('/v1/admin/auth/login')
+        .send({ email, password });
+      expect(res.status).toBe(401);
+      expect(res.body.code).toBe('invalid_credentials');
+      expect(res.body.message).toBe('The provided credentials were invalid.');
+      expect(res.body.accessToken).toBeUndefined();
+    });
+
+    it('admin login with unknown email returns generic 401 (no enumeration)', async () => {
+      const server = app.getHttpServer();
+      const res = await request(server)
+        .post('/v1/admin/auth/login')
+        .send({ email: 'ghost@example.com', password: 'whatever-12-chars' });
+      expect(res.status).toBe(401);
+      expect(res.body.code).toBe('invalid_credentials');
+    });
+
+    it('admin login with short password returns 400 validation_failed', async () => {
+      const server = app.getHttpServer();
+      const res = await request(server)
+        .post('/v1/admin/auth/login')
+        .send({ email: 'a@b.co', password: 'short' });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('validation_failed');
+    });
+  });
 });

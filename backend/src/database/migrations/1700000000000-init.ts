@@ -8,10 +8,30 @@ export class Init1700000000000 implements MigrationInterface {
   name = 'Init1700000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    const dbDriver = (process.env.DB_DRIVER ?? 'sqlite') as 'sqlite' | 'postgres';
+
+    // For PostgreSQL, create the uuid-ossp extension so UUID primary keys
+    // get a DB-side default. SQLite uses TEXT primary keys filled by
+    // TypeORM's JavaScript-side UUID generation.
+    if (dbDriver === 'postgres') {
+      await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`);
+    }
+
+    const idCol = (table: string) =>
+      dbDriver === 'postgres'
+        ? `id UUID PRIMARY KEY DEFAULT uuid_generate_v4()`
+        : `id TEXT PRIMARY KEY`;
+
+    const fkId = (column: string) =>
+      dbDriver === 'postgres' ? `${column} UUID NOT NULL` : `${column} TEXT NOT NULL`;
+
+    const fkRefId = (column: string) =>
+      dbDriver === 'postgres' ? `${column} UUID` : `${column} TEXT`;
+
     // users
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
+        ${idCol('id')},
         email TEXT NOT NULL,
         password_hash TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'user',
@@ -27,8 +47,8 @@ export class Init1700000000000 implements MigrationInterface {
     // refresh_tokens
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS refresh_tokens (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
+        ${idCol('id')},
+        ${fkId('user_id')},
         jti TEXT NOT NULL,
         expires_at TIMESTAMP NOT NULL,
         revoked_at TIMESTAMP,
@@ -58,7 +78,7 @@ export class Init1700000000000 implements MigrationInterface {
     // models
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS models (
-        id TEXT PRIMARY KEY,
+        ${idCol('id')},
         display_name TEXT NOT NULL,
         actual_name TEXT NOT NULL,
         enabled BOOLEAN NOT NULL DEFAULT true,
@@ -75,7 +95,7 @@ export class Init1700000000000 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS app_config (
         id TEXT PRIMARY KEY DEFAULT 'singleton',
-        default_model_id TEXT,
+        default_model_id ${dbDriver === 'postgres' ? 'UUID' : 'TEXT'},
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (default_model_id) REFERENCES models(id) ON DELETE SET NULL
       );
@@ -84,9 +104,9 @@ export class Init1700000000000 implements MigrationInterface {
     // conversations
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS conversations (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        model_id TEXT NOT NULL,
+        ${idCol('id')},
+        ${fkId('user_id')},
+        ${fkId('model_id')},
         title TEXT,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -101,8 +121,8 @@ export class Init1700000000000 implements MigrationInterface {
     // messages
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS messages (
-        id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL,
+        ${idCol('id')},
+        ${fkId('conversation_id')},
         role TEXT NOT NULL,
         content TEXT NOT NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -115,7 +135,6 @@ export class Init1700000000000 implements MigrationInterface {
 
     // Seed the AppConfig singleton row so PUT can update it.
     // Use driver-specific syntax: INSERT OR IGNORE (SQLite) vs ON CONFLICT DO NOTHING (Postgres).
-    const dbDriver = (process.env.DB_DRIVER ?? 'sqlite') as 'sqlite' | 'postgres';
     if (dbDriver === 'postgres') {
       await queryRunner.query(
         `INSERT INTO app_config (id, default_model_id) VALUES ('singleton', NULL) ON CONFLICT (id) DO NOTHING;`,
