@@ -3,8 +3,6 @@ import {
   CreateDateColumn,
   Entity,
   Index,
-  JoinColumn,
-  ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm';
@@ -13,12 +11,17 @@ import { Conversation } from '../../conversations/entities/conversation.entity';
 
 @Entity({ name: 'users' })
 @Index('uq_users_email_lower', { synchronize: false })
+@Index('uq_users_username_lower', { synchronize: false })
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
   @Column({ type: 'text' })
   email!: string;
+
+  /** Optional username (required for new signups). Stored lowercased. */
+  @Column({ type: 'text', nullable: true })
+  username!: string | null;
 
   @Column({ name: 'password_hash', type: 'text' })
   passwordHash!: string;

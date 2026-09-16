@@ -4,6 +4,7 @@ export type MessageRole = 'user' | 'assistant'
 export interface UserPublic {
   id: string
   email: string
+  username: string | null
   role: Role
   createdAt: string
   lastLoginAt?: string | null
@@ -17,11 +18,15 @@ export interface AuthResponse {
 }
 
 export interface RegisterRequest {
+  username: string
   email: string
   password: string
 }
 
-export type LoginRequest = RegisterRequest
+export interface LoginRequest {
+  identifier: string
+  password: string
+}
 
 export interface ErrorDetail {
   field: string

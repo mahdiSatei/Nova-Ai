@@ -48,19 +48,24 @@ export class AuthService {
     private readonly refreshRepo: Repository<RefreshToken>,
   ) {}
 
-  async register(email: string, password: string): Promise<AuthResponseDto> {
-    const user = await this.users.create({ email, password });
+  async register(
+    username: string | null | undefined,
+    email: string,
+    password: string,
+  ): Promise<AuthResponseDto> {
+    const user = await this.users.create({ username: username ?? null, email, password });
     return this.issueTokens(user);
   }
 
   /**
    * Authenticate (resolve the user + verify password + mark lastLoginAt).
-   * Returns the User row on success. On ANY failure (unknown email OR wrong
-   * password) throws generic UnauthorizedException so callers cannot
-   * distinguish the two — no email enumeration, no role enumeration.
+   * Returns the User row on success. On ANY failure (unknown identifier
+   * OR wrong password) throws generic UnauthorizedException so callers
+   * cannot distinguish the two — no email/username enumeration, no
+   * role enumeration.
    */
-  private async authenticate(email: string, password: string): Promise<User> {
-    const user = await this.users.findByEmail(email);
+  private async authenticate(identifier: string, password: string): Promise<User> {
+    const user = await this.users.findByIdentifier(identifier);
     if (!user) {
       // Constant-time-ish no-op so attackers can't time-distinguish.
       await this.dummyCompare(password);
@@ -82,11 +87,12 @@ export class AuthService {
 
   /**
    * Login: returns a generic 401 for any failure (wrong password,
-   * unknown email, disabled account) so email enumeration is
-   * impossible.
+   * unknown identifier, disabled account) so email/username
+   * enumeration is impossible. `identifier` may be an email or a
+   * username.
    */
-  async login(email: string, password: string): Promise<AuthResponseDto> {
-    const user = await this.authenticate(email, password);
+  async login(identifier: string, password: string): Promise<AuthResponseDto> {
+    const user = await this.authenticate(identifier, password);
     return this.issueTokens(user);
   }
 
@@ -95,8 +101,8 @@ export class AuthService {
    * non-admin account (regardless of password validity) receives the
    * same generic 401 as a bad password — no role enumeration.
    */
-  async loginAsAdmin(email: string, password: string): Promise<AuthResponseDto> {
-    const user = await this.authenticate(email, password);
+  async loginAsAdmin(identifier: string, password: string): Promise<AuthResponseDto> {
+    const user = await this.authenticate(identifier, password);
     if (user.role !== 'admin') {
       throw new UnauthorizedException({
         code: 'invalid_credentials',
@@ -204,6 +210,7 @@ export class AuthService {
       user: {
         id: user.id,
         email: user.email,
+        username: user.username ?? null,
         role: user.role,
         createdAt: user.createdAt.toISOString(),
         lastLoginAt: user.lastLoginAt ? user.lastLoginAt.toISOString() : null,

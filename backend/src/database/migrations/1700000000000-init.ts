@@ -17,16 +17,13 @@ export class Init1700000000000 implements MigrationInterface {
       await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`);
     }
 
-    const idCol = (table: string) =>
+    const idCol = (_table: string) =>
       dbDriver === 'postgres'
         ? `id UUID PRIMARY KEY DEFAULT uuid_generate_v4()`
         : `id TEXT PRIMARY KEY`;
 
     const fkId = (column: string) =>
       dbDriver === 'postgres' ? `${column} UUID NOT NULL` : `${column} TEXT NOT NULL`;
-
-    const fkRefId = (column: string) =>
-      dbDriver === 'postgres' ? `${column} UUID` : `${column} TEXT`;
 
     // users
     await queryRunner.query(`

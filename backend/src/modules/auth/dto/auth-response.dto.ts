@@ -6,6 +6,8 @@ export class AuthResponseDto {
   user!: {
     id: string;
     email: string;
+    /** Null for legacy accounts created before usernames existed. */
+    username: string | null;
     role: 'user' | 'admin';
     createdAt: string;
     lastLoginAt: string | null;
