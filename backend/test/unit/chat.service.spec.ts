@@ -205,4 +205,122 @@ describe('ChatService', () => {
       expect(conversations.appendMessage).toHaveBeenCalledWith('conv-2', 'New answer');
     });
   });
+
+  // ─── client-disconnect resilience ─────────────────────────────────────
+
+  describe('client disconnect mid-stream', () => {
+    /**
+     * Build an async iterable that yields the given chunks with a delay
+     * between each, then signals done. The consumer side keeps reading
+     * regardless of any subscriber state, mimicking the production
+     * OpenAI SDK behavior under the new "don't abort" contract.
+     */
+    function buildSlowStream(chunks: string[], delayMs: number) {
+      return (async function* () {
+        for (const c of chunks) {
+          await new Promise((r) => setTimeout(r, delayMs));
+          yield { choices: [{ delta: { content: c } }] } as any;
+        }
+      })();
+    }
+
+    it('persists the FULL assistant response even when the client unsubscribes mid-stream', async () => {
+      // Arrange
+      models.resolveActiveModel.mockResolvedValue({
+        id: 'm1',
+        actualName: 'gpt-4o',
+        enabled: true,
+        isDefault: true,
+      } as any);
+      conversations.create.mockReturnValue({ id: 'conv-1', messages: [] });
+
+      // Three chunks, 30 ms apart. After ~45 ms the first two have been
+      // yielded; the test unsubscribes then and waits long enough for
+      // the third to also be consumed and persisted.
+      providerClient.stream.mockResolvedValue(
+        buildSlowStream(['Hello', ' ', 'world'], 30),
+      );
+
+      // Act
+      const obs = svc.streamChat('user-1', { message: 'Hi' });
+      const events: any[] = [];
+      const sub = obs.subscribe({ next: (e) => events.push(e) });
+
+      // Wait until at least one delta has been received.
+      await new Promise((r) => setTimeout(r, 45));
+      expect(events.some((e: any) => 'data' in e && !('event' in e))).toBe(true);
+
+      // Simulate client disconnect.
+      sub.unsubscribe();
+
+      // Wait long enough for the consume loop to finish all three chunks
+      // and the finally block to persist.
+      await new Promise((r) => setTimeout(r, 200));
+
+      // Assert: the FULL response was persisted, not a truncated one.
+      expect(conversations.appendMessage).toHaveBeenCalledTimes(1);
+      expect(conversations.appendMessage).toHaveBeenCalledWith('conv-1', 'Hello world');
+    });
+
+    it('emits no SSE events to the observer after the client has unsubscribed', async () => {
+      // Arrange
+      models.resolveActiveModel.mockResolvedValue({
+        id: 'm1',
+        actualName: 'gpt-4o',
+        enabled: true,
+        isDefault: true,
+      } as any);
+      conversations.create.mockReturnValue({ id: 'conv-2', messages: [] });
+      providerClient.stream.mockResolvedValue(
+        buildSlowStream(['a', 'b', 'c', 'd'], 30),
+      );
+
+      // Act
+      const obs = svc.streamChat('user-1', { message: 'Hi' });
+      const events: any[] = [];
+      const sub = obs.subscribe({ next: (e) => events.push(e) });
+      await new Promise((r) => setTimeout(r, 45));
+      const eventsBeforeDisconnect = events.length;
+
+      sub.unsubscribe();
+      await new Promise((r) => setTimeout(r, 200));
+
+      // Assert: no further events were emitted after unsubscribe.
+      expect(events.length).toBe(eventsBeforeDisconnect);
+
+      // Persistence still happened, with the full content.
+      expect(conversations.appendMessage).toHaveBeenCalledWith('conv-2', 'abcd');
+    });
+
+    it('persists the partial response if the provider errors mid-stream after the client disconnected', async () => {
+      // Arrange: a stream that yields one chunk, then throws a provider
+      // error on the next iteration. The client is already gone when the
+      // error fires.
+      models.resolveActiveModel.mockResolvedValue({
+        id: 'm1',
+        actualName: 'gpt-4o',
+        enabled: true,
+        isDefault: true,
+      } as any);
+      conversations.create.mockReturnValue({ id: 'conv-3', messages: [] });
+
+      const erroringStream = (async function* () {
+        yield { choices: [{ delta: { content: 'partial' } }] } as any;
+        await new Promise((r) => setTimeout(r, 30));
+        throw new Error('upstream blew up');
+      })();
+      providerClient.stream.mockResolvedValue(erroringStream);
+
+      // Act
+      const obs = svc.streamChat('user-1', { message: 'Hi' });
+      const sub = obs.subscribe({ next: () => {} });
+      await new Promise((r) => setTimeout(r, 15));
+      sub.unsubscribe();
+      await new Promise((r) => setTimeout(r, 200));
+
+      // Assert: the partial content observed before the error was persisted.
+      expect(conversations.appendMessage).toHaveBeenCalledTimes(1);
+      expect(conversations.appendMessage).toHaveBeenCalledWith('conv-3', 'partial');
+    });
+  });
 });

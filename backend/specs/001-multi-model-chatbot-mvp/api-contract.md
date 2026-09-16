@@ -237,8 +237,23 @@ event: error
 data: {"code":"<error_code>","message":"<human-readable>"}\n\n
 ```
 
-The stream MUST terminate cleanly (no half-open connection) on all three
-paths: success, error, and client disconnect.
+**Disconnect resilience.** If the client disconnects mid-stream (browser
+closed, network dropped, navigation away, page refresh), the server does
+**not** cancel the upstream provider call. It continues consuming the
+provider stream to completion, accumulates the full assistant response,
+and persists it as a normal `role: "assistant"` message on the
+conversation. The user can read the persisted message via
+`GET /v1/conversations/:id` after generation completes. No further SSE
+events are written to the disconnected client (its socket is gone), but
+the server-side work runs to the end. The provider-side cost of a
+disconnected stream is therefore the same as for a fully-connected one
+— the cost of the full response is paid either way; disconnect just
+removes the user from seeing it live.
+
+If the provider itself errors mid-stream after the client has already
+disconnected, whatever partial text was observed before the error is
+still persisted. The user sees the partial assistant message on
+return, not nothing.
 
 ---
 
