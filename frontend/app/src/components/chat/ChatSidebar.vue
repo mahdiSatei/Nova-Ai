@@ -7,12 +7,11 @@ import {
   PhChatCircleText,
   PhPlus,
   PhList,
-  PhPushPin,
   PhSignOut,
   PhChatsCircle,
-  PhTrash,
 } from '@phosphor-icons/vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import ConversationGroups from '@/components/chat/ConversationGroups.vue'
 import { useAuthStore } from '@/stores/auth'
 import { requestNewChat } from '@/composables/useNewChatSignal'
 import { listConversations, deleteConversation, setConversationPinned } from '@/api/conversations'
@@ -287,127 +286,33 @@ watch(
         @mouseenter="cancelFlyoutClose"
         @mouseleave="scheduleCloseFlyout"
       >
-        <p class="px-2 pb-1 text-[11px] font-medium uppercase tracking-wider text-ink-muted/70">
-          آخرین گفتگوها
-        </p>
-        <p v-if="items.length === 0" class="px-3 py-4 text-center text-xs text-ink-muted/70">
-          هنوز گفتگویی ندارید.
-        </p>
-        <ul v-else class="flex max-h-[60vh] flex-col gap-0.5 overflow-y-auto">
-          <li v-for="c in items" :key="c.id">
-            <div
-              class="group flex h-9 items-center overflow-hidden rounded-lg transition-colors"
-              :class="activeId === c.id ? 'bg-primary-soft' : 'hover:bg-hover'"
-            >
-              <button
-                type="button"
-                class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-2 text-start text-[13px] transition-colors"
-                :class="
-                  activeId === c.id
-                    ? 'font-medium text-primary'
-                    : 'text-ink-muted group-hover:text-ink'
-                "
-                :title="c.title?.trim() || 'بدون عنوان'"
-                @click="go(c.id)"
-              >
-                <PhChatsCircle class="size-4 shrink-0" aria-hidden="true" />
-                <span class="min-w-0 flex-1 truncate">{{ c.title?.trim() || 'بدون عنوان' }}</span>
-              </button>
-              <div class="flex shrink-0 items-center">
-                <button
-                  type="button"
-                  class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md transition-[color,background-color,opacity] focus-visible:opacity-100"
-                  :class="
-                    c.pinned
-                      ? 'opacity-100 text-primary'
-                      : 'opacity-0 group-hover:opacity-100 text-ink-muted/70 hover:text-ink'
-                  "
-                  :aria-label="c.pinned ? 'برداشتن پین گفتگو' : 'پین کردن گفتگو'"
-                  :title="c.pinned ? 'برداشتن پین' : 'پین کردن'"
-                  :disabled="pinBusyIds.has(c.id)"
-                  @click="onTogglePin(c)"
-                >
-                  <PhPushPin class="size-3.5" :weight="c.pinned ? 'fill' : 'regular'" aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md opacity-0 text-ink-muted/70 transition-[color,background-color,opacity] group-hover:opacity-100 hover:bg-danger-soft hover:text-danger focus-visible:opacity-100"
-                  aria-label="حذف گفتگو"
-                  title="حذف گفتگو"
-                  @click="startDelete(c.id)"
-                >
-                  <PhTrash class="size-3.5" aria-hidden="true" />
-                </button>
-              </div>
-            </div>
-          </li>
-        </ul>
+        <div class="max-h-[60vh] overflow-y-auto">
+          <ConversationGroups
+            :items="items"
+            :active-id="activeId"
+            :pin-busy-ids="pinBusyIds"
+            @open="go"
+            @toggle-pin="onTogglePin"
+            @remove="startDelete"
+          />
+        </div>
       </div>
     </div>
 
     <!-- آخرین گفتگوها -->
     <nav v-if="!rail" class="mt-4 min-h-0 flex-1 overflow-y-auto px-2 pb-2" :aria-label="'آخرین گفتگوها'">
-      <p v-if="!rail" class="px-2 pb-1 text-[11px] font-medium uppercase tracking-wider text-ink-muted/70">
-        آخرین گفتگوها
-      </p>
       <div v-if="loading && items.length === 0" class="flex flex-col gap-1.5 px-1">
-        <div v-for="i in 5" :key="i" class="h-9 animate-pulse rounded-lg bg-elevated" :class="{ 'ms-4': rail }" />
+        <div v-for="i in 5" :key="i" class="h-9 animate-pulse rounded-lg bg-elevated" />
       </div>
-      <p v-else-if="items.length === 0" class="px-3 py-6 text-center text-xs text-ink-muted/70">
-        {{ rail ? '' : 'هنوز گفتگویی ندارید.' }}
-      </p>
-      <ul v-else class="flex flex-col gap-0.5">
-        <li v-for="c in items" :key="c.id">
-          <div
-            class="group relative flex h-9 items-center overflow-hidden rounded-lg transition-colors"
-            :class="[activeId === c.id ? 'bg-primary-soft' : 'hover:bg-hover', { 'justify-center': rail }]"
-          >
-            <button
-              type="button"
-              class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-2 text-start text-[13px] transition-colors"
-              :class="
-                activeId === c.id
-                  ? 'font-medium text-primary'
-                  : 'text-ink-muted group-hover:text-ink'
-              "
-              :style="rail ? 'flex:0 0 auto' : ''"
-              :title="c.title?.trim() || 'بدون عنوان'"
-              @click="go(c.id)"
-            >
-              <PhChatsCircle class="size-4 shrink-0" aria-hidden="true" />
-              <template v-if="!rail">
-                <span class="min-w-0 flex-1 truncate">{{ c.title?.trim() || 'بدون عنوان' }}</span>
-              </template>
-            </button>
-            <div v-if="!rail" class="flex shrink-0 items-center">
-              <button
-                type="button"
-                class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md transition-[color,background-color,opacity] focus-visible:opacity-100 max-lg:opacity-100"
-                :class="
-                  c.pinned
-                    ? 'opacity-100 text-primary'
-                    : 'opacity-0 group-hover:opacity-100 text-ink-muted/70 hover:text-ink'
-                "
-                :aria-label="c.pinned ? 'برداشتن پین گفتگو' : 'پین کردن گفتگو'"
-                :title="c.pinned ? 'برداشتن پین' : 'پین کردن'"
-                :disabled="pinBusyIds.has(c.id)"
-                @click="onTogglePin(c)"
-              >
-                <PhPushPin class="size-3.5" :weight="c.pinned ? 'fill' : 'regular'" aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md opacity-0 text-ink-muted/70 transition-[color,background-color,opacity] group-hover:opacity-100 hover:bg-danger-soft hover:text-danger focus-visible:opacity-100 max-lg:opacity-100"
-                aria-label="حذف گفتگو"
-                title="حذف گفتگو"
-                @click="startDelete(c.id)"
-              >
-                <PhTrash class="size-3.5" aria-hidden="true" />
-              </button>
-            </div>
-          </div>
-        </li>
-      </ul>
+      <ConversationGroups
+        v-else
+        :items="items"
+        :active-id="activeId"
+        :pin-busy-ids="pinBusyIds"
+        @open="go"
+        @toggle-pin="onTogglePin"
+        @remove="startDelete"
+      />
     </nav>
 
     <!-- فوتر: حالت مدیر، کاربر -->
