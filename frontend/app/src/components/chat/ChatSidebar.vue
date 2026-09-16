@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // نوار کنایی مدرن: گفتگوی جدید + آخرین گفتگوها (پین/حذف) + حالت/کاربر.
 // دسکتاپ: جمع‌شونده به ریل آیکون (localStorage)؛ موبایل: کشوی روی‌صفحه‌ای.
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   PhChatCircleText,
@@ -32,6 +32,49 @@ const loading = ref(false)
 const pinBusyIds = ref<Set<string>>(new Set())
 const deletingId = ref<string | null>(null)
 const deleteBusy = ref(false)
+
+// فلای‌اوت گفتگوها در حالت ریل (هاور + تپ)
+const flyoutOpen = ref(false)
+const flyoutRoot = ref<HTMLElement | null>(null)
+let flyoutCloseTimer: ReturnType<typeof setTimeout> | null = null
+
+function cancelFlyoutClose(): void {
+  if (flyoutCloseTimer) {
+    clearTimeout(flyoutCloseTimer)
+    flyoutCloseTimer = null
+  }
+}
+
+function openFlyout(): void {
+  cancelFlyoutClose()
+  flyoutOpen.value = true
+}
+
+function scheduleCloseFlyout(): void {
+  cancelFlyoutClose()
+  flyoutCloseTimer = setTimeout(() => {
+    flyoutOpen.value = false
+  }, 150)
+}
+
+function closeFlyout(): void {
+  cancelFlyoutClose()
+  flyoutOpen.value = false
+}
+
+function toggleFlyout(): void {
+  cancelFlyoutClose()
+  flyoutOpen.value = !flyoutOpen.value
+}
+
+function onDocPointerDown(e: Event): void {
+  const root = flyoutRoot.value
+  if (root && !root.contains(e.target as Node)) closeFlyout()
+}
+
+function onFlyoutKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape') closeFlyout()
+}
 
 const rail = computed(() => collapsed.value && !mobileOpen.value)
 const activeId = computed(() =>
@@ -66,6 +109,7 @@ function closeMobile(): void {
 }
 
 function go(id: string): void {
+  closeFlyout()
   closeMobile()
   emit('navigate')
   void router.push({ name: 'chat-conversation', params: { id } })
@@ -131,6 +175,23 @@ async function onConfirmDelete(): Promise<void> {
 }
 
 onMounted(refresh)
+
+// بستن فلای‌اوت با کلیک بیرون یا Esc (لمسی/کیبورد)
+function bindFlyoutDismiss(): void {
+  document.addEventListener('pointerdown', onDocPointerDown)
+  document.addEventListener('keydown', onFlyoutKeydown)
+}
+function unbindFlyoutDismiss(): void {
+  document.removeEventListener('pointerdown', onDocPointerDown)
+  document.removeEventListener('keydown', onFlyoutKeydown)
+}
+onMounted(bindFlyoutDismiss)
+onUnmounted(unbindFlyoutDismiss)
+
+// وقتی ریل بسته شد، فلای‌اوت را ببند.
+watch(rail, (open) => {
+  if (!open) closeFlyout()
+})
 
 // بعد از بازگشت به /chat یا تغییر گفتگو، لیست را تازه نگه دار.
 watch(
@@ -198,8 +259,89 @@ watch(
       </button>
     </div>
 
+    <!-- حالت ریل: دکمه «گفتگوها» با فلای‌اوت (هاور/تپ) -->
+    <div
+      v-if="rail"
+      ref="flyoutRoot"
+      class="relative mt-4 flex shrink-0 justify-center px-2"
+      @mouseenter="openFlyout"
+      @mouseleave="scheduleCloseFlyout"
+    >
+      <button
+        type="button"
+        class="flex size-9 cursor-pointer items-center justify-center rounded-lg transition-colors"
+        :class="
+          flyoutOpen
+            ? 'bg-primary-soft text-primary'
+            : 'text-ink-muted hover:bg-hover hover:text-ink'
+        "
+        aria-label="نمایش گفتگوها"
+        :aria-expanded="flyoutOpen"
+        @click="toggleFlyout"
+      >
+        <PhChatsCircle class="size-4.5" aria-hidden="true" />
+      </button>
+
+      <div
+        v-if="flyoutOpen"
+        class="absolute top-0 start-full z-50 ms-2 w-64 rounded-xl border border-line bg-surface p-2 shadow-2xl"
+        @mouseenter="cancelFlyoutClose"
+        @mouseleave="scheduleCloseFlyout"
+      >
+        <p class="px-2 pb-1 text-[11px] font-medium uppercase tracking-wider text-ink-muted/70">
+          آخرین گفتگوها
+        </p>
+        <p v-if="items.length === 0" class="px-3 py-4 text-center text-xs text-ink-muted/70">
+          هنوز گفتگویی ندارید.
+        </p>
+        <ul v-else class="flex max-h-[60vh] flex-col gap-0.5 overflow-y-auto">
+          <li v-for="c in items" :key="c.id">
+            <div class="group flex items-center">
+              <button
+                type="button"
+                class="flex h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg px-2 text-start text-[13px] transition-colors"
+                :class="
+                  activeId === c.id
+                    ? 'bg-primary-soft font-medium text-primary'
+                    : 'text-ink-muted hover:bg-hover hover:text-ink'
+                "
+                :title="c.title?.trim() || 'بدون عنوان'"
+                @click="go(c.id)"
+              >
+                <PhChatsCircle class="size-4 shrink-0" aria-hidden="true" />
+                <span class="min-w-0 flex-1 truncate">{{ c.title?.trim() || 'بدون عنوان' }}</span>
+                <span class="shrink-0 text-[10px] text-ink-muted/60">{{ relativeTime(c.updatedAt) }}</span>
+              </button>
+              <div class="flex shrink-0 items-center">
+                <button
+                  type="button"
+                  class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md transition-colors"
+                  :class="c.pinned ? 'text-primary' : 'text-ink-muted/70 hover:bg-hover hover:text-ink'"
+                  :aria-label="c.pinned ? 'برداشتن پین گفتگو' : 'پین کردن گفتگو'"
+                  :title="c.pinned ? 'برداشتن پین' : 'پین کردن'"
+                  :disabled="pinBusyIds.has(c.id)"
+                  @click="onTogglePin(c)"
+                >
+                  <PhPushPin class="size-3.5" :weight="c.pinned ? 'fill' : 'regular'" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md text-ink-muted/70 transition-colors hover:bg-danger-soft hover:text-danger"
+                  aria-label="حذف گفتگو"
+                  title="حذف گفتگو"
+                  @click="startDelete(c.id)"
+                >
+                  <PhTrash class="size-3.5" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
+
     <!-- آخرین گفتگوها -->
-    <nav class="mt-4 min-h-0 flex-1 overflow-y-auto px-2 pb-2" :aria-label="'آخرین گفتگوها'">
+    <nav v-if="!rail" class="mt-4 min-h-0 flex-1 overflow-y-auto px-2 pb-2" :aria-label="'آخرین گفتگوها'">
       <p v-if="!rail" class="px-2 pb-1 text-[11px] font-medium uppercase tracking-wider text-ink-muted/70">
         آخرین گفتگوها
       </p>
