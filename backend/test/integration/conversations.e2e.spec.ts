@@ -152,8 +152,14 @@ describe('Conversations — e2e', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.items).toHaveLength(2);
-      expect(res.body.items[0].title).toBe('Second message');
-      expect(res.body.items[1].title).toBe('First message');
+      // SQLite timestamps have second granularity, so both rows can share
+      // an updatedAt when created in the same second — assert membership
+      // and non-ascending timestamps instead of an exact row order.
+      expect(new Set(res.body.items.map((i: any) => i.title))).toEqual(
+        new Set(['First message', 'Second message']),
+      );
+      const stamps = res.body.items.map((i: any) => Date.parse(i.updatedAt));
+      expect(stamps[0]).toBeGreaterThanOrEqual(stamps[1]);
     });
 
     it('only returns the caller\'s own conversations', async () => {
@@ -214,6 +220,137 @@ describe('Conversations — e2e', () => {
         .set('Authorization', `Bearer ${accessTokenB}`);
 
       expect(res.status).toBe(403);
+    });
+  });
+
+  // ─── pin ───────────────────────────────────────────────────────────────
+
+  describe('PATCH /v1/conversations/:id/pin', () => {
+    it('pins a conversation and returns pinned=true', async () => {
+      const { ConversationsService } = await import('../../src/modules/conversations/conversations.service');
+      const conversations = app.get(ConversationsService);
+
+      const created = await conversations.create({
+        userId: (await dsUserA()).id,
+        modelId: 'model-1',
+        userMessage: 'to pin',
+      });
+
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/conversations/${created.id}/pin`)
+        .set('Authorization', `Bearer ${accessTokenA}`)
+        .send({ pinned: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ id: created.id, pinned: true });
+    });
+
+    it('lists pinned conversations first regardless of recency', async () => {
+      const { ConversationsService } = await import('../../src/modules/conversations/conversations.service');
+      const conversations = app.get(ConversationsService);
+      const userId = (await dsUserA()).id;
+
+      const older = await conversations.create({ userId, modelId: 'model-1', userMessage: 'older pinned' });
+      const newer = await conversations.create({ userId, modelId: 'model-1', userMessage: 'newer unpinned' });
+
+      await request(app.getHttpServer())
+        .patch(`/v1/conversations/${older.id}/pin`)
+        .set('Authorization', `Bearer ${accessTokenA}`)
+        .send({ pinned: true });
+
+      const res = await request(app.getHttpServer())
+        .get('/v1/conversations')
+        .set('Authorization', `Bearer ${accessTokenA}`);
+
+      const items = res.body.items as Array<{ id: string; pinned: boolean }>;
+      // Every pinned row must precede every unpinned row, even though the
+      // pinned `older` row is less recent than the unpinned `newer` row.
+      const lastPinned = Math.max(...items.map((i, idx) => (i.pinned ? idx : -1)));
+      const firstUnpinned = Math.min(...items.map((i, idx) => (i.pinned ? Infinity : idx)));
+      expect(lastPinned).toBeGreaterThanOrEqual(0);
+      expect(firstUnpinned).toBeGreaterThan(lastPinned);
+      expect(items.find((i) => i.id === older.id)?.pinned).toBe(true);
+      expect(items.find((i) => i.id === newer.id)?.pinned).toBe(false);
+    });
+
+    it('can unpin a conversation', async () => {
+      const { ConversationsService } = await import('../../src/modules/conversations/conversations.service');
+      const conversations = app.get(ConversationsService);
+
+      const created = await conversations.create({
+        userId: (await dsUserA()).id,
+        modelId: 'model-1',
+        userMessage: 'unpin me',
+      });
+      await request(app.getHttpServer())
+        .patch(`/v1/conversations/${created.id}/pin`)
+        .set('Authorization', `Bearer ${accessTokenA}`)
+        .send({ pinned: true });
+
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/conversations/${created.id}/pin`)
+        .set('Authorization', `Bearer ${accessTokenA}`)
+        .send({ pinned: false });
+
+      expect(res.status).toBe(200);
+      expect(res.body.pinned).toBe(false);
+    });
+
+    it('returns 403 for another user\'s conversation', async () => {
+      const { ConversationsService } = await import('../../src/modules/conversations/conversations.service');
+      const conversations = app.get(ConversationsService);
+
+      const created = await conversations.create({
+        userId: (await dsUserA()).id,
+        modelId: 'model-1',
+        userMessage: 'not yours',
+      });
+
+      const res = await request(app.getHttpServer())
+        .patch(`/v1/conversations/${created.id}/pin`)
+        .set('Authorization', `Bearer ${accessTokenB}`)
+        .send({ pinned: true });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('returns 404 for a missing conversation', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/v1/conversations/00000000-0000-0000-0000-000000000000/pin')
+        .set('Authorization', `Bearer ${accessTokenA}`)
+        .send({ pinned: true });
+
+      expect(res.status).toBe(404);
+    });
+
+    it('returns 400 when pinned is missing or non-boolean', async () => {
+      const { ConversationsService } = await import('../../src/modules/conversations/conversations.service');
+      const conversations = app.get(ConversationsService);
+
+      const created = await conversations.create({
+        userId: (await dsUserA()).id,
+        modelId: 'model-1',
+        userMessage: 'validate me',
+      });
+
+      const missing = await request(app.getHttpServer())
+        .patch(`/v1/conversations/${created.id}/pin`)
+        .set('Authorization', `Bearer ${accessTokenA}`)
+        .send({});
+      expect(missing.status).toBe(400);
+
+      const wrongType = await request(app.getHttpServer())
+        .patch(`/v1/conversations/${created.id}/pin`)
+        .set('Authorization', `Bearer ${accessTokenA}`)
+        .send({ pinned: 'yes' });
+      expect(wrongType.status).toBe(400);
+    });
+
+    it('requires authentication', async () => {
+      const res = await request(app.getHttpServer())
+        .patch('/v1/conversations/whatever/pin')
+        .send({ pinned: true });
+      expect(res.status).toBe(401);
     });
   });
 

@@ -87,6 +87,22 @@ const server = createServer(async (req, res) => {
     if (!authUser(req)) return err(res, 401, 'invalid_token', 'invalid')
     const b = await readBody(req)
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' })
+    const now = new Date().toISOString()
+    let conv = b.conversationId ? store.conversations.find((c) => c.id === b.conversationId) : null
+    if (!conv) {
+      conv = {
+        id: 'c-' + (store.conversations.length + 1) + '-' + Date.now(),
+        modelId: b.modelId ?? 'm-1',
+        title: String(b.message ?? '').slice(0, 80),
+        pinned: false,
+        createdAt: now,
+        updatedAt: now,
+      }
+      store.conversations.push(conv)
+      store.messages.set(conv.id, [])
+    }
+    store.messages.get(conv.id).push({ id: 'm-' + Date.now(), role: 'user', content: b.message, createdAt: now })
+    res.write(`event: started\ndata: ${JSON.stringify({ conversationId: conv.id })}\n\n`)
     const text = [
       'Hello! You said: "' + b.message + '".',
       '',
@@ -107,12 +123,29 @@ const server = createServer(async (req, res) => {
       res.write(`data: ${JSON.stringify({ delta: ch })}\n\n`)
       await new Promise((r) => setTimeout(r, 10))
     }
+    conv.updatedAt = new Date().toISOString()
+    store.messages.get(conv.id).push({ id: 'm-' + Date.now() + '-a', role: 'assistant', content: text, createdAt: conv.updatedAt })
     res.write('event: done\ndata: {}\n\n')
     return res.end()
   }
 
-  if (p === '/v1/conversations' && m === 'GET') return json(res, 200, { items: store.conversations })
+  if (p === '/v1/conversations' && m === 'GET') {
+    const items = [...store.conversations].sort(
+      (a, c) => Number(c.pinned) - Number(a.pinned) || Date.parse(c.updatedAt) - Date.parse(a.updatedAt),
+    )
+    return json(res, 200, { items })
+  }
   const convMatch = p.match(/^\/v1\/conversations\/([^/]+)$/)
+  const pinMatch = p.match(/^\/v1\/conversations\/([^/]+)\/pin$/)
+  if (pinMatch && m === 'PATCH') {
+    if (!authUser(req)) return err(res, 401, 'invalid_token', 'invalid')
+    const conv = store.conversations.find((c) => c.id === pinMatch[1])
+    if (!conv) return err(res, 404, 'not_found', 'The requested resource was not found.')
+    const b = await readBody(req)
+    if (typeof b.pinned !== 'boolean') return err(res, 400, 'validation_failed', 'pinned must be a boolean')
+    conv.pinned = b.pinned
+    return json(res, 200, { id: conv.id, pinned: conv.pinned })
+  }
   if (convMatch) {
     const conv = store.conversations.find((c) => c.id === convMatch[1])
     if (!conv) return err(res, 404, 'not_found', 'The requested resource was not found.')

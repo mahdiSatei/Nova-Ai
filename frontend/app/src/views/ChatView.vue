@@ -3,13 +3,14 @@
 // states per FR-015 + BR-014: empty / no-models / streaming / error / success.
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { PhArrowsClockwise, PhSparkle, PhWarning, PhCaretDown, PhBrain, PhCode, PhBookOpenText, PhTranslate } from '@phosphor-icons/vue'
+import { PhArrowsClockwise, PhSparkle, PhWarning, PhCaretDown, PhBrain, PhCode, PhBookOpenText, PhTranslate, PhMoon, PhSun } from '@phosphor-icons/vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import ModelPicker from '@/components/chat/ModelPicker.vue'
 import MessageList from '@/components/chat/MessageList.vue'
 import MessageInput from '@/components/chat/MessageInput.vue'
 import { useChatStream } from '@/composables/useChatStream'
 import { useNewChatSignal } from '@/composables/useNewChatSignal'
+import { useTheme } from '@/composables/useTheme'
 import { useModelsStore } from '@/stores/models'
 import { apiErrorMessage } from '@/utils/errors'
 
@@ -21,6 +22,7 @@ const route = useRoute()
 const router = useRouter()
 const models = useModelsStore()
 const chat = useChatStream()
+const theme = useTheme()
 
 const inputText = ref('')
 const justStartedConversation = ref(false)
@@ -179,6 +181,16 @@ const suggestedPrompts = [
           @click="onRefreshModels"
         >
           <PhArrowsClockwise class="size-4" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          class="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink focus-visible:text-ink"
+          :aria-label="theme.theme.value === 'light' ? 'حالت تاریک' : 'حالت روشن'"
+          :title="theme.theme.value === 'light' ? 'تاریک' : 'روشن'"
+          @click="theme.toggleTheme()"
+        >
+          <PhMoon v-if="theme.theme.value === 'light'" class="size-4" aria-hidden="true" />
+          <PhSun v-else class="size-4" aria-hidden="true" />
         </button>
       </div>
     </header>

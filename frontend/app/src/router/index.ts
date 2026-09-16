@@ -26,8 +26,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       { path: '', name: 'chat', component: () => import('@/views/ChatView.vue') },
       { path: 'c/:id', name: 'chat-conversation', component: () => import('@/views/ChatView.vue'), props: true },
-      { path: 'history', name: 'history', component: () => import('@/views/HistoryView.vue') },
-      { path: 'history/:id', name: 'conversation', component: () => import('@/views/ConversationView.vue'), props: true },
+      { path: 'conversations/:id', name: 'conversation', component: () => import('@/views/ConversationView.vue'), props: true },
     ],
   },
 
