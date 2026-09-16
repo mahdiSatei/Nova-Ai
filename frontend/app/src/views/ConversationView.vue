@@ -49,7 +49,7 @@ async function onConfirmDelete(): Promise<void> {
   deleting.value = true
   try {
     await deleteConversation(props.id)
-    await router.push({ name: 'history' })
+    await router.push({ name: 'chat' })
   } catch (err) {
     if (err instanceof ApiError) error.value = err
   } finally {

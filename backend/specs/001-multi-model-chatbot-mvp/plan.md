@@ -109,7 +109,7 @@ stack consistency:
 |---|---|---|
 | I. Monorepo Backend Isolation | **PASS** | All code, config, and docs live under `backend/`. |
 | II. Agent Workflow Constraints | **PASS** | This plan is documentation only; no git ops performed. |
-| III. API-First Design | **PASS** | REST + JSON is the default; OpenAPI emitted from NestJS via `@nestjs/swagger` and committed to `contracts/openapi.yaml`. Contracts versioned at `v1`. SSE used for streaming with the contract documented in the OpenAPI extensions. |
+| III. API-First Design | **PASS** | REST + JSON is the default; OpenAPI emitted from NestJS via `@nestjs/swagger` and committed to `specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml`. Contracts versioned at `v1`. SSE used for streaming with the contract documented in the OpenAPI extensions. |
 | IV. Test-Alongside Quality | **PASS** | Jest + Supertest wired in `package.json`. Each task in the future `tasks.md` that adds a behavior MUST include a test in the same change set. |
 | V. Language & Stack Agnosticism | **PASS** | Stack selected here is recorded under "Technical Choices" with rationale, satisfying the principle's per-feature selection rule. No conflict — the constitution permits the operator to choose. |
 
@@ -119,7 +119,7 @@ stack consistency:
 |---|---|---|
 | Source under `backend/` | **PASS** | NestJS project rooted at `backend/`. |
 | Config from env / `.env` | **PASS** | `@nestjs/config` with validation; `.env` listed in `backend/.gitignore`. |
-| API contracts machine-readable, versioned | **PASS** | OpenAPI YAML under `backend/contracts/openapi.yaml`, prefixed `/v1`. |
+| API contracts machine-readable, versioned | **PASS** | OpenAPI YAML under `backend/specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml`, prefixed `/v1`. |
 | Data access via dedicated layer | **PASS** | TypeORM repositories; no query-builder usage in controllers. |
 | Structured logs | **PASS** | `nestjs-pino` JSON output, written via `pino-roll`. |
 | Sanitized client errors | **PASS** | Global `AllExceptionsFilter` translates internal errors to sanitized envelopes. |
@@ -141,7 +141,7 @@ specs/001-multi-model-chatbot-mvp/
 ├── data-model.md        # Phase 1 output
 ├── quickstart.md        # Phase 1 output
 ├── contracts/           # Phase 1 output
-│   └── openapi.yaml
+│   └── openapi-3.1.yaml  # Source of truth (hand-authored + regenerated via `npm run openapi:export`)
 ├── checklists/          # /speckit-checklist outputs
 └── tasks.md             # /speckit-tasks output (NOT generated here)
 ```
@@ -218,8 +218,6 @@ backend/
 │   ├── unit/
 │   ├── integration/
 │   └── fixtures/                        # Recorded OpenAI-shaped responses
-├── contracts/
-│   └── openapi.yaml                     # Generated / hand-augmented
 ├── logs/                                # Rotating daily logs (gitignored)
 ├── data/                                # SQLite file (gitignored)
 ├── .env.example                         # Committed
@@ -358,7 +356,7 @@ Reaffirmed from spec §Out of Scope:
 |---|---|
 | `specs/001-multi-model-chatbot-mvp/research.md` | Stack / pattern decisions |
 | `specs/001-multi-model-chatbot-mvp/data-model.md` | Entities, fields, relationships |
-| `specs/001-multi-model-chatbot-mvp/contracts/openapi.yaml` | Public + admin API contract |
+| `specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml` | Public + admin API contract |
 | `specs/001-multi-model-chatbot-mvp/quickstart.md` | Runnable validation guide |
 
 ## Complexity Tracking

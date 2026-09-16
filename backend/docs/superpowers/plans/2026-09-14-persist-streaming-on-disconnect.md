@@ -17,7 +17,7 @@ These apply to every task. Copied from `CLAUDE.md` and `specs/001-multi-model-ch
 - All source, tests, config, and docs produced by backend agents MUST live under `backend/`. No edits outside `backend/`.
 - **Agents do not touch git.** No `git add`, `git commit`, `git push`, `git checkout`, `git reset`, branch creation, tagging, or remote interaction. Every change that warrants a commit MUST be paired with a `Suggested commit message:` block in the agent's reply. The human operator commits.
 - Test-alongside quality: tests MUST be authored in the same change set as the implementation they cover and MUST pass before the change is mergeable. Tests are MANDATORY for business logic in domain services and for public API endpoints.
-- API-first design: REST + JSON + OpenAPI 3.0.3 (committed at `backend/specs/001-multi-model-chatbot-mvp/contracts/openapi.yaml`). SSE is the existing transport for `POST /v1/chat/stream`; this plan does not introduce a new endpoint.
+- API-first design: REST + JSON + OpenAPI 3.0.3 (committed at `backend/specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml`). SSE is the existing transport for `POST /v1/chat/stream`; this plan does not introduce a new endpoint.
 - Input validation: `class-validator` at the system boundary (already wired in `src/main.ts:33-40`). No new validation in this plan.
 - Error envelopes: sanitized via the global `AllExceptionsFilter` (`src/common/filters/all-exceptions.filter.ts`). No stack traces leaked to API responses.
 - Logging: structured JSON via `nestjs-pino`. New log lines MUST be key/value form, no PII, no `content` payloads.
@@ -41,7 +41,7 @@ This plan touches existing files only; no new modules, controllers, DTOs, entiti
 | `test/integration/chat.stream.e2e.spec.ts` | Adds an integration test that simulates a client disconnect mid-stream and asserts the **full** assistant message lands in `messages` via `GET /v1/conversations/:id`. |
 | `specs/001-multi-model-chatbot-mvp/spec.md` | Tightens US3 acceptance scenario 3 to make the new persistence-on-disconnect behavior normative. |
 | `specs/001-multi-model-chatbot-mvp/api-contract.md` | Adds a paragraph to §3.8 documenting the disconnect semantics (server keeps generating, persists full response). |
-| `specs/001-multi-model-chatbot-mvp/contracts/openapi.yaml` | Adds a one-line description note to `/v1/chat/stream` describing persistence on disconnect. |
+| `specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml` | Adds a one-line description note to `/v1/chat/stream` describing persistence on disconnect. |
 
 `src/modules/chat/provider/openai-compatible.client.ts` is **not** modified in this plan. The previous draft introduced an `AbortSignal` parameter on `stream()`; that work is dropped — YAGNI.
 
@@ -633,7 +633,7 @@ test(chat): e2e coverage for full-response persistence across disconnect
 **Files:**
 - Modify: `specs/001-multi-model-chatbot-mvp/spec.md:124-132` — tighten US3 acceptance scenario 3 to make the new behavior normative.
 - Modify: `specs/001-multi-model-chatbot-mvp/api-contract.md:220-240` — replace the §3.8 closing paragraph with a "Disconnect resilience" section.
-- Modify: `specs/001-multi-model-chatbot-mvp/contracts/openapi.yaml:243-296` — replace the `description:` block on `/v1/chat/stream` with a version that documents the new behavior.
+- Modify: `specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml:243-296` — replace the `description:` block on `/v1/chat/stream` with a version that documents the new behavior.
 
 **Interfaces:**
 - Consumes: the implementation introduced by Tasks 1–2.
@@ -679,9 +679,9 @@ still persisted. The user sees the partial assistant message on
 return, not nothing.
 ```
 
-- [ ] **Step 3: Replace the `description:` block on `/v1/chat/stream` in `openapi.yaml`**
+- [ ] **Step 3: Replace the `description:` block on `/v1/chat/stream` in `openapi-3.1.yaml`**
 
-In `specs/001-multi-model-chatbot-mvp/contracts/openapi.yaml`, find the `/v1/chat/stream` path (around lines 243–296) and replace the entire `description:` value (currently the indented block under the `description: |` line) with:
+In `specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml`, find the `/v1/chat/stream` path (around lines 243–296) and replace the entire `description:` value (currently the indented block under the `description: |` line) with:
 
 ```yaml
       description: |
@@ -718,7 +718,7 @@ docs(chat): document disconnect-resilience semantics
 - Replace the §3.8 closing paragraph in api-contract.md with a
   "Disconnect resilience" section that explains provider cost, the
   partial-on-provider-error case, and the GET-based recovery path
-- Replace the description on /v1/chat/stream in openapi.yaml to match
+- Replace the description on /v1/chat/stream in openapi-3.1.yaml to match
 ```
 
 ---

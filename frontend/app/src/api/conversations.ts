@@ -16,3 +16,10 @@ export function getConversation(id: string): Promise<ConversationDetail> {
 export function deleteConversation(id: string): Promise<void> {
   return request<void>(`/v1/conversations/${id}`, { method: 'DELETE' })
 }
+
+export function setConversationPinned(id: string, pinned: boolean): Promise<{ id: string; pinned: boolean }> {
+  return request<{ id: string; pinned: boolean }>(`/v1/conversations/${id}/pin`, {
+    method: 'PATCH',
+    body: { pinned },
+  })
+}

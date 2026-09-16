@@ -24,12 +24,12 @@ export class CentralProvider {
   @Column({ name: 'api_key_encrypted', type: 'text' })
   apiKeyEncrypted!: string;
 
-  @Column({ name: 'last_validated_at', type: 'datetime', nullable: true })
+  @Column({ name: 'last_validated_at', type: Date, nullable: true })
   lastValidatedAt!: Date | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'datetime' })
+  @CreateDateColumn({ name: 'created_at', type: Date })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'datetime' })
+  @UpdateDateColumn({ name: 'updated_at', type: Date })
   updatedAt!: Date;
 }

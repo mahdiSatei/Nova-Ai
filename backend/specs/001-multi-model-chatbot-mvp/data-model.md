@@ -141,12 +141,14 @@ A chat session owned by one user, attached to one model at creation time.
 | `userId` | uuid (FK → User.id) | not null, indexed | owner |
 | `modelId` | uuid (FK → Model.id) | not null, indexed | model chosen when the conversation started |
 | `title` | text | nullable | first user message truncated to 80 chars on first save; user may rename later |
+| `pinned` | boolean | not null, default false | pinned conversations sort before unpinned ones in the list |
 | `createdAt` | datetime | not null, indexed | |
 | `updatedAt` | datetime | not null, indexed | updated on every new message |
 
 **Validation rules**:
 - The user MAY have multiple active conversations in parallel.
 - Deleting a conversation is a hard delete (cascade deletes its messages).
+- Only the owner may pin/unpin or delete a conversation.
 
 **State transitions**: none beyond create / read / delete.
 
