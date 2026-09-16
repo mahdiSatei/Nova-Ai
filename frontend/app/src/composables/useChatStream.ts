@@ -119,6 +119,7 @@ export function useChatStream(): ChatStreamHandle {
       role: 'user',
       content: trimmed,
       createdAt: new Date().toISOString(),
+      status: 'completed',
     }
     pendingUser.value = userMsg
 
@@ -129,9 +130,6 @@ export function useChatStream(): ChatStreamHandle {
 
     const handlers: StreamHandlers = {
       onDelta: appendDelta,
-      onStarted: (id) => {
-        conversationId.value = id
-      },
       onDone: async () => {
         streamCompletedAt.value = new Date().toISOString()
         phase.value = 'idle' // آماده برای دریافت پیام بعدی
@@ -149,6 +147,7 @@ export function useChatStream(): ChatStreamHandle {
             role: 'assistant',
             content: streamingText.value,
             createdAt: new Date().toISOString(),
+            status: 'completed',
           })
           streamingText.value = ''
         }
@@ -177,6 +176,7 @@ export function useChatStream(): ChatStreamHandle {
             role: 'assistant',
             content: streamingText.value,
             createdAt: new Date().toISOString(),
+            status: 'failed',
           })
           streamingText.value = ''
         }
@@ -211,6 +211,7 @@ export function useChatStream(): ChatStreamHandle {
           role: 'assistant',
           content: streamingText.value,
           createdAt: new Date().toISOString(),
+          status: 'failed',
         })
         streamingText.value = ''
       }

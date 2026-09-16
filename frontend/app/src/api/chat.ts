@@ -1,19 +1,12 @@
-import { API_BASE, buildUrl, newRequestId, tokenStore } from '@/api/http'
+import { API_BASE, buildUrl, newRequestId, request, tokenStore } from '@/api/http'
 import { streamErrorMessage } from '@/utils/errors'
 import type { ChatRequest, SseDelta, SseError } from '@/types/api'
 
 export interface StreamHandlers {
   onDelta: (text: string) => void
   onDone: () => void
-  /** Backend may emit `event: started` with `{conversationId}` once the server
-   *  has created/picked a conversation. Used to update the URL on first message. */
-  onStarted?: (conversationId: string) => void
-  /** stream-level error event, HTTP-level error, or network failure */
+  /** Stream-level error event, HTTP-level error, or network failure */
   onError: (err: { code: string; message: string }) => void
-}
-
-export interface SseStarted {
-  conversationId: string
 }
 
 /**
@@ -87,15 +80,6 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
             handlers.onDone()
             return
           }
-          if (eventName === 'started') {
-            try {
-              const parsed = JSON.parse(payload) as SseStarted
-              if (parsed.conversationId && handlers.onStarted) handlers.onStarted(parsed.conversationId)
-            } catch {
-              /* malformed started frame — ignore */
-            }
-            continue
-          }
           if (eventName === 'error') {
             let parsed: Partial<SseError> = {}
             try {
@@ -134,6 +118,29 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
   })()
 
   return controller
+}
+
+/**
+ * POST /v1/chat/:conversationId/cancel — cancel the active generation.
+ */
+export async function cancelGeneration(conversationId: string): Promise<{ messageId: string; status: string }> {
+  return request<{ messageId: string; status: string }>(`/v1/chat/${conversationId}/cancel`, {
+    method: 'POST',
+  })
+}
+
+/**
+ * POST /v1/chat/:conversationId/retry — retry a failed/cancelled generation.
+ * Body: { failedMessageId: string }
+ */
+export async function retryGeneration(
+  conversationId: string,
+  failedMessageId: string,
+): Promise<{ messageId: string; status: string }> {
+  return request<{ messageId: string; status: string }>(`/v1/chat/${conversationId}/retry`, {
+    method: 'POST',
+    body: { failedMessageId },
+  })
 }
 
 export { API_BASE }
