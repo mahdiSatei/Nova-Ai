@@ -28,6 +28,6 @@ export class Message {
   @Column({ type: 'text' })
   content!: string;
 
-  @CreateDateColumn({ name: 'created_at', type: Date })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 }

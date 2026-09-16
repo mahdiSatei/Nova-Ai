@@ -8,6 +8,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { UsersModule } from '../users/users.module';
 import { AuthService } from './auth.service';
+import { AdminAuthController } from './admin-auth.controller';
 import { AuthController } from './auth.controller';
 
 @Module({
@@ -24,7 +25,7 @@ import { AuthController } from './auth.controller';
       }),
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, AdminAuthController],
   providers: [JwtStrategy, AuthService],
   exports: [AuthService],
 })

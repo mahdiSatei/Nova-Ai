@@ -36,13 +36,10 @@ export class Conversation {
   @Column({ type: 'text', nullable: true })
   title!: string | null;
 
-  @Column({ type: 'boolean', default: false })
-  pinned!: boolean;
-
-  @CreateDateColumn({ name: 'created_at', type: Date })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: Date })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamp' })
   updatedAt!: Date;
 
   @OneToMany(() => Message, (m) => m.conversation, { cascade: true })

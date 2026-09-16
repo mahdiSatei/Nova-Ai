@@ -32,6 +32,12 @@ const routes: RouteRecordRaw[] = [
 
   // ---- Admin ----
   {
+    path: '/admin/login',
+    name: 'admin-login',
+    component: () => import('@/views/admin/AdminLoginView.vue'),
+    meta: { guestOnly: true },
+  },
+  {
     path: '/admin',
     component: () => import('@/layouts/AdminShell.vue'),
     meta: { requiresAuth: true, role: 'admin' },
@@ -61,7 +67,11 @@ router.beforeEach(async (to) => {
 
   if (to.meta.requiresAuth) {
     if (!auth.isAuthenticated) {
-      return { name: 'login', query: { redirect: to.fullPath } }
+      // Pick the right login page based on what the caller was trying
+      // to reach — admin-area visitors go to /admin/login, not /login.
+      const requiredRole = to.meta.role as 'user' | 'admin' | undefined
+      const loginRoute = requiredRole === 'admin' ? 'admin-login' : 'login'
+      return { name: loginRoute, query: { redirect: to.fullPath } }
     }
     const requiredRole = to.meta.role as 'user' | 'admin' | undefined
     const actualRole = auth.user?.role

@@ -32,14 +32,18 @@ describe('AuthService', () => {
   const TEST_PASSWORD = 'correct-horse-battery-staple';
   let TEST_HASH: string;
 
-  const validUser = (): User =>
+  const validUser = (overrides: Partial<User> = {}): User =>
     ({
       id: 'u-1',
       email: 'a@example.com',
       passwordHash: TEST_HASH,
       role: 'user',
       createdAt: new Date(),
-      lastLoginAt: null,
+      lastLoginAt: undefined,
+      lastSelectedModelId: null,
+      refreshTokens: [],
+      conversations: [],
+      ...overrides,
     } as User);
 
   beforeAll(() => {
@@ -121,6 +125,29 @@ describe('AuthService', () => {
     expect(r.accessToken).toMatch(/^signed-token-/);
     expect(r.refreshToken).toMatch(/^signed-token-/);
     expect(users.markLoggedIn).toHaveBeenCalledWith('u-1');
+  });
+
+  it('loginAsAdmin throws UnauthorizedException for a non-admin account (even with valid password)', async () => {
+    users.findByEmail.mockResolvedValue(validUser()); // role === 'user'
+    await expect(
+      svc.loginAsAdmin('a@example.com', 'correct-horse-battery-staple'),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(jwt.signAsync).not.toHaveBeenCalled();
+  });
+
+  it('loginAsAdmin issues a token pair when the account is an admin', async () => {
+    users.findByEmail.mockResolvedValue({ ...validUser(), role: 'admin' });
+    const r = await svc.loginAsAdmin('admin@example.com', 'correct-horse-battery-staple');
+    expect(r.accessToken).toMatch(/^signed-token-/);
+    expect(r.refreshToken).toMatch(/^signed-token-/);
+    expect(users.markLoggedIn).toHaveBeenCalledWith('u-1');
+  });
+
+  it('loginAsAdmin returns generic 401 for unknown email (no enumeration)', async () => {
+    users.findByEmail.mockResolvedValue(null);
+    await expect(
+      svc.loginAsAdmin('nobody@example.com', 'whatever-12-chars'),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('refresh rotates: old jti is revoked, new pair issued', async () => {

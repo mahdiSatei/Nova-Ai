@@ -25,12 +25,12 @@ export class RefreshToken {
   @Column({ type: 'text' })
   jti!: string;
 
-  @Column({ name: 'expires_at', type: Date })
+  @Column({ name: 'expires_at' })
   expiresAt!: Date;
 
-  @Column({ name: 'revoked_at', type: Date, nullable: true })
-  revokedAt!: Date | null;
+  @Column({ name: 'revoked_at', nullable: true })
+  revokedAt?: Date;
 
-  @CreateDateColumn({ name: 'created_at', type: Date })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 }

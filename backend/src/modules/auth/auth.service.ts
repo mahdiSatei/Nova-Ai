@@ -54,11 +54,12 @@ export class AuthService {
   }
 
   /**
-   * Login: returns a generic 401 for any failure (wrong password,
-   * unknown email, disabled account) so email enumeration is
-   * impossible.
+   * Authenticate (resolve the user + verify password + mark lastLoginAt).
+   * Returns the User row on success. On ANY failure (unknown email OR wrong
+   * password) throws generic UnauthorizedException so callers cannot
+   * distinguish the two — no email enumeration, no role enumeration.
    */
-  async login(email: string, password: string): Promise<AuthResponseDto> {
+  private async authenticate(email: string, password: string): Promise<User> {
     const user = await this.users.findByEmail(email);
     if (!user) {
       // Constant-time-ish no-op so attackers can't time-distinguish.
@@ -76,6 +77,32 @@ export class AuthService {
       });
     }
     await this.users.markLoggedIn(user.id);
+    return user;
+  }
+
+  /**
+   * Login: returns a generic 401 for any failure (wrong password,
+   * unknown email, disabled account) so email enumeration is
+   * impossible.
+   */
+  async login(email: string, password: string): Promise<AuthResponseDto> {
+    const user = await this.authenticate(email, password);
+    return this.issueTokens(user);
+  }
+
+  /**
+   * Admin login: same flow as login(), plus a strict role check. Any
+   * non-admin account (regardless of password validity) receives the
+   * same generic 401 as a bad password — no role enumeration.
+   */
+  async loginAsAdmin(email: string, password: string): Promise<AuthResponseDto> {
+    const user = await this.authenticate(email, password);
+    if (user.role !== 'admin') {
+      throw new UnauthorizedException({
+        code: 'invalid_credentials',
+        message: 'The provided credentials were invalid.',
+      });
+    }
     return this.issueTokens(user);
   }
 
@@ -170,7 +197,6 @@ export class AuthService {
         userId: user.id,
         jti: refreshJti,
         expiresAt: refreshExpiresAt,
-        revokedAt: null,
       }),
     );
 

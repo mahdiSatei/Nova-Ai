@@ -25,6 +25,6 @@ export class AppConfig {
   @JoinColumn({ name: 'default_model_id' })
   defaultModel!: Model | null;
 
-  @UpdateDateColumn({ name: 'updated_at', type: Date })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 }
