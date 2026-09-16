@@ -296,14 +296,17 @@ watch(
         </p>
         <ul v-else class="flex max-h-[60vh] flex-col gap-0.5 overflow-y-auto">
           <li v-for="c in items" :key="c.id">
-            <div class="group flex items-center">
+            <div
+              class="group flex h-9 items-center overflow-hidden rounded-lg transition-colors"
+              :class="activeId === c.id ? 'bg-primary-soft' : 'hover:bg-hover'"
+            >
               <button
                 type="button"
-                class="flex h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg px-2 text-start text-[13px] transition-colors"
+                class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-2 text-start text-[13px] transition-colors"
                 :class="
                   activeId === c.id
-                    ? 'bg-primary-soft font-medium text-primary'
-                    : 'text-ink-muted hover:bg-hover hover:text-ink'
+                    ? 'font-medium text-primary'
+                    : 'text-ink-muted group-hover:text-ink'
                 "
                 :title="c.title?.trim() || 'بدون عنوان'"
                 @click="go(c.id)"
@@ -315,8 +318,12 @@ watch(
               <div class="flex shrink-0 items-center">
                 <button
                   type="button"
-                  class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md transition-colors"
-                  :class="c.pinned ? 'text-primary' : 'text-ink-muted/70 hover:bg-hover hover:text-ink'"
+                  class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md transition-[color,background-color,opacity] focus-visible:opacity-100"
+                  :class="
+                    c.pinned
+                      ? 'opacity-100 text-primary'
+                      : 'opacity-0 group-hover:opacity-100 text-ink-muted/70 hover:text-ink'
+                  "
                   :aria-label="c.pinned ? 'برداشتن پین گفتگو' : 'پین کردن گفتگو'"
                   :title="c.pinned ? 'برداشتن پین' : 'پین کردن'"
                   :disabled="pinBusyIds.has(c.id)"
@@ -326,7 +333,7 @@ watch(
                 </button>
                 <button
                   type="button"
-                  class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md text-ink-muted/70 transition-colors hover:bg-danger-soft hover:text-danger"
+                  class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md opacity-0 text-ink-muted/70 transition-[color,background-color,opacity] group-hover:opacity-100 hover:bg-danger-soft hover:text-danger focus-visible:opacity-100"
                   aria-label="حذف گفتگو"
                   title="حذف گفتگو"
                   @click="startDelete(c.id)"
@@ -354,16 +361,16 @@ watch(
       <ul v-else class="flex flex-col gap-0.5">
         <li v-for="c in items" :key="c.id">
           <div
-            class="group relative flex items-center"
-            :class="{ 'justify-center': rail }"
+            class="group relative flex h-9 items-center overflow-hidden rounded-lg transition-colors"
+            :class="[activeId === c.id ? 'bg-primary-soft' : 'hover:bg-hover', { 'justify-center': rail }]"
           >
             <button
               type="button"
-              class="flex h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg px-2 text-start text-[13px] transition-colors"
+              class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-2 text-start text-[13px] transition-colors"
               :class="
                 activeId === c.id
-                  ? 'bg-primary-soft font-medium text-primary'
-                  : 'text-ink-muted hover:bg-hover hover:text-ink'
+                  ? 'font-medium text-primary'
+                  : 'text-ink-muted group-hover:text-ink'
               "
               :style="rail ? 'flex:0 0 auto' : ''"
               :title="c.title?.trim() || 'بدون عنوان'"
@@ -378,8 +385,12 @@ watch(
             <div v-if="!rail" class="flex shrink-0 items-center">
               <button
                 type="button"
-                class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md transition-colors"
-                :class="c.pinned ? 'text-primary' : 'text-ink-muted/70 hover:bg-hover hover:text-ink'"
+                class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md transition-[color,background-color,opacity] focus-visible:opacity-100 max-lg:opacity-100"
+                :class="
+                  c.pinned
+                    ? 'opacity-100 text-primary'
+                    : 'opacity-0 group-hover:opacity-100 text-ink-muted/70 hover:text-ink'
+                "
                 :aria-label="c.pinned ? 'برداشتن پین گفتگو' : 'پین کردن گفتگو'"
                 :title="c.pinned ? 'برداشتن پین' : 'پین کردن'"
                 :disabled="pinBusyIds.has(c.id)"
@@ -389,7 +400,7 @@ watch(
               </button>
               <button
                 type="button"
-                class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md text-ink-muted/70 transition-colors hover:bg-danger-soft hover:text-danger"
+                class="size-7 inline-flex cursor-pointer items-center justify-center rounded-md opacity-0 text-ink-muted/70 transition-[color,background-color,opacity] group-hover:opacity-100 hover:bg-danger-soft hover:text-danger focus-visible:opacity-100 max-lg:opacity-100"
                 aria-label="حذف گفتگو"
                 title="حذف گفتگو"
                 @click="startDelete(c.id)"
