@@ -160,7 +160,7 @@ watch(
   >
     <!-- هدر: لوگو + جمع‌کردن -->
     <div class="flex h-14 shrink-0 items-center gap-2 px-3">
-      <RouterLink to="/chat" class="flex min-w-0 items-center gap-2" @click="closeMobile">
+      <RouterLink v-if="!rail" to="/chat" class="flex min-w-0 items-center gap-2" @click="closeMobile">
         <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft">
           <PhChatCircleText class="size-4.5 text-primary" aria-hidden="true" />
         </span>
