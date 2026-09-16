@@ -411,7 +411,7 @@ watch(
     </nav>
 
     <!-- فوتر: حالت مدیر، کاربر -->
-    <div class="shrink-0 border-t border-line/70 p-2">
+    <div class="mt-auto shrink-0 border-t border-line/70 p-2">
       <RouterLink
         v-if="auth.isAdmin"
         to="/admin/provider"
