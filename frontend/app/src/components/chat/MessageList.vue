@@ -3,13 +3,20 @@
 // هر ردیف با ChatMessage رندر می‌شود (Markdown برای دستیار، حباب برای کاربر).
 import { computed } from 'vue'
 import ChatMessage from '@/components/chat/ChatMessage.vue'
-import type { MessagePublic } from '@/types/api'
+import type { MessagePublic, MessageStatus } from '@/types/api'
+
+type GenerationStatus = 'idle' | 'streaming' | 'completed' | 'failed' | 'cancelled'
 
 const props = defineProps<{
   messages: MessagePublic[]
   pendingUser?: MessagePublic | null
   streamingText?: string
   isStreaming?: boolean
+  /** Active generation for recovery UI */
+  generation?: { conversationId: string; assistantMessageId: string; status: GenerationStatus; content: string } | null
+  onRetry?: (failedMessageId: string) => void
+  onReconnect?: () => void
+  onCancel?: () => void
 }>()
 
 interface Row {
@@ -19,17 +26,29 @@ interface Row {
   createdAt: string | null
   streaming: boolean
   pending: boolean
+  status: MessageStatus
+  showRecovery: boolean
+  recoveryStatus: GenerationStatus | null
 }
 
 const rows = computed<Row[]>(() => {
-  const out: Row[] = props.messages.map((m) => ({
-    key: m.id,
-    role: m.role,
-    content: m.content,
-    createdAt: m.createdAt,
-    streaming: false,
-    pending: false,
-  }))
+  const out: Row[] = []
+
+  for (const m of props.messages) {
+    const isActiveStreaming = m.status === 'streaming'
+    out.push({
+      key: m.id,
+      role: m.role,
+      content: m.content,
+      createdAt: m.createdAt,
+      streaming: isActiveStreaming,
+      pending: false,
+      status: m.status,
+      showRecovery: isActiveStreaming || m.status === 'failed' || m.status === 'cancelled',
+      recoveryStatus: m.status as GenerationStatus,
+    })
+  }
+
   if (props.pendingUser) {
     out.push({
       key: props.pendingUser.id,
@@ -38,8 +57,12 @@ const rows = computed<Row[]>(() => {
       createdAt: props.pendingUser.createdAt,
       streaming: false,
       pending: Boolean(props.isStreaming),
+      status: 'completed',
+      showRecovery: false,
+      recoveryStatus: null,
     })
   }
+
   if (props.streamingText || props.isStreaming) {
     out.push({
       key: 'streaming',
@@ -48,8 +71,12 @@ const rows = computed<Row[]>(() => {
       createdAt: null,
       streaming: Boolean(props.isStreaming),
       pending: false,
+      status: 'streaming',
+      showRecovery: false,
+      recoveryStatus: null,
     })
   }
+
   return out
 })
 </script>
@@ -64,6 +91,12 @@ const rows = computed<Row[]>(() => {
       :created-at="row.createdAt"
       :streaming="row.streaming"
       :pending="row.pending"
+      :status="row.status"
+      :show-recovery="row.showRecovery"
+      :recovery-status="row.recoveryStatus"
+      :on-retry="onRetry"
+      :on-reconnect="onReconnect"
+      :on-cancel="onCancel"
     />
   </ol>
 </template>
