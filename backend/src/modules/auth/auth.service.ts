@@ -211,6 +211,7 @@ export class AuthService {
         id: user.id,
         email: user.email,
         username: user.username ?? null,
+        displayName: user.displayName ?? null,
         role: user.role,
         createdAt: user.createdAt.toISOString(),
         lastLoginAt: user.lastLoginAt ? user.lastLoginAt.toISOString() : null,

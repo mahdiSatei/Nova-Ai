@@ -38,3 +38,9 @@ export function validateIdentifier(value: string): string | null {
   if (value.trim().length < 3) return 'حداقل ۳ کاراکتر وارد کنید.'
   return null
 }
+
+/** نام نمایشی اختیاری؛ حداکثر ۵۰ کاراکتر. */
+export function validateDisplayName(value: string): string | null {
+  if (value.trim().length > 50) return 'نام نمایشی حداکثر ۵۰ کاراکتر است.'
+  return null
+}

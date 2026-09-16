@@ -5,6 +5,7 @@ export interface UserPublic {
   id: string
   email: string
   username: string | null
+  displayName: string | null
   role: Role
   createdAt: string
   lastLoginAt?: string | null

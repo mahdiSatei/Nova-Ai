@@ -121,3 +121,6 @@ secrets/
 # AI Agent Specific Ignores
 skills-lock.json
 .claude
+
+.kilo
+.specify

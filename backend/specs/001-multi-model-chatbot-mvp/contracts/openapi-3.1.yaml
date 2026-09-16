@@ -193,6 +193,25 @@ paths:
       responses:
         "200":
           description: ""
+  /v1/users/me:
+    get:
+      operationId: UsersController_me
+      parameters: []
+      responses:
+        "200":
+          description: ""
+    patch:
+      operationId: UsersController_updateMe
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMeRequestDto"
+      responses:
+        "200":
+          description: ""
   /healthz:
     get:
       operationId: HealthController_liveness
@@ -275,6 +294,9 @@ components:
       type: object
       properties: {}
     RefreshRequestDto:
+      type: object
+      properties: {}
+    UpdateMeRequestDto:
       type: object
       properties: {}
     CentralProviderUpdateDto:

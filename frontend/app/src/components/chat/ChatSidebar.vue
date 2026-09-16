@@ -12,6 +12,8 @@ import {
 } from '@phosphor-icons/vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import ConversationGroups from '@/components/chat/ConversationGroups.vue'
+import ProfileModal from '@/components/user/ProfileModal.vue'
+import UserAvatar from '@/components/user/UserAvatar.vue'
 import { useAuthStore } from '@/stores/auth'
 import { requestNewChat } from '@/composables/useNewChatSignal'
 import { listConversations, deleteConversation, setConversationPinned } from '@/api/conversations'
@@ -30,6 +32,7 @@ const loading = ref(false)
 const pinBusyIds = ref<Set<string>>(new Set())
 const deletingId = ref<string | null>(null)
 const deleteBusy = ref(false)
+const profileOpen = ref(false)
 
 // فلای‌اوت گفتگوها در حالت ریل (هاور + تپ)
 const flyoutOpen = ref(false)
@@ -79,7 +82,9 @@ const activeId = computed(() =>
   route.name === 'chat-conversation' ? String(route.params.id ?? '') : null,
 )
 
-const initials = computed(() => auth.user?.email.slice(0, 2).toUpperCase() ?? '··')
+const profileLabel = computed(
+  () => auth.user?.displayName ?? auth.user?.email ?? 'حساب کاربری',
+)
 
 async function refresh(): Promise<void> {
   loading.value = true
@@ -339,16 +344,21 @@ watch(
         </button>
       </div>
 
-      <div
-        class="mt-2 flex items-center gap-2 rounded-lg px-1.5 py-1.5"
+      <button
+        type="button"
+        class="mt-2 flex w-full cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1.5 text-start transition-colors hover:bg-hover"
         :class="{ 'justify-center px-0': rail }"
-        :title="auth.user?.email"
+        :title="'مشاهده پروفایل'"
+        :aria-label="'مشاهده پروفایل'"
+        @click="profileOpen = true"
       >
-        <span class="flex size-7 shrink-0 items-center justify-center rounded-full bg-elevated text-[10px] font-bold text-ink-muted">
-          {{ initials }}
+        <span class="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-elevated">
+          <UserAvatar :value="auth.user?.id ?? 'anonymous'" :size="28" />
         </span>
-        <span v-if="!rail" class="min-w-0 flex-1 truncate text-xs text-ink-muted" dir="ltr">{{ auth.user?.email }}</span>
-      </div>
+        <span v-if="!rail" class="min-w-0 flex-1 truncate text-xs text-ink-muted" :dir="auth.user?.displayName ? undefined : 'ltr'">
+          {{ profileLabel }}
+        </span>
+      </button>
     </div>
   </aside>
 
@@ -361,4 +371,6 @@ watch(
     @update:open="(v: boolean) => { if (!v) deletingId = null }"
     @confirm="onConfirmDelete"
   />
+
+  <ProfileModal :open="profileOpen" @update:open="profileOpen = $event" />
 </template>

@@ -23,6 +23,10 @@ export class User {
   @Column({ type: 'text', nullable: true })
   username!: string | null;
 
+  /** Optional profile display name. Null or non-blank. */
+  @Column({ name: 'display_name', type: 'text', nullable: true })
+  displayName!: string | null;
+
   @Column({ name: 'password_hash', type: 'text' })
   passwordHash!: string;
 

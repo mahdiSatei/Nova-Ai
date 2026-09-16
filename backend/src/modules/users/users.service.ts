@@ -78,6 +78,18 @@ export class UsersService {
     return user;
   }
 
+  /**
+   * Set (or clear) the profile display name. Returns the updated user;
+   * throws NotFoundException for an unknown id. The caller (controller)
+   * normalizes input: trimmed, whitespace-only becomes null.
+   */
+  async updateDisplayName(id: string, displayName: string | null): Promise<User> {
+    const user = await this.repo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException();
+    user.displayName = displayName;
+    return this.repo.save(user);
+  }
+
   /** Update lastLoginAt to now. Silent on failure — best-effort. */
   async markLoggedIn(id: string): Promise<void> {
     try {
