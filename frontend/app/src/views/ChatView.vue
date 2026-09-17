@@ -190,7 +190,8 @@ const suggestedPrompts = [
           </button>
         </div>
       </div>
-    </header>
+
+      <!-- status chip + model picker + buttons (original header content) -->
       <div
         class="inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 py-1 pe-1 ps-3 text-xs shadow-sm backdrop-blur transition-colors"
       >
