@@ -9,6 +9,7 @@ import {
   PhList,
   PhSignOut,
   PhChatsCircle,
+  PhUserGear,
 } from '@phosphor-icons/vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import ConversationGroups from '@/components/chat/ConversationGroups.vue'
@@ -34,6 +35,30 @@ const pinBusyIds = ref<Set<string>>(new Set())
 const deletingId = ref<string | null>(null)
 const deleteBusy = ref(false)
 const profileOpen = ref(false)
+
+// منوی حساب کاربری (پروفایل/خروج)
+const userMenuOpen = ref(false)
+const userMenuRoot = ref<HTMLElement | null>(null)
+
+function onDocPointerDownUserMenu(e: Event): void {
+  const root = userMenuRoot.value
+  if (root && !root.contains(e.target as Node)) userMenuOpen.value = false
+}
+
+function onUserMenuKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape') userMenuOpen.value = false
+}
+
+function onEditProfile(): void {
+  userMenuOpen.value = false
+  closeMobile()
+  profileOpen.value = true
+}
+
+async function onMenuSignOut(): Promise<void> {
+  userMenuOpen.value = false
+  await onSignOut()
+}
 
 // فلای‌اوت گفتگوها در حالت ریل (هاور + تپ)
 const flyoutOpen = ref(false)
@@ -184,10 +209,12 @@ onMounted(refresh)
 function bindFlyoutDismiss(): void {
   document.addEventListener('pointerdown', onDocPointerDown)
   document.addEventListener('keydown', onFlyoutKeydown)
+  document.addEventListener('pointerdown', onDocPointerDownUserMenu)
 }
 function unbindFlyoutDismiss(): void {
   document.removeEventListener('pointerdown', onDocPointerDown)
   document.removeEventListener('keydown', onFlyoutKeydown)
+  document.removeEventListener('pointerdown', onDocPointerDownUserMenu)
 }
 onMounted(bindFlyoutDismiss)
 onUnmounted(unbindFlyoutDismiss)
@@ -196,6 +223,14 @@ onUnmounted(unbindFlyoutDismiss)
 watch(rail, (open) => {
   if (!open) closeFlyout()
 })
+
+// بستن منوی کاربر هنگام ناوبری
+watch(
+  () => route.fullPath,
+  () => {
+    userMenuOpen.value = false
+  },
+)
 
 // بعد از بازگشت به /chat یا تغییر گفتگو، لیست را تازه نگه دار.
 watch(
@@ -321,7 +356,7 @@ watch(
       />
     </nav>
 
-    <!-- فوتر: حالت مدیر، کاربر -->
+    <!-- فوتر: حالت مدیر، کاربر (منوی پروفایل/خروج) -->
     <div class="mt-auto shrink-0 border-t border-line/70 p-2">
       <RouterLink
         v-if="auth.isAdmin"
@@ -333,33 +368,51 @@ watch(
         <span v-if="!rail">حالت مدیر</span>
       </RouterLink>
 
-      <div class="mt-1 flex items-center gap-1" :class="{ 'flex-col': rail }">
+      <!-- ردیف کاربر + منو -->
+      <div ref="userMenuRoot" class="relative mt-1">
         <button
-          v-if="!rail"
           type="button"
-          class="flex size-9 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-danger-soft hover:text-danger"
-          aria-label="خروج از حساب"
-          @click="onSignOut"
+          class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1.5 text-start transition-colors hover:bg-hover"
+          :class="{ 'justify-center px-0': rail }"
+          :aria-label="'منوی حساب کاربری'"
+          :aria-haspopup="'menu'"
+          :aria-expanded="userMenuOpen"
+          @click="userMenuOpen = !userMenuOpen"
         >
-          <PhSignOut class="flip-rtl size-4" aria-hidden="true" />
+          <span class="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-elevated">
+            <UserAvatar :value="auth.user ? avatarValueFor(auth.user) : 'anonymous'" :size="28" />
+          </span>
+          <span v-if="!rail" class="min-w-0 flex-1 truncate text-xs text-ink-muted" :dir="auth.user?.displayName ? undefined : 'ltr'">
+            {{ profileLabel }}
+          </span>
         </button>
-      </div>
 
-      <button
-        type="button"
-        class="mt-2 flex w-full cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1.5 text-start transition-colors hover:bg-hover"
-        :class="{ 'justify-center px-0': rail }"
-        :title="'مشاهده پروفایل'"
-        :aria-label="'مشاهده پروفایل'"
-        @click="profileOpen = true"
-      >
-        <span class="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-elevated">
-          <UserAvatar :value="auth.user ? avatarValueFor(auth.user) : 'anonymous'" :size="28" />
-        </span>
-        <span v-if="!rail" class="min-w-0 flex-1 truncate text-xs text-ink-muted" :dir="auth.user?.displayName ? undefined : 'ltr'">
-          {{ profileLabel }}
-        </span>
-      </button>
+        <div
+          v-if="userMenuOpen"
+          class="absolute bottom-full start-0 z-50 mb-2 w-48 rounded-xl border border-line bg-surface p-1.5 shadow-2xl"
+          role="menu"
+          @keydown="onUserMenuKeydown"
+        >
+          <button
+            type="button"
+            class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-start text-sm text-ink transition-colors hover:bg-hover"
+            role="menuitem"
+            @click="onEditProfile"
+          >
+            <PhUserGear class="size-4 shrink-0" aria-hidden="true" />
+            <span>ویرایش پروفایل</span>
+          </button>
+          <button
+            type="button"
+            class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-start text-sm text-danger transition-colors hover:bg-danger-soft"
+            role="menuitem"
+            @click="onMenuSignOut"
+          >
+            <PhSignOut class="flip-rtl size-4 shrink-0" aria-hidden="true" />
+            <span>خروج از حساب</span>
+          </button>
+        </div>
+      </div>
     </div>
   </aside>
 
