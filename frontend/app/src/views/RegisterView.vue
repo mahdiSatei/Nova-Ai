@@ -8,54 +8,61 @@ import BaseInput from '@/components/ui/BaseInput.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
-import { validateEmail, validatePassword, validatePasswordConfirm } from '@/utils/validation'
+import { validateEmail, validatePassword, validatePasswordConfirm, validateUsername } from '@/utils/validation'
 import { apiErrorMessage } from '@/utils/errors'
 
 const auth = useAuthStore()
 const router = useRouter()
 
-const form = reactive({ email: '', password: '', passwordConfirm: '' })
+const form = reactive({ username: '', email: '', password: '', passwordConfirm: '' })
 const fieldErrors = reactive<{
+  username: string | null
   email: string | null
   password: string | null
   passwordConfirm: string | null
-}>({ email: null, password: null, passwordConfirm: null })
+}>({ username: null, email: null, password: null, passwordConfirm: null })
 const submitError = ref<{ message: string } | null>(null)
 const submitting = ref(false)
 
-function onBlur(field: 'email' | 'password' | 'passwordConfirm'): void {
-  if (field === 'email') fieldErrors.email = validateEmail(form.email)
+function onBlur(field: 'username' | 'email' | 'password' | 'passwordConfirm'): void {
+  if (field === 'username') fieldErrors.username = validateUsername(form.username)
+  else if (field === 'email') fieldErrors.email = validateEmail(form.email)
   else if (field === 'password') fieldErrors.password = validatePassword(form.password)
   else fieldErrors.passwordConfirm = validatePasswordConfirm(form.passwordConfirm, form.password)
 }
 
 async function onSubmit(): Promise<void> {
   submitError.value = null
+  fieldErrors.username = validateUsername(form.username)
   fieldErrors.email = validateEmail(form.email)
   fieldErrors.password = validatePassword(form.password)
   fieldErrors.passwordConfirm = validatePasswordConfirm(form.passwordConfirm, form.password)
-  if (fieldErrors.email || fieldErrors.password || fieldErrors.passwordConfirm) return
+  if (fieldErrors.username || fieldErrors.email || fieldErrors.password || fieldErrors.passwordConfirm) return
 
   submitting.value = true
   try {
-    await auth.register({ email: form.email, password: form.password })
+    await auth.register({ username: form.username.trim(), email: form.email, password: form.password })
     await router.push('/chat')
   } catch (err) {
     if (err instanceof ApiError) {
-      const emailErr = err.fieldErrors.email
-      if (err.code === 'email_taken' || emailErr) {
-        fieldErrors.email = emailErr ?? apiErrorMessage(err)
-      } else if (err.code === 'validation_failed') {
-        for (const [field, message] of Object.entries(err.fieldErrors)) {
-          if (field === 'email' || field === 'password' || field === 'passwordConfirm') {
-            fieldErrors[field] = message
-          }
-        }
-        if (!fieldErrors.email && !fieldErrors.password && !fieldErrors.passwordConfirm) {
-          submitError.value = { message: apiErrorMessage(err) }
-        }
+      if (err.code === 'username_taken') {
+        fieldErrors.username = apiErrorMessage(err)
       } else {
-        submitError.value = { message: 'ساخت حساب انجام نشد. لطفاً دوباره تلاش کنید.' }
+        const emailErr = err.fieldErrors.email
+        if (err.code === 'email_taken' || emailErr) {
+          fieldErrors.email = emailErr ?? apiErrorMessage(err)
+        } else if (err.code === 'validation_failed') {
+          for (const [field, message] of Object.entries(err.fieldErrors)) {
+            if (field === 'username' || field === 'email' || field === 'password' || field === 'passwordConfirm') {
+              fieldErrors[field] = message
+            }
+          }
+          if (!fieldErrors.username && !fieldErrors.email && !fieldErrors.password && !fieldErrors.passwordConfirm) {
+            submitError.value = { message: apiErrorMessage(err) }
+          }
+        } else {
+          submitError.value = { message: 'ساخت حساب انجام نشد. لطفاً دوباره تلاش کنید.' }
+        }
       }
     } else {
       submitError.value = { message: 'ساخت حساب انجام نشد. لطفاً دوباره تلاش کنید.' }
@@ -77,6 +84,16 @@ async function onSubmit(): Promise<void> {
       <form novalidate class="flex flex-col gap-4" @submit.prevent="onSubmit">
         <ErrorBanner v-if="submitError" :message="submitError.message" />
 
+        <BaseInput
+          v-model="form.username"
+          label="نام کاربری"
+          type="text"
+          autocomplete="username"
+          dir="ltr"
+          hint="۳ تا ۲۰ کاراکتر؛ فقط حروف انگلیسی، عدد یا زیرخط."
+          :error="fieldErrors.username"
+          @blur="onBlur('username')"
+        />
         <BaseInput
           v-model="form.email"
           label="ایمیل"

@@ -15,6 +15,7 @@ describe('AuthService', () => {
   let users: {
     create: jest.Mock;
     findByEmail: jest.Mock;
+    findByIdentifier: jest.Mock;
     findById: jest.Mock;
     markLoggedIn: jest.Mock;
   };
@@ -60,6 +61,7 @@ describe('AuthService', () => {
     users = {
       create: jest.fn(),
       findByEmail: jest.fn(),
+      findByIdentifier: jest.fn(),
       findById: jest.fn(),
       markLoggedIn: jest.fn(),
     };
@@ -106,29 +108,56 @@ describe('AuthService', () => {
   });
 
   it('login returns 401 with a generic message for unknown email (no enumeration)', async () => {
-    users.findByEmail.mockResolvedValue(null);
+    users.findByIdentifier.mockResolvedValue(null);
     await expect(svc.login('nobody@example.com', 'whatever-12-chars')).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
   });
 
   it('login returns 401 with the same generic message for wrong password', async () => {
-    users.findByEmail.mockResolvedValue(validUser());
+    users.findByIdentifier.mockResolvedValue(validUser());
     await expect(svc.login('a@example.com', 'wrong-12-chars-or-more')).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
   });
 
   it('login on valid credentials issues a token pair', async () => {
-    users.findByEmail.mockResolvedValue(validUser());
+    users.findByIdentifier.mockResolvedValue(validUser());
     const r = await svc.login('a@example.com', 'correct-horse-battery-staple');
     expect(r.accessToken).toMatch(/^signed-token-/);
     expect(r.refreshToken).toMatch(/^signed-token-/);
     expect(users.markLoggedIn).toHaveBeenCalledWith('u-1');
   });
 
+  it('login resolves the user via findByIdentifier (username or email)', async () => {
+    users.findByIdentifier.mockResolvedValue(validUser({ username: 'john_doe' }));
+    const r = await svc.login('john_doe', 'correct-horse-battery-staple');
+    expect(users.findByIdentifier).toHaveBeenCalledWith('john_doe');
+    expect(r.user.username).toBe('john_doe');
+    expect(users.markLoggedIn).toHaveBeenCalledWith('u-1');
+  });
+
+  it('register forwards username + email to UsersService and includes username in the response', async () => {
+    users.create.mockResolvedValue(validUser({ username: 'john_doe' }));
+    const r = await svc.register('john_doe', 'a@example.com', 'correct-horse-battery-staple');
+    expect(users.create).toHaveBeenCalledWith({
+      username: 'john_doe',
+      email: 'a@example.com',
+      password: 'correct-horse-battery-staple',
+    });
+    expect(r.user.username).toBe('john_doe');
+    expect(r.user.email).toBe('a@example.com');
+    expect(r.accessToken).toMatch(/^signed-token-/);
+  });
+
+  it('register response reports username as null for a legacy user without one', async () => {
+    users.create.mockResolvedValue(validUser());
+    const r = await svc.register(undefined as unknown as string, 'a@example.com', 'correct-horse-battery-staple');
+    expect(r.user.username).toBeNull();
+  });
+
   it('loginAsAdmin throws UnauthorizedException for a non-admin account (even with valid password)', async () => {
-    users.findByEmail.mockResolvedValue(validUser()); // role === 'user'
+    users.findByIdentifier.mockResolvedValue(validUser()); // role === 'user'
     await expect(
       svc.loginAsAdmin('a@example.com', 'correct-horse-battery-staple'),
     ).rejects.toBeInstanceOf(UnauthorizedException);
@@ -136,7 +165,7 @@ describe('AuthService', () => {
   });
 
   it('loginAsAdmin issues a token pair when the account is an admin', async () => {
-    users.findByEmail.mockResolvedValue({ ...validUser(), role: 'admin' });
+    users.findByIdentifier.mockResolvedValue({ ...validUser(), role: 'admin' });
     const r = await svc.loginAsAdmin('admin@example.com', 'correct-horse-battery-staple');
     expect(r.accessToken).toMatch(/^signed-token-/);
     expect(r.refreshToken).toMatch(/^signed-token-/);
@@ -144,7 +173,7 @@ describe('AuthService', () => {
   });
 
   it('loginAsAdmin returns generic 401 for unknown email (no enumeration)', async () => {
-    users.findByEmail.mockResolvedValue(null);
+    users.findByIdentifier.mockResolvedValue(null);
     await expect(
       svc.loginAsAdmin('nobody@example.com', 'whatever-12-chars'),
     ).rejects.toBeInstanceOf(UnauthorizedException);

@@ -4,12 +4,15 @@
 // - دستیار: avatar روی ستون مقابل + متن Markdown تقریباً تمام‌عرض که با
 //   پس‌زمینه ترکیب می‌شود (سبک Claude/ChatGPT).
 // - pending (در حال ارسال) و streaming (caret + نقطه‌های پران) همین‌جا.
-import { ref } from 'vue'
-import { PhRobot, PhUserCircle, PhCopy, PhCheck, PhHourglassMedium } from '@phosphor-icons/vue'
+import { computed, ref } from 'vue'
+import { PhRobot, PhCopy, PhCheck, PhHourglassMedium } from '@phosphor-icons/vue'
 import MarkdownRenderer from '@/components/chat/MarkdownRenderer.vue'
 import TypingIndicator from '@/components/chat/TypingIndicator.vue'
+import UserAvatar from '@/components/user/UserAvatar.vue'
 import { copyText } from '@/utils/clipboard'
 import { formatDateTime } from '@/utils/time'
+import { avatarValueFor } from '@/utils/avatar'
+import { useAuthStore } from '@/stores/auth'
 
 const props = withDefaults(
   defineProps<{
@@ -23,6 +26,11 @@ const props = withDefaults(
 )
 
 const isUser = props.role === 'user'
+
+const auth = useAuthStore()
+const userAvatarValue = computed(() =>
+  auth.user ? avatarValueFor(auth.user) : 'anonymous',
+)
 
 const copied = ref(false)
 
@@ -39,15 +47,15 @@ function onCopy(): void {
   <li class="group flex animate-fade-slide-in gap-2.5 sm:gap-3" :class="{ 'flex-row-reverse': !isUser }">
     <!-- avatar -->
     <div
-      class="flex size-8 shrink-0 select-none items-center justify-center self-start rounded-full"
+      class="flex size-8 shrink-0 select-none items-center justify-center self-start overflow-hidden rounded-full"
       :class="
         isUser
-          ? 'border border-line bg-elevated text-ink-muted'
+          ? 'border border-line bg-elevated'
           : 'bg-gradient-to-br from-primary to-accent/70 text-white shadow-sm'
       "
       aria-hidden="true"
     >
-      <PhUserCircle v-if="isUser" class="size-5" />
+      <UserAvatar v-if="isUser" :value="userAvatarValue" :size="30" />
       <PhRobot v-else class="size-4" />
     </div>
 

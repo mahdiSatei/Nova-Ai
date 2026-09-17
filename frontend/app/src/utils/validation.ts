@@ -20,3 +20,27 @@ export function validatePasswordConfirm(confirm: string, password: string): stri
   if (confirm !== password) return 'رمز عبور و تکرار آن یکسان نیستند.'
   return null
 }
+
+/** ۳ تا ۲۰ کاراکتر؛ فقط حروف انگلیسی، عدد و زیرخط (هم‌قاعده با بک‌اند). */
+const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/
+
+export function validateUsername(value: string): string | null {
+  if (!value) return 'نام کاربری الزامی است.'
+  if (!USERNAME_RE.test(value.trim())) {
+    return 'نام کاربری باید ۳ تا ۲۰ کاراکتر باشد و فقط حروف انگلیسی، عدد یا زیرخط داشته باشد.'
+  }
+  return null
+}
+
+/** ورود با ایمیل یا نام کاربری — فقط حضور و حداقل طول بررسی می‌شود. */
+export function validateIdentifier(value: string): string | null {
+  if (!value.trim()) return 'ایمیل یا نام کاربری الزامی است.'
+  if (value.trim().length < 3) return 'حداقل ۳ کاراکتر وارد کنید.'
+  return null
+}
+
+/** نام نمایشی اختیاری؛ حداکثر ۵۰ کاراکتر. */
+export function validateDisplayName(value: string): string | null {
+  if (value.trim().length > 50) return 'نام نمایشی حداکثر ۵۰ کاراکتر است.'
+  return null
+}

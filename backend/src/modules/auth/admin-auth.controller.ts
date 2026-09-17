@@ -23,6 +23,6 @@ export class AdminAuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   login(@Body() body: LoginRequestDto): Promise<AuthResponseDto> {
-    return this.auth.loginAsAdmin(body.email, body.password);
+    return this.auth.loginAsAdmin(body.identifier, body.password);
   }
 }
