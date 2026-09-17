@@ -39,6 +39,15 @@ export interface AppConfig {
   provider: {
     encryptionKeyBase64: string;
   };
+  storage: {
+    endpoint: string;
+    port: number;
+    useSSL: boolean;
+    accessKey: string;
+    secretKey: string;
+    bucket: string;
+    presignExpirySec: number;
+  };
 }
 
 export default (): AppConfig => ({
@@ -68,5 +77,14 @@ export default (): AppConfig => ({
   },
   provider: {
     encryptionKeyBase64: process.env.PROVIDER_ENCRYPTION_KEY ?? '',
+  },
+  storage: {
+    endpoint: process.env.STORAGE_ENDPOINT ?? 'localhost',
+    port: Number(process.env.STORAGE_PORT ?? 9000),
+    useSSL: (process.env.STORAGE_USE_SSL ?? 'false') === 'true',
+    accessKey: process.env.STORAGE_ACCESS_KEY ?? 'minioadmin',
+    secretKey: process.env.STORAGE_SECRET_KEY ?? 'minioadminpassword',
+    bucket: process.env.STORAGE_BUCKET ?? 'chat-files',
+    presignExpirySec: Number(process.env.STORAGE_PRESIGN_EXPIRY_SEC ?? 604800),
   },
 });

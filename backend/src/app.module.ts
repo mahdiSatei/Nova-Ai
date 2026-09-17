@@ -19,7 +19,9 @@ import { Model } from './modules/models/entities/model.entity';
 import { AppConfig as AppConfigEntity } from './modules/app-config/entities/app-config.entity';
 import { Conversation } from './modules/conversations/entities/conversation.entity';
 import { Message } from './modules/conversations/entities/message.entity';
+import { FileRecord } from './modules/files/entities/file.entity';
 import { ChatModule } from './modules/chat/chat.module';
+import { FilesModule } from './modules/files/files.module';
 import { ModelsModule } from './modules/models/models.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -120,8 +122,10 @@ import { AppConfigModule } from './modules/app-config/app-config.module';
       AppConfigEntity,
       Conversation,
       Message,
+      FileRecord,
     ]),
     ChatModule,
+    FilesModule,
     ModelsModule,
     AuthModule,
     UsersModule,

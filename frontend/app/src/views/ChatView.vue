@@ -8,6 +8,7 @@ import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import ModelPicker from '@/components/chat/ModelPicker.vue'
 import MessageList from '@/components/chat/MessageList.vue'
 import MessageInput from '@/components/chat/MessageInput.vue'
+import type { UploadedFile } from '@/api/files'
 import { useChatStream } from '@/composables/useChatStream'
 import { useNewChatSignal } from '@/composables/useNewChatSignal'
 import { useTheme } from '@/composables/useTheme'
@@ -25,6 +26,8 @@ const chat = useChatStream()
 const theme = useTheme()
 
 const inputText = ref('')
+// فایل پیوست‌شده‌ی آماده برای پیام بعدی (شناسه‌اش همراه متن ارسال می‌شود).
+const attachedFile = ref<UploadedFile | null>(null)
 const justStartedConversation = ref(false)
 const scrollRoot = useTemplateRef<HTMLDivElement>('scrollRoot')
 
@@ -122,6 +125,7 @@ async function onSubmit(): Promise<void> {
   if (!text.trim() || inputDisabled.value) return
   if (!resolvedId()) justStartedConversation.value = true
   inputText.value = ''
+  attachedFile.value = null
   pinnedToBottom.value = true
   await chat.send(text)
 }
@@ -305,6 +309,7 @@ const suggestedPrompts = [
           :busy="chat.isStreaming.value"
           @submit="onSubmit"
           @stop="onStop"
+          @file-uploaded="attachedFile = $event"
         />
       </div>
     </div>

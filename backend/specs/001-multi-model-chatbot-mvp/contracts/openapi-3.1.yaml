@@ -134,6 +134,13 @@ paths:
       responses:
         "200":
           description: ""
+  /v1/files/upload:
+    post:
+      operationId: FilesController_upload
+      parameters: []
+      responses:
+        "201":
+          description: ""
   /v1/auth/register:
     post:
       operationId: AuthController_register
