@@ -1,4 +1,5 @@
-import { IsBoolean, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MaxLength, MinLength, Matches } from 'class-validator';
+import { PROVIDER_ID_PATTERN } from '../../provider/dto/create-provider.dto';
 
 /**
  * Request body for POST and PATCH on `/v1/admin/models`.
@@ -21,6 +22,11 @@ export class ModelUpsertDto {
   @MinLength(1, { message: 'actualName must not be empty' })
   @MaxLength(200, { message: 'actualName must be at most 200 characters' })
   actualName?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(PROVIDER_ID_PATTERN, { message: 'providerId must contain only lowercase letters, numbers, and hyphens' })
+  providerId?: string;
 
   @IsOptional()
   @IsBoolean()

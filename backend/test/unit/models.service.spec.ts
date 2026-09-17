@@ -15,7 +15,7 @@ describe('ModelsService', () => {
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       getOne: jest.fn(async () => null),
-      getRawOne: jest.fn(async () => undefined),
+      getRawOne: jest.fn(async () => ({ is_active: true })),
       getRawMany: jest.fn(async () => []),
       select: jest.fn().mockReturnThis(),
       from: jest.fn().mockReturnThis(),
@@ -98,22 +98,23 @@ describe('ModelsService', () => {
 
   describe('create()', () => {
     it('creates a model with default enabled=true', async () => {
-      const m = await svc.create({ displayName: 'GPT-4o mini', actualName: 'gpt-4o-mini' });
+      const m = await svc.create({ displayName: 'GPT-4o mini', actualName: 'gpt-4o-mini', providerId: 'p1' });
       expect(m.displayName).toBe('GPT-4o mini');
       expect(m.actualName).toBe('gpt-4o-mini');
+      expect(m.providerId).toBe('p1');
       expect(m.enabled).toBe(true);
       expect(m.isDefault).toBe(false);
     });
 
     it('rejects a duplicate display name (case-insensitive)', async () => {
-      await svc.create({ displayName: 'GPT-4o mini', actualName: 'gpt-4o-mini' });
+      await svc.create({ displayName: 'GPT-4o mini', actualName: 'gpt-4o-mini', providerId: 'p1' });
       // Reset repo with the saved row so the second create hits the dup check.
       const saved = (repo.save as jest.Mock).mock.results[0].value;
       repo.__setRows([saved]);
       repo.__qb.getOne.mockResolvedValue(saved);
 
       await expect(
-        svc.create({ displayName: 'gpt-4o MINI', actualName: 'other-model' }),
+        svc.create({ displayName: 'gpt-4o MINI', actualName: 'other-model', providerId: 'p1' }),
       ).rejects.toBeInstanceOf(ConflictException);
     });
   });

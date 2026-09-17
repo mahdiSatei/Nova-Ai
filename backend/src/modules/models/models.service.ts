@@ -14,12 +14,14 @@ import { User } from '../users/entities/user.entity';
 export interface CreateModelInput {
   displayName: string;
   actualName: string;
+  providerId: string;
   enabled?: boolean;
 }
 
 export interface UpdateModelInput {
   displayName?: string;
   actualName?: string;
+  providerId?: string;
   enabled?: boolean;
 }
 
@@ -140,7 +142,8 @@ export class ModelsService {
 
   /**
    * Admin: create a new model. Enforces displayName uniqueness
-   * (case-insensitive) and the actual-name length constraints.
+   * (case-insensitive), the actual-name length constraints, and
+   * provider association rules.
    */
   async create(input: CreateModelInput): Promise<Model> {
     const displayName = input.displayName;
@@ -160,9 +163,25 @@ export class ModelsService {
       });
     }
 
+    const provider = await this.repo.manager
+      .createQueryBuilder()
+      .select('is_active')
+      .from('providers', 'p')
+      .where('p.id = :pid', { pid: input.providerId })
+      .getRawOne<{ is_active: boolean }>();
+    if (!provider || !provider.is_active) {
+      throw new UnprocessableEntityException({
+        code: 'provider_not_available',
+        message: enabled
+          ? 'Cannot create an enabled model for an inactive provider. Activate the provider first or create the model as disabled.'
+          : 'The referenced provider does not exist or is inactive.',
+      });
+    }
+
     const created = this.repo.create({
       displayName,
       actualName,
+      providerId: input.providerId,
       enabled,
       isDefault: false,
     });
@@ -173,6 +192,7 @@ export class ModelsService {
    * Admin: partial update of a model. Enforces the "only enabled
    * model can be isDefault" invariant: if the model is currently
    * the default and the admin disables it, isDefault is cleared.
+   * Also enforces that enabled models reference active providers.
    */
   async update(id: string, input: UpdateModelInput): Promise<Model> {
     const model = await this.findById(id);
@@ -196,6 +216,9 @@ export class ModelsService {
     if (input.actualName !== undefined) {
       model.actualName = input.actualName;
     }
+    if (input.providerId !== undefined) {
+      model.providerId = input.providerId;
+    }
     if (input.enabled !== undefined) {
       model.enabled = input.enabled;
       // Invariant: a disabled model cannot be the default. Toggling
@@ -204,6 +227,23 @@ export class ModelsService {
         model.isDefault = false;
       }
     }
+
+    // After applying updates, validate that an enabled model references an active provider.
+    if (model.enabled) {
+      const provider = await this.repo.manager
+        .createQueryBuilder()
+        .select('is_active')
+        .from('providers', 'p')
+        .where('p.id = :pid', { pid: model.providerId })
+        .getRawOne<{ is_active: boolean }>();
+      if (!provider || !provider.is_active) {
+        throw new UnprocessableEntityException({
+          code: 'provider_not_available',
+          message: 'Cannot enable a model whose provider is inactive. Activate the provider first.',
+        });
+      }
+    }
+
     return this.repo.save(model);
   }
 

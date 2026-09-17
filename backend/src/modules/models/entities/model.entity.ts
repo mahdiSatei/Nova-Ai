@@ -3,11 +3,13 @@ import {
   CreateDateColumn,
   Entity,
   Index,
+  ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { Conversation } from '../../conversations/entities/conversation.entity';
+import { Provider } from '../../provider/entities/provider.entity';
 
 @Entity({ name: 'models' })
 @Index('uq_models_display_name', ['displayName'], { unique: true })
@@ -20,6 +22,13 @@ export class Model {
 
   @Column({ name: 'actual_name', type: 'text' })
   actualName!: string;
+
+  @Column({ name: 'provider_id', type: 'text' })
+  providerId!: string;
+
+  @ManyToOne(() => Provider, { onDelete: 'RESTRICT' })
+  @Index('idx_models_provider_id')
+  provider!: Provider;
 
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;

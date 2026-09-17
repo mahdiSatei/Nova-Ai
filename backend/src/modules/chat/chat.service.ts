@@ -272,7 +272,7 @@ export class ChatService {
         };
         this.activeStreams.set(conversationId, state);
 
-        let streamStarted = false;
+        const streamStarted = false;
         try {
           for await (const chunk of stream as unknown as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>) {
             const delta = chunk.choices?.[0]?.delta?.content;

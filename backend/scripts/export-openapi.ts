@@ -17,7 +17,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { writeFileSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { config as loadDotenv } from 'dotenv';
 import YAML from 'yaml';
@@ -36,7 +36,7 @@ async function main(): Promise<void> {
     .setVersion('1.0.0')
     .addBearerAuth()
     .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
+  const generated = SwaggerModule.createDocument(app, swaggerConfig);
 
   // Source of truth lives under specs/, alongside its companion 3.0.3
   // baseline artifact. Keep this path in sync with
@@ -49,12 +49,46 @@ async function main(): Promise<void> {
   );
   const outPath = join(outDir, 'openapi-3.1.yaml');
   mkdirSync(outDir, { recursive: true });
-  writeFileSync(outPath, YAML.stringify(document), 'utf8');
+
+  // Canonical-first merge: preserve hand-authored schemas, descriptions,
+  // examples, and any paths not yet represented in the runtime document.
+  let canonical: Record<string, unknown> = {};
+  try {
+    canonical = YAML.parse(readFileSync(outPath, 'utf8')) as Record<string, unknown>;
+  } catch {
+    // first export or file missing — fall back to generated-only
+  }
+
+  const merged = {
+    ...generated,
+    info: { ...(generated.info ?? {}), ...((canonical as any).info ?? {}) },
+    paths: {
+      ...(generated.paths ?? {}),
+      ...((canonical as any).paths ?? {}),
+    },
+    components: {
+      ...(generated.components ?? {}),
+      schemas: {
+        ...((generated.components?.schemas as Record<string, unknown>) ?? {}),
+        ...(((canonical as any).components?.schemas as Record<string, unknown>) ?? {}),
+      },
+      responses: {
+        ...((generated.components?.responses as Record<string, unknown>) ?? {}),
+        ...(((canonical as any).components?.responses as Record<string, unknown>) ?? {}),
+      },
+      parameters: {
+        ...((generated.components?.parameters as Record<string, unknown>) ?? {}),
+        ...(((canonical as any).components?.parameters as Record<string, unknown>) ?? {}),
+      },
+    },
+  };
+
+  writeFileSync(outPath, YAML.stringify(merged), 'utf8');
 
   // eslint-disable-next-line no-console
   console.log(`[openapi:export] wrote ${outPath}`);
   // eslint-disable-next-line no-console
-  console.log(`[openapi:export] ${document.paths ? Object.keys(document.paths).length : 0} paths exported`);
+  console.log(`[openapi:export] ${merged.paths ? Object.keys(merged.paths).length : 0} paths exported`);
 
   await app.close();
 }

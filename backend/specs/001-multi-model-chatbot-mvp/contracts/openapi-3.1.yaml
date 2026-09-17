@@ -1,7 +1,7 @@
-openapi: 3.1.0
+﻿openapi: 3.1.0
 info:
   title: Multi-Model Chatbot MVP API
-  version: 1.0.0
+  version: 2.0.0
   description: |
     Public and admin API for the MVP. Public endpoints serve end users;
     admin endpoints under `/v1/admin` require an admin JWT. SSE streaming
@@ -432,84 +432,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /v1/admin/provider:
-    get:
-      tags: [admin]
-      summary: Get the central provider configuration (credential masked)
-      security:
-        - bearerAdminAuth: []
-      responses:
-        '200':
-          description: Central provider config
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CentralProviderPublic'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          description: Central provider not yet configured
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-    put:
-      tags: [admin]
-      summary: Update the central provider configuration
-      security:
-        - bearerAdminAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CentralProviderUpdateRequest'
-      responses:
-        '200':
-          description: Updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CentralProviderPublic'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '422':
-          description: |
-            Probe failed; the prior configuration is preserved untouched.
-            The response body `code` is one of:
-            - `credentials_rejected` — the provider refused the API key (HTTP 401/403).
-            - `provider_request_invalid` — the provider accepted auth but rejected the test request (HTTP 400/404 etc.).
-            - `provider_unreachable` — the provider could not be reached or returned 5xx.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              examples:
-                credentials_rejected:
-                  summary: API key rejected by the provider
-                  value:
-                    code: credentials_rejected
-                    message: The AI provider rejected the credentials (HTTP 401).
-                    requestId: 4c9ab911-b368-485c-8859-66a733478576
-                provider_request_invalid:
-                  summary: Auth OK but probe request was rejected
-                  value:
-                    code: provider_request_invalid
-                    message: The AI provider rejected the probe request (HTTP 400). The credentials appear valid but the provider's response to a test request was unexpected. Confirm the base URL points at the provider you intend.
-                    requestId: 4c9ab911-b368-485c-8859-66a733478576
-                provider_unreachable:
-                  summary: Provider could not be reached
-                  value:
-                    code: provider_unreachable
-                    message: The AI provider could not be reached. Check the base URL and try again.
-                    requestId: 4c9ab911-b368-485c-8859-66a733478576
-
   /v1/admin/models:
     get:
       tags: [admin]
@@ -543,7 +465,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ModelUpsertRequest'
+              $ref: '#/components/schemas/ModelCreateRequest'
       responses:
         '201':
           description: Created
@@ -557,17 +479,23 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-        '409':
-          description: Display name already used
+        '422':
+          description: providerId missing or references inactive provider
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '409':
+          description: Display name already used
+          content:
+            application/json:
+            schema:
+              $ref: '#/components/schemas/Error'
 
   /v1/admin/models/{id}:
     patch:
       tags: [admin]
-      summary: Edit a model (display name, actual name, enabled)
+      summary: Edit a model (display name, actual name, enabled, providerId)
       security:
         - bearerAdminAuth: []
       parameters:
@@ -582,7 +510,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ModelUpsertRequest'
+              $ref: '#/components/schemas/ModelPatchRequest'
       responses:
         '200':
           description: Updated
@@ -598,6 +526,12 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          description: providerId references inactive provider or model would be enabled with inactive provider
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     delete:
       tags: [admin]
       summary: Delete a model
@@ -621,6 +555,287 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           description: Model is referenced by AppConfig or by existing conversations; reject
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/admin/providers:
+    get:
+      tags: [admin]
+      summary: List providers
+      security:
+        - bearerAdminAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Providers list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total, page, pageSize]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProviderAdmin'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  pageSize:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags: [admin]
+      summary: Create a provider
+      security:
+        - bearerAdminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderCreateRequest'
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL of the new provider
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderAdmin'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Provider name already used
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Endpoint policy violation or validation failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/admin/providers/{id}:
+    get:
+      tags: [admin]
+      summary: Read a provider
+      security:
+        - bearerAdminAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+            pattern: '^[a-z0-9-]+$'
+      responses:
+        '200':
+          description: Provider
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderAdmin'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags: [admin]
+      summary: Update a provider
+      security:
+        - bearerAdminAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+            pattern: '^[a-z0-9-]+$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderUpdateRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderAdmin'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Endpoint policy violation or validation failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [admin]
+      summary: Delete a provider
+      security:
+        - bearerAdminAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+            pattern: '^[a-z0-9-]+$'
+      responses:
+        '204':
+          description: Deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Provider is referenced by models
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/admin/providers/{id}/validate:
+    post:
+      tags: [admin]
+      summary: Validate provider credentials
+      security:
+        - bearerAdminAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 80
+            pattern: '^[a-z0-9-]+$'
+      responses:
+        '200':
+          description: Validated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderAdmin'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: 'Validation failed: auth rejected, unsupported provider, or corrupt credential'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: Upstream provider error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Network error or rate limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          description: Timeout
           content:
             application/json:
               schema:
@@ -822,10 +1037,17 @@ components:
       allOf:
         - $ref: '#/components/schemas/ModelPublic'
         - type: object
-          required: [actualName, enabled, createdAt, updatedAt]
+          required: [actualName, providerId, enabled, createdAt, updatedAt]
           properties:
             actualName:
               type: string
+              minLength: 1
+              maxLength: 200
+            providerId:
+              type: string
+              minLength: 1
+              maxLength: 80
+              pattern: '^[a-z0-9-]+$'
             enabled:
               type: boolean
             createdAt:
@@ -850,6 +1072,140 @@ components:
         enabled:
           type: boolean
           default: true
+
+    ModelCreateRequest:
+      type: object
+      required: [displayName, actualName, providerId]
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        actualName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        providerId:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: '^[a-z0-9-]+$'
+        enabled:
+          type: boolean
+          default: true
+
+    ModelPatchRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        actualName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        providerId:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: '^[a-z0-9-]+$'
+        enabled:
+          type: boolean
+
+    ProviderPublic:
+      type: object
+      required: [id, name, type, baseUrl, hasApiKey, isActive, lastValidatedAt, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: '^[a-z0-9-]+$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        type:
+          type: string
+          enum: [openai-compatible]
+        baseUrl:
+          type: string
+          format: uri
+          maxLength: 500
+        hasApiKey:
+          type: boolean
+        isActive:
+          type: boolean
+        lastValidatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProviderAdmin:
+      allOf:
+        - $ref: '#/components/schemas/ProviderPublic'
+        - type: object
+          required: [apiKeyMasked]
+          properties:
+            apiKeyMasked:
+              type: string
+              description: Masked credential, never the full secret.
+
+    ProviderCreateRequest:
+      type: object
+      required: [id, name, type, baseUrl, apiKey]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: '^[a-z0-9-]+$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        type:
+          type: string
+          enum: [openai-compatible]
+        baseUrl:
+          type: string
+          format: uri
+          maxLength: 500
+        apiKey:
+          type: string
+          minLength: 8
+          maxLength: 500
+          description: Provider API key. Never returned in responses.
+        isActive:
+          type: boolean
+          default: true
+
+    ProviderUpdateRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        baseUrl:
+          type: string
+          format: uri
+          maxLength: 500
+        apiKey:
+          type: string
+          minLength: 8
+          maxLength: 500
+          description: Provider API key. Never returned in responses.
+        isActive:
+          type: boolean
 
     CentralProviderPublic:
       type: object
@@ -950,11 +1306,11 @@ components:
           enum: [pending, streaming, completed, failed, cancelled]
           description: |
             Current lifecycle status of the message.
-            - `pending` — queued, not yet started.
-            - `streaming` — assistant generation is in progress; content may be partial.
-            - `completed` — generation finished successfully; content is final.
-            - `failed` — generation ended with an error; content may be partial.
-            - `cancelled` — user cancelled generation; content is whatever was accumulated.
+            - `pending` â€” queued, not yet started.
+            - `streaming` â€” assistant generation is in progress; content may be partial.
+            - `completed` â€” generation finished successfully; content is final.
+            - `failed` â€” generation ended with an error; content may be partial.
+            - `cancelled` â€” user cancelled generation; content is whatever was accumulated.
 
     ChatRequest:
       type: object

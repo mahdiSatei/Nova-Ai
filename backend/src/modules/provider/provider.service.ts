@@ -1,4 +1,6 @@
 import {
+  ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -6,252 +8,200 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { CentralProvider } from './entities/central-provider.entity';
-import { decrypt, encrypt } from '../../common/crypto/credential-cipher';
+import { Provider, ProviderType } from './entities/provider.entity';
+import { encrypt, decrypt } from '../../common/crypto/credential-cipher';
+import { ProviderAdapter } from './adapters/provider-adapter.interface';
+import { NormalizedProviderError } from './errors/normalized-provider.error';
 
-export interface CentralProviderPublic {
+export const PROVIDER_ADAPTERS = Symbol('PROVIDER_ADAPTERS');
+
+export interface ProviderPublic {
+  id: string;
+  name: string;
+  type: ProviderType;
   baseUrl: string;
-  apiKeyMasked: string;
-  isConfigured: true;
+  hasApiKey: boolean;
+  isActive: boolean;
   lastValidatedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface CentralProviderUnconfigured {
-  isConfigured: false;
+export interface ProviderAdmin extends ProviderPublic {
+  apiKeyMasked: string;
 }
 
-/**
- * Business logic for the central-provider singleton row.
- *
- * The credential is encrypted at rest with AES-256-GCM and never
- * returned in cleartext. `GET` returns a masked form (last 4 chars
- * prefixed `***`); `PUT` validates the credential against the provider
- * with a minimal non-streaming call BEFORE persisting.
- */
+export interface ProviderCreateInput {
+  id: string;
+  name: string;
+  type: ProviderType;
+  baseUrl: string;
+  apiKey: string;
+  isActive?: boolean;
+}
+
+export interface ProviderUpdateInput {
+  name?: string;
+  baseUrl?: string;
+  apiKey?: string;
+  isActive?: boolean;
+}
+
 @Injectable()
 export class ProviderService {
   private readonly logger = new Logger(ProviderService.name);
+  private readonly adapters: ProviderAdapter[];
 
   constructor(
-    @InjectRepository(CentralProvider)
-    private readonly repo: Repository<CentralProvider>,
-  ) {}
-
-  async read(): Promise<CentralProviderPublic | CentralProviderUnconfigured> {
-    const row = await this.repo.findOne({ where: { id: 'singleton' } });
-    if (!row) return { isConfigured: false };
-
-    let plain: string;
-    try {
-      plain = decrypt(row.apiKeyEncrypted);
-    } catch {
-      this.logger.warn('Failed to decrypt stored provider credential — the encryption key may have changed');
-      throw new UnprocessableEntityException({
-        code: 'provider_credential_corrupt',
-        message:
-          'The stored provider credential cannot be decrypted. This usually means the encryption key was changed after the provider was configured. Re-enter the API key to fix this.',
-      });
-    }
-    return {
-      baseUrl: row.baseUrl,
-      apiKeyMasked: this.mask(plain),
-      isConfigured: true,
-      lastValidatedAt: row.lastValidatedAt ? row.lastValidatedAt.toISOString() : null,
-    };
+    @InjectRepository(Provider)
+    private readonly repo: Repository<Provider>,
+    @Inject(PROVIDER_ADAPTERS) adapters: ProviderAdapter[],
+  ) {
+    this.adapters = adapters;
   }
 
-  async readOrThrow(): Promise<CentralProviderPublic> {
-    const result = await this.read();
-    if (!result.isConfigured) {
-      throw new NotFoundException({
-        code: 'not_found',
-        message: 'Central provider is not configured.',
-      });
-    }
-    return result;
+  async list(page = 1, pageSize = 20): Promise<{ items: ProviderAdmin[]; total: number; page: number; pageSize: number }> {
+    const [rows, total] = await this.repo.findAndCount({
+      order: { name: 'ASC' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+    return { items: rows.map((r) => this.toAdmin(r)), total, page, pageSize };
   }
 
-  async update(input: { baseUrl: string; apiKey: string }): Promise<CentralProviderPublic> {
-    // Probe FIRST so we never persist invalid credentials.
-    await this.probe(input.baseUrl, input.apiKey);
+  async read(id: string): Promise<ProviderAdmin> {
+    const provider = await this.repo.findOne({ where: { id } });
+    if (!provider) throw new NotFoundException({ code: 'provider_not_found', message: 'Provider not found.' });
+    return this.toAdmin(provider);
+  }
+
+  async create(input: ProviderCreateInput): Promise<ProviderAdmin> {
+    const dup = await this.repo
+      .createQueryBuilder('p')
+      .where('LOWER(p.name) = LOWER(:name)', { name: input.name })
+      .getOne();
+    if (dup) {
+      throw new ConflictException({ code: 'provider_name_taken', message: 'A provider with that name already exists.' });
+    }
 
     const encrypted = encrypt(input.apiKey);
-    const existing = await this.repo.findOne({ where: { id: 'singleton' } });
+    const provider = this.repo.create({
+      id: input.id,
+      name: input.name,
+      type: input.type,
+      baseUrl: input.baseUrl,
+      apiKeyEncrypted: encrypted,
+      isActive: input.isActive ?? true,
+    });
+    const saved = await this.repo.save(provider);
+    return this.toAdmin(saved);
+  }
 
-    const nextValidatedAt = new Date();
-    if (existing) {
-      existing.baseUrl = input.baseUrl;
-      existing.apiKeyEncrypted = encrypted;
-      existing.lastValidatedAt = nextValidatedAt;
-      await this.repo.save(existing);
-    } else {
-      await this.repo.save(
-        this.repo.create({
-          id: 'singleton',
-          baseUrl: input.baseUrl,
-          apiKeyEncrypted: encrypted,
-          lastValidatedAt: nextValidatedAt,
-        }),
-      );
+  async update(id: string, input: ProviderUpdateInput): Promise<ProviderAdmin> {
+    const provider = await this.repo.findOne({ where: { id } });
+    if (!provider) throw new NotFoundException({ code: 'provider_not_found', message: 'Provider not found.' });
+
+    if (input.name !== undefined && input.name !== provider.name) {
+      const dup = await this.repo
+        .createQueryBuilder('p')
+        .where('LOWER(p.name) = LOWER(:name) AND p.id <> :id', { name: input.name, id })
+        .getOne();
+      if (dup) {
+        throw new ConflictException({ code: 'provider_name_taken', message: 'A provider with that name already exists.' });
+      }
+      provider.name = input.name;
+    }
+    if (input.baseUrl !== undefined) provider.baseUrl = input.baseUrl;
+    if (input.isActive !== undefined) provider.isActive = input.isActive;
+    if (input.apiKey !== undefined) provider.apiKeyEncrypted = encrypt(input.apiKey);
+
+    const saved = await this.repo.save(provider);
+    return this.toAdmin(saved);
+  }
+
+  async delete(id: string): Promise<void> {
+    const provider = await this.repo.findOne({ where: { id } });
+    if (!provider) throw new NotFoundException({ code: 'provider_not_found', message: 'Provider not found.' });
+    await this.repo.delete(id);
+  }
+
+  async getDecryptedCredential(id: string): Promise<{ baseUrl: string; apiKey: string }> {
+    const provider = await this.repo.findOne({ where: { id } });
+    if (!provider) {
+      throw new UnprocessableEntityException({ code: 'provider_not_configured', message: 'Provider not found.' });
+    }
+    try {
+      return { baseUrl: provider.baseUrl, apiKey: decrypt(provider.apiKeyEncrypted) };
+    } catch {
+      throw new UnprocessableEntityException({
+        code: 'provider_credential_corrupt',
+        message: 'Stored provider credential cannot be decrypted. Re-enter the API key.',
+      });
+    }
+  }
+
+  async validateProvider(id: string): Promise<ProviderAdmin> {
+    const provider = await this.repo.findOne({ where: { id } });
+    if (!provider) throw new NotFoundException({ code: 'provider_not_found', message: 'Provider not found.' });
+
+    const adapter = this.adapters.find((a) => (a as any).supports?.(provider.type) ?? true);
+    if (!adapter) {
+      throw new UnprocessableEntityException({
+        code: 'provider_type_unsupported',
+        message: `No adapter registered for provider type: ${provider.type}`,
+      });
     }
 
-    const plain = decrypt(encrypted);
+    try {
+      await adapter.validate(provider);
+    } catch (err) {
+      if (err instanceof NormalizedProviderError) {
+        throw new UnprocessableEntityException({
+          code: err.code,
+          message: err.message,
+        });
+      }
+      throw err as Error;
+    }
+
+    const saved = await this.repo.save(provider);
+    return this.toAdmin(saved);
+  }
+
+  private toPublic(provider: Provider): ProviderPublic {
+    let hasKey = false;
+    let plain: string;
+    try {
+      plain = decrypt(provider.apiKeyEncrypted);
+      hasKey = plain.length > 0;
+    } catch {
+      plain = '***';
+      hasKey = false;
+    }
     return {
-      baseUrl: input.baseUrl,
-      apiKeyMasked: this.mask(plain),
-      isConfigured: true,
-      lastValidatedAt: nextValidatedAt.toISOString(),
+      id: provider.id,
+      name: provider.name,
+      type: provider.type,
+      baseUrl: provider.baseUrl,
+      hasApiKey: hasKey,
+      isActive: provider.isActive,
+      lastValidatedAt: null,
+      createdAt: provider.createdAt.toISOString(),
+      updatedAt: provider.updatedAt.toISOString(),
     };
   }
 
-  async getDecryptedApiKey(): Promise<{ baseUrl: string; apiKey: string }> {
-    const row = await this.repo.findOne({ where: { id: 'singleton' } });
-    if (!row) {
-      throw new UnprocessableEntityException({
-        code: 'provider_not_configured',
-        message: 'Central provider is not configured.',
-      });
-    }
+  private toAdmin(provider: Provider): ProviderAdmin {
+    let plain: string;
     try {
-      return {
-        baseUrl: row.baseUrl,
-        apiKey: decrypt(row.apiKeyEncrypted),
-      };
+      plain = decrypt(provider.apiKeyEncrypted);
     } catch {
-      this.logger.warn('Failed to decrypt stored provider credential in getDecryptedApiKey');
-      throw new UnprocessableEntityException({
-        code: 'provider_credential_corrupt',
-        message:
-          'The stored provider credential cannot be decrypted. Re-configure the provider with a valid API key.',
-      });
+      plain = '***';
     }
-  }
-
-  /**
-   * Validate the credential by calling a minimal, auth-only probe.
-   *
-   * Step 1: GET `{baseUrl}/models` with `Authorization: Bearer ...`. Every
-   * mainstream OpenAI-compatible provider (OpenAI, Together, Groq,
-   * OpenRouter, LM Studio, Ollama's OpenAI shim, vLLM) supports this
-   * endpoint and it depends only on the auth header — no real model call
-   * needed. This avoids the prior bug where the probe POSTed with
-   * `model: 'probe'`, which real providers reject with HTTP 400 ("model
-   * not found") BEFORE checking auth, and the probe then mis-classified
-   * the 400 as `credentials_rejected`.
-   *
-   * Step 2: fall back to a tiny chat-completions probe ONLY if `/models`
-   * returns 404/405 (a few self-hosted setups don't expose it). Status
-   * is discriminated: 401/403 → real `credentials_rejected`; other 4xx →
-   * new `provider_request_invalid` (credentials appear valid, but the
-   * provider's response was unexpected); 5xx/network → `provider_unreachable`.
-   */
-  private async probe(baseUrl: string, apiKey: string): Promise<void> {
-    const root = baseUrl.replace(/\/+$/, '');
-    const authHeaders = { Authorization: `Bearer ${apiKey}` };
-
-    // ── Step 1: GET /models (auth-only validation) ─────────────────────
-    let modelsRes: Response;
-    try {
-      modelsRes = await fetch(`${root}/models`, {
-        method: 'GET',
-        headers: authHeaders,
-      });
-    } catch (err) {
-      this.logger.warn(`Provider probe failed (network): ${(err as Error).message}`);
-      throw new UnprocessableEntityException({
-        code: 'provider_unreachable',
-        message: 'The AI provider could not be reached. Check the base URL and try again.',
-      });
-    }
-
-    if (modelsRes.ok) {
-      return; // credentials accepted
-    }
-
-    const modelsStatus = modelsRes.status;
-    if (modelsStatus === 401 || modelsStatus === 403) {
-      this.logger.warn(`Provider probe failed (status=${modelsStatus}): credentials rejected`);
-      throw new UnprocessableEntityException({
-        code: 'credentials_rejected',
-        message: `The AI provider rejected the credentials (HTTP ${modelsStatus}).`,
-      });
-    }
-
-    // 404/405 → /models isn't exposed by this provider. Fall through to
-    // the chat-completions probe. Anything else (5xx, other 4xx) is
-    // treated as unreachable.
-    if (modelsStatus !== 404 && modelsStatus !== 405) {
-      let detail = '';
-      try {
-        detail = (await modelsRes.text()).slice(0, 200);
-      } catch {
-        /* ignore */
-      }
-      this.logger.warn(`Provider probe failed (status=${modelsStatus}): ${detail}`);
-      throw new UnprocessableEntityException({
-        code: 'provider_unreachable',
-        message: `The AI provider returned an unexpected status (HTTP ${modelsStatus}).`,
-      });
-    }
-
-    // ── Step 2: fallback probe via POST /chat/completions ──────────────
-    let chatRes: Response;
-    try {
-      chatRes = await fetch(`${root}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({
-          model: 'probe',
-          messages: [{ role: 'user', content: 'ping' }],
-          max_tokens: 1,
-        }),
-      });
-    } catch (err) {
-      this.logger.warn(
-        `Provider probe failed (network, models=${modelsStatus}, chat=network): ${(err as Error).message}`,
-      );
-      throw new UnprocessableEntityException({
-        code: 'provider_unreachable',
-        message: 'The AI provider could not be reached. Check the base URL and try again.',
-      });
-    }
-
-    if (chatRes.ok) {
-      return;
-    }
-
-    const chatStatus = chatRes.status;
-    let detail = '';
-    try {
-      detail = (await chatRes.text()).slice(0, 200);
-    } catch {
-      /* ignore */
-    }
-    this.logger.warn(
-      `Provider probe failed (status=${chatStatus}, models=${modelsStatus}): ${detail}`,
-    );
-
-    if (chatStatus === 401 || chatStatus === 403) {
-      throw new UnprocessableEntityException({
-        code: 'credentials_rejected',
-        message: `The AI provider rejected the credentials (HTTP ${chatStatus}).`,
-      });
-    }
-    if (chatStatus >= 500) {
-      throw new UnprocessableEntityException({
-        code: 'provider_unreachable',
-        message: `The AI provider returned an unexpected status (HTTP ${chatStatus}).`,
-      });
-    }
-
-    // 400/404/etc — credentials appear valid (we got past auth on /models
-    // being reachable, and the provider still responded) but the test
-    // request itself was rejected. Don't falsely report this as a
-    // credentials failure.
-    throw new UnprocessableEntityException({
-      code: 'provider_request_invalid',
-      message: `The AI provider rejected the probe request (HTTP ${chatStatus}). The credentials appear valid but the provider's response to a test request was unexpected. Confirm the base URL points at the provider you intend.`,
-    });
+    return {
+      ...this.toPublic(provider),
+      apiKeyMasked: this.mask(plain),
+    };
   }
 
   private mask(plain: string): string {

@@ -19,6 +19,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ModelsService, DeleteModelMigrationResult } from './models.service';
 import { ModelUpsertDto } from './dto/model-upsert.dto';
+import { Provider } from '../provider/entities/provider.entity';
 
 /**
  * Admin-only CRUD for the model catalog. US7.
@@ -45,6 +46,7 @@ export class ModelsAdminController {
         id: m.id,
         displayName: m.displayName,
         actualName: m.actualName,
+        providerId: m.providerId,
         enabled: m.enabled,
         isDefault: m.isDefault,
         createdAt: m.createdAt.toISOString(),
@@ -59,6 +61,7 @@ export class ModelsAdminController {
     const m = await this.models.create({
       displayName: body.displayName!,
       actualName: body.actualName!,
+      providerId: body.providerId!,
       enabled: body.enabled,
     });
     return this.toAdminShape(m);
@@ -69,6 +72,7 @@ export class ModelsAdminController {
     const m = await this.models.update(id, {
       displayName: body.displayName,
       actualName: body.actualName,
+      providerId: body.providerId,
       enabled: body.enabled,
     });
     return this.toAdminShape(m);
@@ -111,6 +115,7 @@ export class ModelsAdminController {
     id: string;
     displayName: string;
     actualName: string;
+    providerId: string;
     enabled: boolean;
     isDefault: boolean;
     createdAt: Date;
@@ -120,6 +125,7 @@ export class ModelsAdminController {
       id: m.id,
       displayName: m.displayName,
       actualName: m.actualName,
+      providerId: m.providerId,
       enabled: m.enabled,
       isDefault: m.isDefault,
       createdAt: m.createdAt.toISOString(),
