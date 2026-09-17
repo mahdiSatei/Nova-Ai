@@ -1,0 +1,43 @@
+<script setup lang="ts">
+// پوسته‌ی کاربر: نوار کنایی (جمع‌شونده/کشویی) + ناحیه‌ی اصلی تمام‌ارتفاع.
+import { ref, watch } from 'vue'
+import { RouterView, useRoute } from 'vue-router'
+import { PhList, PhChatCircleText } from '@phosphor-icons/vue'
+import ChatSidebar from '@/components/chat/ChatSidebar.vue'
+
+const route = useRoute()
+const drawerOpen = ref(false)
+
+// با تغییر مسیر، کشوی موبایل بسته شود.
+watch(() => route.fullPath, () => (drawerOpen.value = false))
+</script>
+
+<template>
+  <div class="flex h-dvh overflow-hidden">
+    <ChatSidebar v-model:mobile-open="drawerOpen" @navigate="drawerOpen = false" />
+
+    <div class="flex min-w-0 flex-1 flex-col">
+      <!-- نوار بالایی موبایل -->
+      <header
+        class="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-bg/90 px-3 backdrop-blur lg:hidden"
+      >
+        <button
+          type="button"
+          class="inline-flex size-9 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink"
+          aria-label="باز کردن منو"
+          @click="drawerOpen = true"
+        >
+          <PhList class="size-5" aria-hidden="true" />
+        </button>
+        <span class="flex items-center gap-1.5 text-sm font-semibold">
+          <PhChatCircleText class="size-4 text-primary" aria-hidden="true" />
+          چت‌بات چند مدله
+        </span>
+      </header>
+
+      <main class="flex min-h-0 flex-1 flex-col overflow-hidden px-2 sm:px-4">
+        <RouterView />
+      </main>
+    </div>
+  </div>
+</template>
