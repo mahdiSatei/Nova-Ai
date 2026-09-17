@@ -22,6 +22,9 @@ import { Observable } from 'rxjs';
  *   - `data: {"delta":"..."}`  — token chunk from the model
  *   - `event: done`            — stream completed successfully
  *   - `event: error`           — provider or internal error
+ *
+ * Note: Nest's SseStream serializes the event name from the `type`
+ * property of each emitted object (`event` is dropped).
  */
 @Controller('v1/chat')
 @UseGuards(JwtAuthGuard)
@@ -49,7 +52,7 @@ export class ChatController {
       const subscribed = this.chat.subscribeToActiveStream(conversationId, observer);
       if (!subscribed) {
         observer.next({
-          event: 'error',
+          type: 'error',
           data: { code: 'no_active_stream', message: 'No active generation found for this conversation.' },
         });
         observer.complete();
@@ -76,21 +79,16 @@ export class ChatController {
   }
 
   /**
-   * Retry a failed or cancelled generation.
+   * Retry a failed or cancelled generation as a live SSE stream.
+   * Runs the same pipeline as /stream: start event, deltas, done/error.
    */
   @Post(':conversationId/retry')
-  async retry(
+  @Sse('text/event-stream')
+  retry(
     @CurrentUser() user: AuthenticatedUser,
     @Param('conversationId') conversationId: string,
     @Body() dto: { failedMessageId: string },
-  ): Promise<{ messageId: string; status: string }> {
-    const result = await this.chat.retryGeneration(conversationId, dto.failedMessageId, user.id);
-    if (!result) {
-      throw new NotFoundException({
-        code: 'conversation_not_found',
-        message: 'Conversation not found.',
-      });
-    }
-    return { messageId: result.id, status: 'streaming' };
+  ): Observable<ChatStreamEvent> {
+    return this.chat.retryGenerationStream(user.id, conversationId, dto.failedMessageId);
   }
 }

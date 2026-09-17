@@ -259,6 +259,10 @@ paths:
         JSON object. The stream terminates with a final `event: done`
         on success or `event: error` on failure.
 
+        The first event is always `event: start` carrying the real
+        `conversationId` and `assistantMessageId`, so clients can route
+        cancellation, retries, and transcript sync before the first token.
+
         **Active model resolution**: explicit `modelId` -> caller's sticky
         choice -> admin's default model. If no model is resolvable, the
         server returns 422 with `code = "no_model_available"`.
@@ -287,6 +291,9 @@ paths:
               schema:
                 type: string
                 example: |
+                  event: start
+                  data: {"conversationId":"c0a8...","assistantMessageId":"m1f2..."}
+
                   data: {"delta":"Hello"}
 
                   data: {"delta":" there"}
@@ -321,7 +328,10 @@ paths:
       description: |
         Stops an in-progress streaming generation. The backend sets the
         streaming assistant message status to `cancelled` and preserves
-        whatever content was accumulated. Returns the cancelled message id.
+        whatever content was accumulated, aborts the upstream provider
+        request, and emits a terminal `event: error` with
+        `code = "generation_cancelled"` on the SSE stream. Returns the
+        cancelled message id.
       security:
         - bearerAuth: []
       parameters:
@@ -360,12 +370,17 @@ paths:
   /v1/chat/{conversationId}/retry:
     post:
       tags: [user]
-      summary: Retry a failed or cancelled generation
+      summary: Retry a failed or cancelled generation as a live SSE stream
       description: |
-        Creates a new assistant message with `status: streaming` and
-        begins a fresh generation. The previous failed/cancelled message
-        is retained in history. Requires the `failedMessageId` of the
-        message to retry.
+        Re-runs the generation pipeline for a failed/cancelled assistant
+        message. Creates a new assistant message with `status: streaming`
+        and streams it live as `text/event-stream` — the same event
+        sequence as `/v1/chat/stream`: a first `event: start` carrying
+        the real `conversationId` and new `assistantMessageId`, then
+        `data: {"delta":...}` chunks, then `event: done` on success or
+        `event: error` on failure. The previous failed/cancelled message
+        is retained in history (and excluded from model context).
+        Requires the `failedMessageId` of the message to retry.
       security:
         - bearerAuth: []
       parameters:
@@ -383,25 +398,31 @@ paths:
               $ref: '#/components/schemas/RetryRequest'
       responses:
         '200':
-          description: New generation started
+          description: SSE stream of the retried generation
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  event: start
+                  data: {"conversationId":"c0a8...","assistantMessageId":"m7d9..."}
+
+                  data: {"delta":"Sure"}
+
+                  data: {"delta":" — here you go"}
+
+                  event: done
+                  data: {}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Conversation or failed message not found
           content:
             application/json:
               schema:
-                type: object
-                required: [messageId, status]
-                properties:
-                  messageId:
-                    type: string
-                    format: uuid
-                  status:
-                    type: string
-                    example: streaming
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          description: Conversation not found
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: A generation is already in progress for this conversation
           content:
             application/json:
               schema:
