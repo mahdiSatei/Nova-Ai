@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { ConversationsService } from './conversations.service';
 import { PinConversationDto } from './dto/pin-conversation.dto';
+import { Logger } from '@nestjs/common';
 
 /**
  * Conversation history endpoints for end users.
@@ -26,6 +27,7 @@ import { PinConversationDto } from './dto/pin-conversation.dto';
 @Controller('v1/conversations')
 @UseGuards(JwtAuthGuard)
 export class ConversationsController {
+  private readonly logger = new Logger(ConversationsController.name);
   constructor(private readonly conversations: ConversationsService) {}
 
   /**
@@ -67,17 +69,17 @@ export class ConversationsController {
   async get(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-  ): Promise<{ id: string; modelId: string; title: string | null; pinned: boolean; createdAt: string; updatedAt: string; messages: Array<{ id: string; role: string; content: string; createdAt: string }> }> {
-    const conversation = await this.conversations.findById(id);
-
-    if (!conversation) {
+  ): Promise<{ id: string; modelId: string; title: string | null; pinned: boolean; createdAt: string; updatedAt: string; messages: Array<{ id: string; role: string; content: string; createdAt: string; status: string }> }> {
+    const conv = await this.conversations.findById(id);
+    this.logger.debug(`ConversationsController.get: userId=${user.id}, conversationId=${id}, found=${!!conv}, messageCount=${conv?.messages.length ?? 0}`);
+    if (!conv) {
       throw new NotFoundException({
         code: 'conversation_not_found',
         message: 'Conversation not found.',
       });
     }
 
-    if (conversation.userId !== user.id) {
+    if (conv.userId !== user.id) {
       throw new ForbiddenException({
         code: 'forbidden',
         message: 'You do not have access to this conversation.',
@@ -85,13 +87,13 @@ export class ConversationsController {
     }
 
     return {
-      id: conversation.id,
-      modelId: conversation.modelId,
-      title: conversation.title,
-      pinned: conversation.pinned,
-      createdAt: conversation.createdAt.toISOString(),
-      updatedAt: conversation.updatedAt.toISOString(),
-      messages: conversation.messages.map((m) => ({
+      id: conv.id,
+      modelId: conv.modelId,
+      title: conv.title,
+      pinned: conv.pinned,
+      createdAt: conv.createdAt.toISOString(),
+      updatedAt: conv.updatedAt.toISOString(),
+      messages: conv.messages.map((m) => ({
         id: m.id,
         role: m.role,
         content: m.content,

@@ -35,22 +35,43 @@ interface ChatMessage {
 }
 
 /**
+ * Holds the in-progress stream state for a conversation.
+ * Lives in memory only — no DB writes during streaming.
+ */
+interface StreamState {
+  /** Accumulated full response text. */
+  fullResponse: string;
+  /** Active SSE subscribers for this stream. */
+  subscribers: Set<(e: ChatStreamEvent) => void>;
+  /** The underlying provider async iterator (kept so we can consume it). */
+  providerStream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
+  /** Conversation + assistant message ids for DB writes at the end. */
+  conversationId: string;
+  assistantMessageId: string;
+}
+
+/**
  * Core chat streaming service.
  *
- * Responsibilities:
- *  1. Resolve the active model (explicit → sticky → default).
- *  2. Verify central provider is configured.
- *  3. Validate message length (FR-014).
- *  4. Assemble prior conversation turns as `messages` (FR-015).
- *  5. Stream tokens from the provider via SSE.
- *  6. Persist user + assistant messages via ConversationsService.
- *
- * For T005 the conversation persistence is the in-memory stub.
- * US4 (T006) swaps this for a TypeORM-backed implementation.
+ * Architecture:
+ *  - A single provider stream is created per conversation and held in
+ *    memory (this.activeStreams Map). All SSE subscribers — including
+ *    reconnecting clients — receive the same accumulated + live tokens.
+ *  - DB writes happen only at stream boundaries: create (status='streaming'),
+ *    complete (status='completed' + full content), fail (status='failed' + content),
+ *    cancel (status='cancelled').
+ *  - This eliminates per-chunk DB writes and enables reconnect/resume
+ *    without touching the database mid-stream.
  */
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
+
+  /**
+   * In-memory registry of active streams keyed by conversationId.
+   * Only one active stream per conversation is allowed.
+   */
+  private readonly activeStreams = new Map<string, StreamState>();
 
   constructor(
     private readonly models: ModelsService,
@@ -63,15 +84,9 @@ export class ChatService {
   /**
    * Stream a chat completion as an RxJS Observable of SSE events.
    *
-   * Uses a Subject-based hot-stream pattern: the Observable is shared
-   * so reconnecting clients can receive accumulated content + new
-   * tokens. A new generation is rejected (409 Conflict) if an active
-   * streaming message already exists for this conversation.
-   *
-   * Message lifecycle:
-   *   1. Create assistant message with status='streaming' before consuming.
-   *   2. Update status='completed' on success, 'failed' on error.
-   *   3. Content is persisted progressively via updateMessageStatus.
+   * If an active stream already exists for this conversation, the new
+   * subscriber receives all accumulated content plus any new tokens —
+   * this is the reconnect/resume path.
    */
   streamChat(userId: string, dto: ChatRequestDto): Observable<ChatStreamEvent> {
     return new Observable<ChatStreamEvent>((observer) => {
@@ -98,7 +113,10 @@ export class ChatService {
   async cancelGeneration(conversationId: string, requesterId: string) {
     const streaming = await this.conversations.findStreamingMessage(conversationId);
     if (!streaming) return null;
-    return this.conversations.cancelGeneration(conversationId, streaming.id, requesterId);
+    const result = await this.conversations.cancelGeneration(conversationId, streaming.id, requesterId);
+    // Remove from in-memory state so no more tokens are emitted.
+    this.activeStreams.delete(conversationId);
+    return result;
   }
 
   /**
@@ -117,7 +135,6 @@ export class ChatService {
   ): Promise<void> {
     let conversationId: string | undefined;
     let assistantMessageId: string | undefined;
-    let fullResponse = '';
 
     try {
       // ── setup phase ─────────────────────────────────────────────────
@@ -239,27 +256,44 @@ export class ChatService {
       await this.conversations.updateMessageStatus(assistantMessageId, 'streaming');
 
       // ── consume phase ───────────────────────────────────────────────
+      let fullResponse = '';
       try {
         const stream = await this.providerClient.stream({
           model: model.actualName,
           messages: providerMessages,
         });
 
-        for await (const chunk of stream as unknown as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>) {
-          const delta = chunk.choices?.[0]?.delta?.content;
-          if (delta) {
-            fullResponse += delta; // always accumulate, even after disconnect
-            if (isActive()) {
-              await this.conversations.updateMessageStatus(assistantMessageId, 'streaming', fullResponse);
-              observer.next({ data: { delta } });
+        const state: StreamState = {
+          fullResponse: '',
+          subscribers: new Set([observer.next.bind(observer)]),
+          providerStream: stream,
+          conversationId,
+          assistantMessageId,
+        };
+        this.activeStreams.set(conversationId, state);
+
+        let streamStarted = false;
+        try {
+          for await (const chunk of stream as unknown as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>) {
+            const delta = chunk.choices?.[0]?.delta?.content;
+            if (delta) {
+              fullResponse += delta;
+              state.fullResponse += delta;
+              // Emit to all current subscribers (original + any reconnects).
+              for (const sub of state.subscribers) {
+                sub({ data: { delta } });
+              }
             }
           }
-        }
 
-        if (isActive()) {
-          observer.next({ event: 'done', data: {} });
+          // Stream completed successfully.
+          await this.conversations.updateMessageStatus(assistantMessageId, 'completed', fullResponse);
+          for (const sub of state.subscribers) {
+            sub({ event: 'done', data: {} });
+          }
+        } finally {
+          this.activeStreams.delete(conversationId);
         }
-        await this.conversations.updateMessageStatus(assistantMessageId, 'completed', fullResponse);
       } catch (err) {
         this.logger.error(
           `Provider stream error: ${err instanceof Error ? err.message : String(err)}`,
@@ -291,5 +325,26 @@ export class ChatService {
       }
       observer.complete();
     }
+  }
+
+  /**
+   * Subscribe to an already-active stream for a conversation.
+   * Sends all accumulated content as individual delta events, then
+   * registers the subscriber to receive new tokens.
+   *
+   * Returns false if no active stream exists for the conversation.
+   */
+  subscribeToActiveStream(conversationId: string, observer: { next: (e: ChatStreamEvent) => void }): boolean {
+    const state = this.activeStreams.get(conversationId);
+    if (!state) return false;
+
+    // Send accumulated content so the reconnecting client catches up.
+    if (state.fullResponse.length > 0) {
+      observer.next({ data: { delta: state.fullResponse } });
+    }
+
+    // Register for future tokens.
+    state.subscribers.add(observer.next.bind(observer));
+    return true;
   }
 }

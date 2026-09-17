@@ -36,6 +36,11 @@ const rows = computed<Row[]>(() => {
 
   for (const m of props.messages) {
     const isActiveStreaming = m.status === 'streaming'
+    // A streaming message only needs recovery UI when there is no active
+    // generation running. If generation.status is 'streaming', the resume
+    // succeeded and the stream is flowing normally — show streaming dots
+    // instead of the "connection lost" recovery banner.
+    const streamNeedsRecovery = isActiveStreaming && props.generation?.status !== 'streaming'
     out.push({
       key: m.id,
       role: m.role,
@@ -44,7 +49,7 @@ const rows = computed<Row[]>(() => {
       streaming: isActiveStreaming,
       pending: false,
       status: m.status,
-      showRecovery: isActiveStreaming || m.status === 'failed' || m.status === 'cancelled',
+      showRecovery: streamNeedsRecovery || m.status === 'failed' || m.status === 'cancelled',
       recoveryStatus: m.status as GenerationStatus,
     })
   }
@@ -63,13 +68,18 @@ const rows = computed<Row[]>(() => {
     })
   }
 
-  if (props.streamingText || props.isStreaming) {
+  // Fallback: if transcript has no assistant message but generation is active,
+  // render the streaming response from generation.value.content.
+  if (
+    props.generation?.status === 'streaming' &&
+    !out.some((r) => r.status === 'streaming')
+  ) {
     out.push({
-      key: 'streaming',
+      key: props.generation.assistantMessageId || 'streaming',
       role: 'assistant',
-      content: props.streamingText ?? '',
+      content: props.generation.content,
       createdAt: null,
-      streaming: Boolean(props.isStreaming),
+      streaming: true,
       pending: false,
       status: 'streaming',
       showRecovery: false,

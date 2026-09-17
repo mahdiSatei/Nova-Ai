@@ -10,36 +10,36 @@ import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { homeFor } from '@/router'
-import { validateEmail, validatePassword } from '@/utils/validation'
+import { validateIdentifier, validatePassword } from '@/utils/validation'
 import { apiErrorMessage } from '@/utils/errors'
 
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 
-const form = reactive({ email: '', password: '' })
-const fieldErrors = reactive<{ email: string | null; password: string | null }>({
-  email: null,
+const form = reactive({ identifier: '', password: '' })
+const fieldErrors = reactive<{ identifier: string | null; password: string | null }>({
+  identifier: null,
   password: null,
 })
 const submitError = ref<{ message: string } | null>(null)
 const submitting = ref(false)
 
-// Spec §Registration: validate email shape on blur, not per keystroke.
-function onBlur(field: 'email' | 'password'): void {
+// Spec §Registration: validate field shape on blur, not per keystroke.
+function onBlur(field: 'identifier' | 'password'): void {
   fieldErrors[field] =
-    field === 'email' ? validateEmail(form.email) : validatePassword(form.password)
+    field === 'identifier' ? validateIdentifier(form.identifier) : validatePassword(form.password)
 }
 
 async function onSubmit(): Promise<void> {
   submitError.value = null
-  fieldErrors.email = validateEmail(form.email)
+  fieldErrors.identifier = validateIdentifier(form.identifier)
   fieldErrors.password = validatePassword(form.password)
-  if (fieldErrors.email || fieldErrors.password) return
+  if (fieldErrors.identifier || fieldErrors.password) return
 
   submitting.value = true
   try {
-    const user = await auth.login({ ...form })
+    const user = await auth.login({ identifier: form.identifier.trim(), password: form.password })
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : null
     await router.push(redirect ?? homeFor(user.role))
   } catch (err) {
@@ -71,13 +71,13 @@ async function onSubmit(): Promise<void> {
         <ErrorBanner v-if="submitError" :message="submitError.message" />
 
         <BaseInput
-          v-model="form.email"
-          label="ایمیل"
-          type="email"
-          autocomplete="email"
+          v-model="form.identifier"
+          label="ایمیل یا نام کاربری"
+          type="text"
+          autocomplete="username"
           dir="ltr"
-          :error="fieldErrors.email"
-          @blur="onBlur('email')"
+          :error="fieldErrors.identifier"
+          @blur="onBlur('identifier')"
         />
         <BaseInput
           v-model="form.password"

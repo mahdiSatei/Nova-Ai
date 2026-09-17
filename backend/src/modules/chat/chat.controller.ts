@@ -35,6 +35,29 @@ export class ChatController {
   }
 
   /**
+   * Resume an in-progress stream by subscribing to the active
+   * provider stream held in memory. The client receives all
+   * accumulated content as a single delta, then any new tokens.
+   *
+   * Returns 404 if no active stream exists for the conversation
+   * (the generation has already completed or been cancelled).
+   */
+  @Post(':conversationId/resume')
+  @Sse('text/event-stream')
+  resume(@CurrentUser() user: AuthenticatedUser, @Param('conversationId') conversationId: string): Observable<ChatStreamEvent> {
+    return new Observable<ChatStreamEvent>((observer) => {
+      const subscribed = this.chat.subscribeToActiveStream(conversationId, observer);
+      if (!subscribed) {
+        observer.next({
+          event: 'error',
+          data: { code: 'no_active_stream', message: 'No active generation found for this conversation.' },
+        });
+        observer.complete();
+      }
+    });
+  }
+
+  /**
    * Cancel the active generation for a conversation.
    */
   @Post(':conversationId/cancel')

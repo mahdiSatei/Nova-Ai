@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ChatService } from '../../src/modules/chat/chat.service';
+import { ChatService, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent } from '../../src/modules/chat/chat.service';
 import { ModelsService } from '../../src/modules/models/models.service';
 import { OpenAICompatibleClient } from '../../src/modules/chat/provider/openai-compatible.client';
 import { ConversationsService } from '../../src/modules/conversations/conversations.service';
@@ -160,8 +160,8 @@ describe('ChatService', () => {
       // appendMessage called with empty content (placeholder for streaming)
       expect(conversations.appendMessage).toHaveBeenCalledWith('conv-1', '');
 
-      // updateMessageStatus called with streaming → completed
-      expect(conversations.updateMessageStatus).toHaveBeenCalledWith(expect.any(String), 'streaming', 'Hello there!');
+      // updateMessageStatus called once for 'streaming' (no content), once for 'completed' (full content)
+      expect(conversations.updateMessageStatus).toHaveBeenCalledWith(expect.any(String), 'streaming');
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith(expect.any(String), 'completed', 'Hello there!');
 
       // Token events + done event
@@ -220,7 +220,7 @@ describe('ChatService', () => {
 
       // Status tracking: append with empty content, then update to completed
       expect(conversations.appendMessage).toHaveBeenCalledWith('conv-2', '');
-      expect(conversations.updateMessageStatus).toHaveBeenCalledWith(expect.any(String), 'streaming', 'New answer');
+      expect(conversations.updateMessageStatus).toHaveBeenCalledWith(expect.any(String), 'streaming');
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith(expect.any(String), 'completed', 'New answer');
     });
   });
@@ -399,9 +399,9 @@ describe('ChatService', () => {
       });
 
       // appendMessage called with empty content, then updateMessageStatus
-      // called with streaming, then completed.
+      // called with streaming (no content), then completed (full content).
       expect(conversations.appendMessage).toHaveBeenCalledWith('conv-1', '');
-      expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'streaming', 'hi');
+      expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'streaming');
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'completed', 'hi');
     });
 

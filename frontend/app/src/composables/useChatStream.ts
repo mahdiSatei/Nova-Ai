@@ -1,6 +1,6 @@
 // Composable مرکزی چت: dual state model — connection + generation.
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { streamChat, type StreamHandlers } from '@/api/chat'
+import { streamChat, resumeStream, type StreamHandlers } from '@/api/chat'
 import { cancelGeneration, retryGeneration } from '@/api/chat'
 import { getConversation, listConversations } from '@/api/conversations'
 import { ApiError } from '@/api/http'
@@ -8,6 +8,7 @@ import { streamErrorMessage } from '@/utils/errors'
 import type { MessagePublic } from '@/types/api'
 
 const SESSION_KEY = 'mmcb.lastModelId'
+const CONVERSATION_KEY = 'mmcb.lastConversationId'
 
 type ConnectionState = 'connected' | 'disconnected' | 'reconnecting'
 type GenerationState = 'idle' | 'streaming' | 'completed' | 'failed' | 'cancelled'
@@ -70,6 +71,10 @@ export function useChatStream(): ChatStreamHandle {
 
   let controller: AbortController | null = null
   let currentStreamConversationId: string | null = null
+  let retryTimer: ReturnType<typeof setInterval> | null = null
+  let retryCount = 0
+  const MAX_RETRIES = 5
+  const RETRY_INTERVAL_MS = 3000
 
   // ── Computed ─────────────────────────────────────────────────────
   const inputDisabled = computed(
@@ -105,12 +110,43 @@ export function useChatStream(): ChatStreamHandle {
   function goOffline(): void {
     if (generationState.value === 'streaming') {
       setDisconnected()
+      startAutoRetry()
     }
   }
 
   if (typeof window !== 'undefined') {
     window.addEventListener('online', goOnline)
     window.addEventListener('offline', goOffline)
+  }
+
+  // ── Auto-retry ───────────────────────────────────────────────────
+  function startAutoRetry(): void {
+    stopAutoRetry()
+    retryCount = 0
+    setReconnecting()
+    retryTimer = setInterval(async () => {
+      if (retryCount >= MAX_RETRIES) {
+        stopAutoRetry()
+        setDisconnected()
+        return
+      }
+      retryCount++
+      try {
+        await reconnect()
+        stopAutoRetry()
+        setConnected()
+      } catch {
+        // retry on next interval
+      }
+    }, RETRY_INTERVAL_MS)
+  }
+
+  function stopAutoRetry(): void {
+    if (retryTimer) {
+      clearInterval(retryTimer)
+      retryTimer = null
+    }
+    retryCount = 0
   }
 
   // ── Snapshot replacement (FR-7) ──────────────────────────────────
@@ -122,6 +158,7 @@ export function useChatStream(): ChatStreamHandle {
 
   // ── Cancel (FR-10) ───────────────────────────────────────────────
   async function cancel(): Promise<void> {
+    stopAutoRetry()
     if (!generation.value) return
 
     const convId = generation.value.conversationId
@@ -176,6 +213,7 @@ export function useChatStream(): ChatStreamHandle {
   async function reconnect(): Promise<void> {
     if (!conversationId.value || !generation.value) return
 
+    stopAutoRetry()
     setReconnecting()
     controller?.abort()
 
@@ -195,7 +233,8 @@ export function useChatStream(): ChatStreamHandle {
           content: streamingMsg.content,
         }
         generationState.value = 'streaming'
-        await resumeStream(detail.id, streamingMsg.id, streamingMsg.content)
+        saveConversationId(detail.id)
+        await startResumeStream(detail.id, streamingMsg.id, streamingMsg.content)
       } else {
         const finalMsg = detail.messages.at(-1)
         if (finalMsg?.role === 'assistant') {
@@ -220,32 +259,47 @@ export function useChatStream(): ChatStreamHandle {
   }
 
   // ── Resume stream ────────────────────────────────────────────────
-  async function resumeStream(
+  async function startResumeStream(
     convId: string,
     assistantMsgId: string,
     existingContent: string,
   ): Promise<void> {
-    const modelId = selectedModelId.value
-    if (!modelId) return
-
-    const lastUserMsg = transcript.value.filter((m) => m.role === 'user').at(-1)
-    if (!lastUserMsg) return
-
-    controller = streamChat(
+    // Use the dedicated resume endpoint — it subscribes to the
+    // in-progress in-memory stream instead of creating a new generation.
+    // The first delta from the backend is the full accumulated text;
+    // subsequent deltas are incremental live tokens.
+    controller = resumeStream(
+      convId,
       {
-        conversationId: convId,
-        modelId,
-        message: lastUserMsg.content,
-      },
-      {
-        onDelta: (text: string) => {
-          if (generation.value) {
-            generation.value = { ...generation.value, content: generation.value.content + text }
+        onDelta: (_text: string, isFirst: boolean) => {
+          if (!generation.value) return
+          const newContent = isFirst ? _text : generation.value.content + _text
+          generation.value = { ...generation.value, content: newContent }
+          // Sync into transcript for MessageList rendering.
+          const idx = transcript.value.findIndex(
+            (m) => m.id === generation.value!.assistantMessageId,
+          )
+          if (idx !== -1) {
+            transcript.value = [
+              ...transcript.value.slice(0, idx),
+              { ...transcript.value[idx], content: newContent },
+              ...transcript.value.slice(idx + 1),
+            ]
           }
         },
         onDone: () => {
           if (generation.value) {
             generation.value = { ...generation.value, status: 'completed' }
+            const idx = transcript.value.findIndex(
+              (m) => m.id === generation.value!.assistantMessageId,
+            )
+            if (idx !== -1) {
+              transcript.value = [
+                ...transcript.value.slice(0, idx),
+                { ...transcript.value[idx], status: 'completed' as const },
+                ...transcript.value.slice(idx + 1),
+              ]
+            }
           }
           generationState.value = 'completed'
           controller = null
@@ -254,6 +308,16 @@ export function useChatStream(): ChatStreamHandle {
           connectionError.value = err
           if (generation.value) {
             generation.value = { ...generation.value, status: 'failed' }
+            const idx = transcript.value.findIndex(
+              (m) => m.id === generation.value!.assistantMessageId,
+            )
+            if (idx !== -1) {
+              transcript.value = [
+                ...transcript.value.slice(0, idx),
+                { ...transcript.value[idx], status: 'failed' as const },
+                ...transcript.value.slice(idx + 1),
+              ]
+            }
           }
           generationState.value = 'failed'
           controller = null
@@ -264,19 +328,23 @@ export function useChatStream(): ChatStreamHandle {
 
   // ── Load conversation (FR-1, FR-9) ───────────────────────────────
   async function loadConversation(id: string): Promise<void> {
+    console.debug('[useChatStream] loadConversation start', { id })
     connectionError.value = null
     setConnected()
     try {
       const detail = await getConversation(id)
+      console.debug('[useChatStream] loadConversation got detail', { messageCount: detail.messages.length, conversationId: detail.id })
       transcript.value = detail.messages
       conversationId.value = detail.id
       currentStreamConversationId = detail.id
+      saveConversationId(detail.id)
 
       const streamingMsg = detail.messages.find(
         (m) => m.role === 'assistant' && m.status === 'streaming',
       )
 
       if (streamingMsg) {
+        console.debug('[useChatStream] loadConversation found streaming msg', { msgId: streamingMsg.id, contentLength: streamingMsg.content.length })
         generation.value = {
           conversationId: detail.id,
           assistantMessageId: streamingMsg.id,
@@ -284,11 +352,14 @@ export function useChatStream(): ChatStreamHandle {
           content: streamingMsg.content,
         }
         generationState.value = 'streaming'
+        // Auto-resume: tap into the in-memory stream instead of showing a frozen UI.
+        await startResumeStream(detail.id, streamingMsg.id, streamingMsg.content)
       } else {
         generation.value = null
         generationState.value = 'idle'
       }
     } catch (err) {
+      console.debug('[useChatStream] loadConversation error', err)
       const apiErr = err instanceof ApiError ? err : null
       connectionError.value = apiErr
         ? { code: apiErr.code, message: apiErr.message }
@@ -303,6 +374,7 @@ export function useChatStream(): ChatStreamHandle {
     transcript.value = []
     conversationId.value = null
     currentStreamConversationId = null
+    saveConversationId(null)
     generation.value = null
     generationState.value = 'idle'
     connectionState.value = 'connected'
@@ -339,29 +411,70 @@ export function useChatStream(): ChatStreamHandle {
 
     const targetConversationId = conversationId.value
     currentStreamConversationId = targetConversationId
+    if (targetConversationId) saveConversationId(targetConversationId)
 
     const handlers: StreamHandlers = {
-      onDelta: (delta: string) => {
+      onDelta: (_delta: string, _isFirst: boolean) => {
         if (generation.value) {
-          generation.value = { ...generation.value, content: generation.value.content + delta }
+          generation.value = {
+            ...generation.value,
+            content: generation.value.content + _delta,
+          }
+          // Sync the live content into the transcript so MessageList
+          // (which renders from transcript) reflects the new text.
+          const idx = transcript.value.findIndex(
+            (m) => m.id === generation.value!.assistantMessageId,
+          )
+          if (idx !== -1) {
+            transcript.value = [
+              ...transcript.value.slice(0, idx),
+              { ...transcript.value[idx], content: generation.value.content },
+              ...transcript.value.slice(idx + 1),
+            ]
+          }
         }
       },
       onDone: async () => {
         if (generation.value) {
           generation.value = { ...generation.value, status: 'completed' }
+          // Mark the transcript message as completed so recovery UI clears.
+          const idx = transcript.value.findIndex(
+            (m) => m.id === generation.value!.assistantMessageId,
+          )
+          if (idx !== -1) {
+            transcript.value = [
+              ...transcript.value.slice(0, idx),
+              { ...transcript.value[idx], status: 'completed' as const },
+              ...transcript.value.slice(idx + 1),
+            ]
+          }
         }
         generationState.value = 'completed'
         controller = null
 
         if (!conversationId.value) {
           const id = await findLatestConversationId()
-          if (id) conversationId.value = id
+          if (id) {
+            conversationId.value = id
+            saveConversationId(id)
+          }
         }
       },
       onError: (err) => {
         connectionError.value = err
         if (generation.value) {
           generation.value = { ...generation.value, status: 'failed' }
+          // Mark the transcript message as failed.
+          const idx = transcript.value.findIndex(
+            (m) => m.id === generation.value!.assistantMessageId,
+          )
+          if (idx !== -1) {
+            transcript.value = [
+              ...transcript.value.slice(0, idx),
+              { ...transcript.value[idx], status: 'failed' as const },
+              ...transcript.value.slice(idx + 1),
+            ]
+          }
         }
         generationState.value = 'failed'
         controller = null
@@ -421,7 +534,24 @@ export function useChatStream(): ChatStreamHandle {
     }
   }
 
-  function setModel(id: string | null): void {
+  function saveConversationId(id: string | null): void {
+  try {
+    if (id) localStorage.setItem(CONVERSATION_KEY, id)
+    else localStorage.removeItem(CONVERSATION_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadSavedConversationId(): string | null {
+  try {
+    return localStorage.getItem(CONVERSATION_KEY)
+  } catch {
+    return null
+  }
+}
+
+function setModel(id: string | null): void {
     selectedModelId.value = id
     if (id) saveModelId(id)
     else {
@@ -435,6 +565,7 @@ export function useChatStream(): ChatStreamHandle {
 
   // ── Cleanup ──────────────────────────────────────────────────────
   onBeforeUnmount(() => {
+    stopAutoRetry()
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', goOnline)
       window.removeEventListener('offline', goOffline)
@@ -444,6 +575,7 @@ export function useChatStream(): ChatStreamHandle {
 
   return {
     connectionState,
+    connectionError,
     generationState,
     generation,
     transcript,

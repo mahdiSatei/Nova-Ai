@@ -24,6 +24,16 @@ const models = useModelsStore()
 const chat = useChatStream()
 const theme = useTheme()
 
+const STORED_CONVERSATION_KEY = 'mmcb.lastConversationId'
+
+function loadStoredConversationId(): string | null {
+  try {
+    return localStorage.getItem(STORED_CONVERSATION_KEY)
+  } catch {
+    return null
+  }
+}
+
 const inputText = ref('')
 const justStartedConversation = ref(false)
 const scrollRoot = useTemplateRef<HTMLDivElement>('scrollRoot')
@@ -70,19 +80,8 @@ watch(
   { deep: true },
 )
 
-watch(
-  () => resolvedId(),
-  async (id) => {
-    if (id) await chat.loadConversation(id)
-    else chat.resetConversation()
-    pinnedToBottom.value = true
-    await nextTick()
-    scrollToBottom(false)
-  },
-  { immediate: true },
-)
-
 onMounted(async () => {
+  console.debug('[ChatView] onMounted start', { routeName: route.name, resolvedId: resolvedId(), propsId: props.id })
   await models.load()
   if (!chat.selectedModelId.value) {
     const fallback = models.defaultModelId ?? models.items[0]?.id ?? null
@@ -90,7 +89,40 @@ onMounted(async () => {
   } else if (!models.items.find((m) => m.id === chat.selectedModelId.value)) {
     chat.setModel(models.defaultModelId ?? models.items[0]?.id ?? null)
   }
+
+  // Load conversation after models are ready and props are resolved
+  const id = resolvedId()
+  console.debug('[ChatView] onMounted resolvedId', { id })
+
+  if (id) {
+    await chat.loadConversation(id)
+  } else {
+    const stored = loadStoredConversationId()
+    if (stored) {
+      void router.replace({ name: 'chat-conversation', params: { id: stored } })
+    } else {
+      chat.resetConversation()
+    }
+  }
+
+  console.debug('[ChatView] onMounted after load', { transcriptLen: chat.transcript.value.length, generation: chat.generation.value })
+  pinnedToBottom.value = true
+  await nextTick()
+  scrollToBottom(false)
 })
+
+// Handle route changes after initial load (e.g., navigating between conversations)
+watch(
+  () => resolvedId(),
+  async (id) => {
+    console.debug('[ChatView] route watch resolvedId', { id })
+    if (id) await chat.loadConversation(id)
+    else chat.resetConversation()
+    pinnedToBottom.value = true
+    await nextTick()
+    scrollToBottom(false)
+  },
+)
 
 watch(
   () => chat.conversationId.value,

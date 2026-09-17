@@ -21,14 +21,14 @@ export class AuthController {
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   register(@Body() body: RegisterRequestDto): Promise<AuthResponseDto> {
-    return this.auth.register(body.email, body.password);
+    return this.auth.register(body.username, body.email, body.password);
   }
 
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   login(@Body() body: LoginRequestDto): Promise<AuthResponseDto> {
-    return this.auth.login(body.email, body.password);
+    return this.auth.login(body.identifier, body.password);
   }
 
   @Public()

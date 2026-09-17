@@ -204,7 +204,12 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathId'
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: Conversation with messages
@@ -228,7 +233,12 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathId'
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '204':
           description: Deleted
@@ -315,7 +325,12 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathConversationId'
+        - in: path
+          name: conversationId
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: Generation cancelled
@@ -354,7 +369,12 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathConversationId'
+        - in: path
+          name: conversationId
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -551,7 +571,12 @@ paths:
       security:
         - bearerAdminAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathId'
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -579,7 +604,12 @@ paths:
       security:
         - bearerAdminAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathId'
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '204':
           description: Deleted
@@ -650,8 +680,7 @@ paths:
 
 components:
   securitySchemes:
-    bearerAuth:
-      type: http
+    bearer:
       scheme: bearer
       bearerFormat: JWT
     bearerAdminAuth:

@@ -81,6 +81,12 @@ export const useAuthStore = defineStore('auth', () => {
     persistUser(null)
   }
 
+  /** Replace the cached profile (e.g. after PATCH /v1/users/me). */
+  function updateProfile(updated: UserPublic): void {
+    user.value = updated
+    persistUser(updated)
+  }
+
   async function signOut(): Promise<void> {
     try {
       await authApi.logout()
@@ -92,5 +98,5 @@ export const useAuthStore = defineStore('auth', () => {
 
   onSessionExpired(clearSession)
 
-  return { user, ready, isAuthenticated, isAdmin, restore, register, login, adminLogin, signOut, clearSession }
+  return { user, ready, isAuthenticated, isAdmin, restore, register, login, adminLogin, signOut, clearSession, updateProfile }
 })
