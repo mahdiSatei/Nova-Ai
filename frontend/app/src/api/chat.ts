@@ -1,4 +1,4 @@
-import { API_BASE, buildUrl, newRequestId, request, tokenStore } from '@/api/http'
+import { API_BASE, buildUrl, newRequestId, request, tokenStore, withStreamAuthRetry } from '@/api/http'
 import { streamErrorMessage } from '@/utils/errors'
 import type { ChatRequest, SseDelta, SseError } from '@/types/api'
 
@@ -24,21 +24,24 @@ export interface StreamHandlers {
  */
 export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortController {
   const controller = new AbortController()
-  const tokens = tokenStore.load()
 
   void (async () => {
     try {
-      const res = await fetch(buildUrl('/v1/chat/stream'), {
-        method: 'POST',
-        headers: {
+      const res = await withStreamAuthRetry(async (accessToken) => {
+        const headers: Record<string, string> = {
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
           'X-Request-ID': newRequestId(),
-          ...(tokens ? { Authorization: `Bearer ${tokens.accessToken}` } : {}),
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
+        }
+        if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+        return fetch(buildUrl('/v1/chat/stream'), {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        })
       })
+      if (!res) return
 
       if (!res.ok) {
         let code = 'unknown_error'
@@ -163,21 +166,24 @@ export function retryStream(
   handlers: StreamHandlers,
 ): AbortController {
   const controller = new AbortController()
-  const tokens = tokenStore.load()
 
   void (async () => {
     try {
-      const res = await fetch(buildUrl(`/v1/chat/${conversationId}/retry`), {
-        method: 'POST',
-        headers: {
+      const res = await withStreamAuthRetry(async (accessToken) => {
+        const headers: Record<string, string> = {
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
           'X-Request-ID': newRequestId(),
-          ...(tokens ? { Authorization: `Bearer ${tokens.accessToken}` } : {}),
-        },
-        body: JSON.stringify({ failedMessageId }),
-        signal: controller.signal,
+        }
+        if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+        return fetch(buildUrl(`/v1/chat/${conversationId}/retry`), {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ failedMessageId }),
+          signal: controller.signal,
+        })
       })
+      if (!res) return
 
       if (!res.ok) {
         let code = 'unknown_error'
@@ -291,20 +297,23 @@ export function resumeStream(
   handlers: StreamHandlers,
 ): AbortController {
   const controller = new AbortController()
-  const tokens = tokenStore.load()
 
   void (async () => {
     try {
-      const res = await fetch(buildUrl(`/v1/chat/${conversationId}/resume`), {
-        method: 'POST',
-        headers: {
+      const res = await withStreamAuthRetry(async (accessToken) => {
+        const headers: Record<string, string> = {
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
           'X-Request-ID': newRequestId(),
-          ...(tokens ? { Authorization: `Bearer ${tokens.accessToken}` } : {}),
-        },
-        signal: controller.signal,
+        }
+        if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+        return fetch(buildUrl(`/v1/chat/${conversationId}/resume`), {
+          method: 'POST',
+          headers,
+          signal: controller.signal,
+        })
       })
+      if (!res) return
 
       if (!res.ok) {
         let code = 'unknown_error'

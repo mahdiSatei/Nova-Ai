@@ -10,6 +10,9 @@ vi.mock('@/api/http', () => ({
   buildUrl: (path: string) => path,
   newRequestId: () => 'req-test',
   tokenStore: { load: () => null },
+  // Stream auth retry: just pass through to the fetchFn directly
+  // since tests don't have token persistence.
+  withStreamAuthRetry: async (fetchFn: (token: string | null) => Promise<Response>) => fetchFn(null),
 }))
 
 describe('cancelGeneration', () => {
