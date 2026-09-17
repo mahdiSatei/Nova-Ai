@@ -41,7 +41,17 @@ export class ProviderService {
     const row = await this.repo.findOne({ where: { id: 'singleton' } });
     if (!row) return { isConfigured: false };
 
-    const plain = decrypt(row.apiKeyEncrypted);
+    let plain: string;
+    try {
+      plain = decrypt(row.apiKeyEncrypted);
+    } catch {
+      this.logger.warn('Failed to decrypt stored provider credential — the encryption key may have changed');
+      throw new UnprocessableEntityException({
+        code: 'provider_credential_corrupt',
+        message:
+          'The stored provider credential cannot be decrypted. This usually means the encryption key was changed after the provider was configured. Re-enter the API key to fix this.',
+      });
+    }
     return {
       baseUrl: row.baseUrl,
       apiKeyMasked: this.mask(plain),
@@ -102,10 +112,19 @@ export class ProviderService {
         message: 'Central provider is not configured.',
       });
     }
-    return {
-      baseUrl: row.baseUrl,
-      apiKey: decrypt(row.apiKeyEncrypted),
-    };
+    try {
+      return {
+        baseUrl: row.baseUrl,
+        apiKey: decrypt(row.apiKeyEncrypted),
+      };
+    } catch {
+      this.logger.warn('Failed to decrypt stored provider credential in getDecryptedApiKey');
+      throw new UnprocessableEntityException({
+        code: 'provider_credential_corrupt',
+        message:
+          'The stored provider credential cannot be decrypted. Re-configure the provider with a valid API key.',
+      });
+    }
   }
 
   /**

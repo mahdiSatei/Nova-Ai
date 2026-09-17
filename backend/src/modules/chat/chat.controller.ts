@@ -1,6 +1,8 @@
 import {
   Body,
   Controller,
+  NotFoundException,
+  Param,
   Post,
   Sse,
   UseGuards,
@@ -30,5 +32,65 @@ export class ChatController {
   @Sse('text/event-stream')
   stream(@CurrentUser() user: AuthenticatedUser, @Body() dto: ChatRequestDto): Observable<ChatStreamEvent> {
     return this.chat.streamChat(user.id, dto);
+  }
+
+  /**
+   * Resume an in-progress stream by subscribing to the active
+   * provider stream held in memory. The client receives all
+   * accumulated content as a single delta, then any new tokens.
+   *
+   * Returns 404 if no active stream exists for the conversation
+   * (the generation has already completed or been cancelled).
+   */
+  @Post(':conversationId/resume')
+  @Sse('text/event-stream')
+  resume(@CurrentUser() user: AuthenticatedUser, @Param('conversationId') conversationId: string): Observable<ChatStreamEvent> {
+    return new Observable<ChatStreamEvent>((observer) => {
+      const subscribed = this.chat.subscribeToActiveStream(conversationId, observer);
+      if (!subscribed) {
+        observer.next({
+          event: 'error',
+          data: { code: 'no_active_stream', message: 'No active generation found for this conversation.' },
+        });
+        observer.complete();
+      }
+    });
+  }
+
+  /**
+   * Cancel the active generation for a conversation.
+   */
+  @Post(':conversationId/cancel')
+  async cancel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('conversationId') conversationId: string,
+  ): Promise<{ messageId: string; status: string }> {
+    const result = await this.chat.cancelGeneration(conversationId, user.id);
+    if (!result) {
+      throw new NotFoundException({
+        code: 'no_active_generation',
+        message: 'No active generation to cancel.',
+      });
+    }
+    return { messageId: result.id, status: 'cancelled' };
+  }
+
+  /**
+   * Retry a failed or cancelled generation.
+   */
+  @Post(':conversationId/retry')
+  async retry(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('conversationId') conversationId: string,
+    @Body() dto: { failedMessageId: string },
+  ): Promise<{ messageId: string; status: string }> {
+    const result = await this.chat.retryGeneration(conversationId, dto.failedMessageId, user.id);
+    if (!result) {
+      throw new NotFoundException({
+        code: 'conversation_not_found',
+        message: 'Conversation not found.',
+      });
+    }
+    return { messageId: result.id, status: 'streaming' };
   }
 }

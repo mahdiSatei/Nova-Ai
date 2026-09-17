@@ -35,6 +35,8 @@ const MESSAGES: Record<string, string> = {
   network_error: 'خطا در ارتباط با سرور.',
   no_stream: 'پاسخی از سرور دریافت نشد.',
   stream_error: 'پاسخ استریمی قطع شد.',
+  generation_in_progress: 'در حال حاضر یک پاسخ در حال تولید است. لطفاً صبر کنید یا آن را متوقف کنید.',
+  no_active_generation: 'هیچ تولید فعالی برای متوقف کردن وجود ندارد.',
 }
 
 const FALLBACK = 'خطایی رخ داد. لطفاً دوباره تلاش کنید.'

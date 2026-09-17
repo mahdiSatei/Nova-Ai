@@ -2,7 +2,7 @@ services:
   postgres:
     image: postgres:18
     ports:
-      - "5432:5432"
+      - "5433:5432"
     container_name: nova-ai-db
     environment:
       POSTGRES_USER: postgres

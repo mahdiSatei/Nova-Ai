@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
+import { MessageStatus } from './conversations.types';
 
 /**
  * Persistent ConversationsService backed by TypeORM.
@@ -157,6 +158,123 @@ export class ConversationsService {
 
     await this.conversationRepo.delete(id);
     return true;
+  }
+
+  // ─── streaming message methods ──────────────────────────────────────────
+
+  /**
+   * Find the assistant message with status 'streaming' for a conversation.
+   * Returns null if no streaming message exists (allows one active generation).
+   */
+  async findStreamingMessage(conversationId: string): Promise<Message | null> {
+    return this.messageRepo.findOne({
+      where: { conversationId, status: 'streaming' as MessageStatus },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /**
+   * Update a message's status, and optionally its content.
+   * Returns the updated message or null if not found.
+   */
+  async updateMessageStatus(
+    messageId: string,
+    status: MessageStatus,
+    content?: string,
+  ): Promise<Message | null> {
+    const patch: Record<string, string | undefined> = { status };
+    if (content !== undefined) {
+      patch.content = content;
+    }
+    await this.messageRepo.update(messageId, patch);
+    return this.messageRepo.findOne({ where: { id: messageId } });
+  }
+
+  /**
+   * Find a message by id with its conversation relation.
+   * Used for ownership checks before mutations.
+   */
+  async findMessageById(messageId: string): Promise<(Message & { conversation: Conversation }) | null> {
+    return this.messageRepo.findOne({
+      where: { id: messageId },
+      relations: ['conversation'],
+    }) as Promise<(Message & { conversation: Conversation }) | null>;
+  }
+
+  /**
+   * Cancel an active (streaming) generation.
+   * Validates: the message exists, is streaming, and the requester owns the conversation.
+   */
+  async cancelGeneration(
+    conversationId: string,
+    messageId: string,
+    requesterId: string,
+  ): Promise<Message | null> {
+    const streaming = await this.messageRepo.findOne({
+      where: { id: messageId, conversationId, status: 'streaming' as MessageStatus },
+    });
+    if (!streaming) {
+      throw new ConflictException({
+        code: 'no_active_generation',
+        message: 'No active generation to cancel.',
+      });
+    }
+
+    const msgWithConv = await this.findMessageById(messageId);
+    if (!msgWithConv || msgWithConv.conversation.userId !== requesterId) {
+      throw new ForbiddenException({
+        code: 'forbidden',
+        message: 'You do not own this conversation.',
+      });
+    }
+
+    await this.messageRepo.update(messageId, { status: 'cancelled' as MessageStatus });
+    return this.messageRepo.findOne({ where: { id: messageId } });
+  }
+
+  /**
+   * Retry a failed/cancelled generation by creating a new streaming assistant message.
+   * The old message is retained for history/debugging.
+   * Validates: the conversation exists, the requester owns it, and the target message belongs to it.
+   */
+  async retryGeneration(
+    conversationId: string,
+    failedMessageId: string,
+    requesterId: string,
+  ): Promise<Message | null> {
+    const conversation = await this.conversationRepo.findOne({
+      where: { id: conversationId },
+      select: ['id', 'userId'],
+    });
+    if (!conversation) return null;
+    if (conversation.userId !== requesterId) {
+      throw new ForbiddenException({
+        code: 'forbidden',
+        message: 'You do not own this conversation.',
+      });
+    }
+
+    const targetMsg = await this.messageRepo.findOne({
+      where: { id: failedMessageId, conversationId },
+    });
+    if (!targetMsg) {
+      throw new ConflictException({
+        code: 'message_not_found',
+        message: 'The specified message does not belong to this conversation.',
+      });
+    }
+
+    const newMessage = this.messageRepo.create({
+      conversationId,
+      role: 'assistant',
+      content: '',
+      status: 'streaming' as MessageStatus,
+    });
+    const saved = await this.messageRepo.save(newMessage);
+
+    await this.conversationRepo.update(conversationId, { updatedAt: new Date() });
+
+    return saved;
   }
 
   // ─────────────────────────── helpers ────────────────────────────────────
