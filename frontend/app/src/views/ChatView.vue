@@ -114,7 +114,7 @@ watch(newChatTick, () => {
 
 async function onSubmit(): Promise<void> {
   const text = inputText.value
-  if (!text.trim() || inputDisabled.value) return
+  if (!text.trim() || chat.inputDisabled.value) return
   if (!resolvedId()) justStartedConversation.value = true
   inputText.value = ''
   pinnedToBottom.value = true
@@ -305,11 +305,11 @@ const suggestedPrompts = [
             />
           </div>
 
-          <!-- خطای استریم داخل فید -->
-          <div v-if="chat.streamError.value" class="mx-auto max-w-3xl">
+          <!-- خطای اتصال یا استریم داخل فید -->
+          <div v-if="chat.connectionError.value" class="mx-auto max-w-3xl">
             <ErrorBanner
-              :message="chat.streamError.value.message"
-              :code="chat.streamError.value.code"
+              :message="chat.connectionError.value.message"
+              :code="chat.connectionError.value.code"
               :show-code="true"
             />
             <div
@@ -349,8 +349,8 @@ const suggestedPrompts = [
         <MessageInput
           v-model="inputText"
           :placeholder="noModels ? 'مدلی برای گفتگو موجود نیست.' : 'پیام خود را بنویسید…'"
-          :disabled="inputDisabled"
-          :busy="chat.isStreaming.value"
+          :disabled="chat.inputDisabled.value"
+          :busy="chat.generationState.value === 'streaming'"
           @submit="onSubmit"
           @stop="onStop"
         />
