@@ -15,6 +15,7 @@ import ConversationGroups from '@/components/chat/ConversationGroups.vue'
 import ProfileModal from '@/components/user/ProfileModal.vue'
 import UserAvatar from '@/components/user/UserAvatar.vue'
 import { useAuthStore } from '@/stores/auth'
+import { avatarValueFor } from '@/utils/avatar'
 import { requestNewChat } from '@/composables/useNewChatSignal'
 import { listConversations, deleteConversation, setConversationPinned } from '@/api/conversations'
 import type { ConversationSummary } from '@/types/api'
@@ -353,7 +354,7 @@ watch(
         @click="profileOpen = true"
       >
         <span class="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-elevated">
-          <UserAvatar :value="auth.user?.id ?? 'anonymous'" :size="28" />
+          <UserAvatar :value="auth.user ? avatarValueFor(auth.user) : 'anonymous'" :size="28" />
         </span>
         <span v-if="!rail" class="min-w-0 flex-1 truncate text-xs text-ink-muted" :dir="auth.user?.displayName ? undefined : 'ltr'">
           {{ profileLabel }}

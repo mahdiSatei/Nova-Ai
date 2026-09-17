@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -9,6 +10,18 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { UsersService } from './users.service';
 import { UpdateMeRequestDto } from './dto/update-me.dto';
+
+/** Public profile shape (never includes password fields). */
+interface ProfileResponse {
+  id: string;
+  email: string;
+  username: string | null;
+  displayName: string | null;
+  avatarSeed: string | null;
+  role: 'user' | 'admin';
+  createdAt: string;
+  lastLoginAt: string | null;
+}
 
 /**
  * Profile endpoints for the authenticated user ("me"). All routes
@@ -23,39 +36,39 @@ export class UsersController {
    * The caller's profile. Password hash is never part of the response.
    */
   @Get('me')
-  async me(
-    @CurrentUser() user: AuthenticatedUser,
-  ): Promise<{
-    id: string;
-    email: string;
-    username: string | null;
-    displayName: string | null;
-    role: 'user' | 'admin';
-    createdAt: string;
-    lastLoginAt: string | null;
-  }> {
+  async me(@CurrentUser() user: AuthenticatedUser): Promise<ProfileResponse> {
     const me = await this.users.findById(user.id);
     return this.toProfile(me);
   }
 
   /**
-   * Update the caller's display name. Trimmed; whitespace-only clears.
+   * Partial profile update. At least one field must be present.
+   * displayName: trimmed; whitespace-only clears. avatarSeed: stored
+   * verbatim (client sends a UUID).
    */
   @Patch('me')
   async updateMe(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateMeRequestDto,
-  ): Promise<{
-    id: string;
-    email: string;
-    username: string | null;
-    displayName: string | null;
-    role: 'user' | 'admin';
-    createdAt: string;
-    lastLoginAt: string | null;
-  }> {
-    const trimmed = dto.displayName.trim();
-    const updated = await this.users.updateDisplayName(user.id, trimmed === '' ? null : trimmed);
+  ): Promise<ProfileResponse> {
+    const patch: { displayName?: string | null; avatarSeed?: string } = {};
+
+    if (dto.displayName !== undefined) {
+      const trimmed = dto.displayName.trim();
+      patch.displayName = trimmed === '' ? null : trimmed;
+    }
+    if (dto.avatarSeed !== undefined) {
+      patch.avatarSeed = dto.avatarSeed;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      throw new BadRequestException({
+        code: 'empty_patch',
+        message: 'Provide at least one of: displayName, avatarSeed.',
+      });
+    }
+
+    const updated = await this.users.updateProfile(user.id, patch);
     return this.toProfile(updated);
   }
 
@@ -66,23 +79,17 @@ export class UsersController {
     email: string;
     username: string | null;
     displayName: string | null;
+    avatarSeed: string | null;
     role: 'user' | 'admin';
     createdAt: Date;
     lastLoginAt?: Date | null;
-  }): {
-    id: string;
-    email: string;
-    username: string | null;
-    displayName: string | null;
-    role: 'user' | 'admin';
-    createdAt: string;
-    lastLoginAt: string | null;
-  } {
+  }): ProfileResponse {
     return {
       id: u.id,
       email: u.email,
       username: u.username,
       displayName: u.displayName,
+      avatarSeed: u.avatarSeed,
       role: u.role,
       createdAt: u.createdAt.toISOString(),
       lastLoginAt: u.lastLoginAt ? u.lastLoginAt.toISOString() : null,

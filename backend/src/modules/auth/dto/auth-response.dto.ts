@@ -10,6 +10,8 @@ export class AuthResponseDto {
     username: string | null;
     /** Profile display name; null when unset. */
     displayName: string | null;
+    /** Identicon seed; the avatar derives from user.id when null. */
+    avatarSeed: string | null;
     role: 'user' | 'admin';
     createdAt: string;
     lastLoginAt: string | null;

@@ -212,6 +212,7 @@ export class AuthService {
         email: user.email,
         username: user.username ?? null,
         displayName: user.displayName ?? null,
+        avatarSeed: user.avatarSeed ?? null,
         role: user.role,
         createdAt: user.createdAt.toISOString(),
         lastLoginAt: user.lastLoginAt ? user.lastLoginAt.toISOString() : null,

@@ -79,14 +79,20 @@ export class UsersService {
   }
 
   /**
-   * Set (or clear) the profile display name. Returns the updated user;
-   * throws NotFoundException for an unknown id. The caller (controller)
-   * normalizes input: trimmed, whitespace-only becomes null.
+   * Apply a partial profile patch (display name and/or avatar seed).
+   * Only provided keys change; returns the updated user; throws
+   * NotFoundException for an unknown id. The caller (controller)
+   * normalizes displayName input: trimmed, whitespace-only becomes
+   * null.
    */
-  async updateDisplayName(id: string, displayName: string | null): Promise<User> {
+  async updateProfile(
+    id: string,
+    patch: { displayName?: string | null; avatarSeed?: string },
+  ): Promise<User> {
     const user = await this.repo.findOne({ where: { id } });
     if (!user) throw new NotFoundException();
-    user.displayName = displayName;
+    if (patch.displayName !== undefined) user.displayName = patch.displayName;
+    if (patch.avatarSeed !== undefined) user.avatarSeed = patch.avatarSeed;
     return this.repo.save(user);
   }
 

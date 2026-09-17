@@ -151,7 +151,7 @@ describe('UsersService', () => {
       password: 'super-long-password-1',
     });
     const created = await svc.findByEmail('find@example.com');
-    const updated = await svc.updateDisplayName(created!.id, 'John Doe');
+    const updated = await svc.updateProfile(created!.id, { displayName: 'John Doe' });
     expect(updated.displayName).toBe('John Doe');
     const reloaded = await svc.findById(created!.id);
     expect(reloaded.displayName).toBe('John Doe');
@@ -164,13 +164,37 @@ describe('UsersService', () => {
       password: 'super-long-password-1',
     });
     const created = await svc.findByEmail('clear@example.com');
-    const updated = await svc.updateDisplayName(created!.id, null);
+    const updated = await svc.updateProfile(created!.id, { displayName: null });
     expect(updated.displayName).toBeNull();
   });
 
   it('updateDisplayName throws NotFoundException for an unknown id', async () => {
-    await expect(svc.updateDisplayName('no-such-id', 'X')).rejects.toBeInstanceOf(
+    await expect(svc.updateProfile('no-such-id', { displayName: 'X' })).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+
+  it('updateProfile applies only the provided fields (partial patch)', async () => {
+    const u = await svc.create({
+      username: 'partial_me',
+      email: 'partial@example.com',
+      password: 'super-long-password-1',
+    });
+    u.displayName = 'Original';
+    u.avatarSeed = 'seed-1';
+    await svc.updateProfile(u.id, {}); // no-op patch
+    const afterNoop = await svc.findById(u.id);
+    expect(afterNoop.displayName).toBe('Original');
+    expect(afterNoop.avatarSeed).toBe('seed-1');
+
+    await svc.updateProfile(u.id, { avatarSeed: 'seed-2' });
+    const afterSeed = await svc.findById(u.id);
+    expect(afterSeed.avatarSeed).toBe('seed-2');
+    expect(afterSeed.displayName).toBe('Original'); // untouched
+
+    await svc.updateProfile(u.id, { displayName: 'New Name' });
+    const afterName = await svc.findById(u.id);
+    expect(afterName.displayName).toBe('New Name');
+    expect(afterName.avatarSeed).toBe('seed-2'); // untouched
   });
 });

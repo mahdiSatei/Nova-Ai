@@ -27,6 +27,10 @@ export class User {
   @Column({ name: 'display_name', type: 'text', nullable: true })
   displayName!: string | null;
 
+  /** Optional identicon seed; falls back to the user id when null. */
+  @Column({ name: 'avatar_seed', type: 'text', nullable: true })
+  avatarSeed!: string | null;
+
   @Column({ name: 'password_hash', type: 'text' })
   passwordHash!: string;
 
