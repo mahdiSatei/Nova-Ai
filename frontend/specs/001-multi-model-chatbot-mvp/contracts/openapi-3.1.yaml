@@ -204,7 +204,12 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathId'
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: Conversation with messages
@@ -228,7 +233,12 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathId'
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '204':
           description: Deleted
@@ -255,13 +265,12 @@ paths:
 
         **Disconnect resilience**: if the client disconnects mid-stream
         (browser closed, network dropped, navigation away, page refresh),
-        the backend keeps generating the assistant response in memory and
-        persists the FULL response as a `role: "assistant"` message on the
-        conversation only when the stream completes. Reconnecting clients
-        can tap into the live in-progress stream via
-        `POST /v1/chat/{conversationId}/resume` and receive all accumulated
-        content plus any new tokens. No per-chunk database writes occur
-        during streaming.
+        the server keeps generating the assistant response to completion
+        and persists the FULL response as a `role: "assistant"` message
+        on the conversation. No `event: done` is delivered to the
+        disconnected client (its socket is gone), but the server-side
+        work runs to the end. The user can read the persisted message
+        via `GET /v1/conversations/:id` after generation completes.
       security:
         - bearerAuth: []
       requestBody:
@@ -305,43 +314,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /v1/chat/{conversationId}/resume:
-    post:
-      tags: [user]
-      summary: Resume an in-progress streaming generation
-      description: |
-        Subscribe to the active provider stream held in memory for a
-        conversation. The client receives all accumulated content as a
-        single delta event, followed by any new tokens as they arrive.
-        Returns `404` with `code = "no_active_stream"` if the generation
-        has already completed, been cancelled, or failed.
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: '#/components/parameters/PathConversationId'
-      responses:
-        '200':
-          description: SSE stream — accumulated + live tokens
-          content:
-            text/event-stream:
-              schema:
-                type: string
-                example: |
-                  data: {"delta":"Full accumulated text so far..."}
-
-                  data: {"delta":" next token"}
-
-                  event: done
-                  data: {}
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          description: No active stream for this conversation
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
   /v1/chat/{conversationId}/cancel:
     post:
       tags: [user]
@@ -353,7 +325,12 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathConversationId'
+        - in: path
+          name: conversationId
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: Generation cancelled
@@ -392,7 +369,12 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathConversationId'
+        - in: path
+          name: conversationId
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -589,7 +571,12 @@ paths:
       security:
         - bearerAdminAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathId'
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -617,7 +604,12 @@ paths:
       security:
         - bearerAdminAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathId'
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '204':
           description: Deleted
@@ -688,8 +680,7 @@ paths:
 
 components:
   securitySchemes:
-    bearerAuth:
-      type: http
+    bearer:
       scheme: bearer
       bearerFormat: JWT
     bearerAdminAuth:

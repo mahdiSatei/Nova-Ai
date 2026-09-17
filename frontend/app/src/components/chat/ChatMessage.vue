@@ -48,6 +48,7 @@ function onCopy(): void {
     copied.value = true
     window.setTimeout(() => (copied.value = false), 1600)
   })
+}
 </script>
 
 <template>
