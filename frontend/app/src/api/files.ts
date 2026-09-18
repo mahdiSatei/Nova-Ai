@@ -12,6 +12,7 @@ export interface UploadedFile {
   fileKey: string
   url: string
   status: 'UPLOADED' | 'PROCESSING' | 'READY' | 'FAILED'
+  errorMessage?: string | null
   createdAt: string
 }
 
@@ -104,4 +105,32 @@ export async function uploadFile(file: File): Promise<UploadedFile> {
   data.originalName = file.name ? file.name : fixPersianMojibake(data.originalName)
 
   return data
+}
+
+// به فایل frontend/app/src/api/files.ts اضافه کنید:
+
+export interface FileStatusResponse {
+  id: string
+  originalName: string
+  status: 'UPLOADED' | 'PROCESSING' | 'READY' | 'FAILED'
+  errorMessage: string | null
+}
+
+export async function getFileStatus(fileId: string): Promise<FileStatusResponse> {
+  const tokens = tokenStore.load()
+  const res = await fetch(buildUrl(`/v1/files/${fileId}/status`), {
+    headers: {
+      'X-Request-ID': newRequestId(),
+      ...(tokens ? { Authorization: `Bearer ${tokens.accessToken}` } : {}),
+    },
+  })
+
+  if (!res.ok) {
+    const { code, message } = await readError(res)
+    const err = new Error(message) as Error & { code?: string }
+    err.code = code
+    throw err
+  }
+
+  return (await res.json()) as FileStatusResponse
 }
