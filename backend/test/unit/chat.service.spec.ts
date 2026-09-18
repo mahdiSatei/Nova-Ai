@@ -8,6 +8,7 @@ import { ProviderRuntimeService } from '../../src/modules/provider/provider-runt
 import { ConversationsService } from '../../src/modules/conversations/conversations.service';
 import { User } from '../../src/modules/users/entities/user.entity';
 import { UsageService } from '../../src/modules/usage/usage.service';
+import { QuotaService } from '../../src/modules/quotas/quotas.service';
 
 describe('ChatService', () => {
   let svc: ChatService;
@@ -77,6 +78,18 @@ describe('ChatService', () => {
         { provide: getRepositoryToken(User), useValue: userRepo },
         { provide: ModelAccessService, useValue: access },
         { provide: UsageService, useValue: { create: jest.fn(async () => ({ id: 'usage-1' })), finalize: jest.fn(async () => {}) } },
+        {
+          provide: QuotaService,
+          useValue: {
+            checkAndReserve: jest.fn(async () => ({
+              reserved: true,
+              quotaId: 'quota-1',
+              tokenRemaining: 100000,
+            })),
+            finalize: jest.fn(async () => {}),
+            refund: jest.fn(async () => {}),
+          },
+        },
       ],
     }).compile();
 

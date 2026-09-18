@@ -7,6 +7,7 @@ import { ProviderRuntimeService, ProviderConnection } from '../provider/provider
 import { ProviderStreamChunk } from '../provider/adapters/provider-adapter.interface';
 import { ConversationsService } from '../conversations/conversations.service';
 import { UsageService } from '../usage/usage.service';
+import { QuotaService } from '../quotas/quotas.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
@@ -84,6 +85,7 @@ export class ChatService {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly usage: UsageService,
+    private readonly quotas: QuotaService,
   ) {}
 
   /**
@@ -295,6 +297,36 @@ export class ChatService {
       assistantMessageId = assistantMessage.id;
       await this.conversations.updateMessageStatus(assistantMessageId, 'streaming');
 
+      // ── quota preflight ──────────────────────────────────────────
+      // Must run BEFORE any provider work: a rejected request must never
+      // consume upstream tokens. The reservation is corrected on completion
+      // and fully released on failure.
+      let quotaId: string | undefined;
+      let quotaReservedTokens = 0;
+      try {
+        const estimatedTokens = Math.max(1, Math.ceil(dto.message.length / 4));
+        const reservation = await this.quotas.checkAndReserve(userId, estimatedTokens);
+        if (!reservation.reserved) {
+          if (isActive()) {
+            observer.next({
+              event: 'error',
+              data: {
+                code: 'quota_exceeded',
+                message: `You have reached your token limit. ${reservation.tokenRemaining.toLocaleString()} tokens remaining.`,
+              },
+            });
+          }
+          observer.complete();
+          return;
+        }
+        quotaId = reservation.quotaId;
+        quotaReservedTokens = estimatedTokens;
+      } catch (err) {
+        this.logger.warn(
+          `Quota preflight failed open: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
       // ── provider runtime ───────────────────────────────────────────
       let connection: ProviderConnection;
       try {
@@ -378,6 +410,14 @@ export class ChatService {
               status: 'completed',
             }).catch((err) => this.logger.warn(`Failed to finalize usage: ${err}`));
           }
+
+          // Correct the quota reservation to the actual token count
+          if (quotaId) {
+            const totalTokens = lastChunk?.usage?.total_tokens ?? 0;
+            await this.quotas
+              .finalize(quotaId, quotaReservedTokens + totalTokens)
+              .catch((err) => this.logger.warn(`Failed to finalize quota: ${err}`));
+          }
         } finally {
           this.activeStreams.delete(conversationId);
         }
@@ -407,6 +447,10 @@ export class ChatService {
             outputPricePer1k: 0,
             status: 'failed',
           }).catch(() => {});
+        }
+        // Release the quota reservation — a failed request is not billed
+        if (quotaId) {
+          await this.quotas.refund(quotaId, quotaReservedTokens).catch(() => {});
         }
       } finally {
         observer.complete();

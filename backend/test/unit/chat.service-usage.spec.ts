@@ -17,6 +17,16 @@ describe('ChatService usage recording', () => {
       {} as any, // conversations
       {} as any, // userRepo
       mockUsageService,
+      {
+        // quota preflight must not interfere with the usage assertions
+        checkAndReserve: jest.fn(async () => ({
+          reserved: true,
+          quotaId: 'quota-1',
+          tokenRemaining: 100000,
+        })),
+        finalize: jest.fn(async () => {}),
+        refund: jest.fn(async () => {}),
+      } as any,
     );
   });
 

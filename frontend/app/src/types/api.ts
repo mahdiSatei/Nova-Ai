@@ -189,3 +189,24 @@ export interface UsageReport {
     requestCount: number
   }
 }
+
+/** Phase 5 — Quotas & user usage display. */
+export interface QuotaResponse {
+  tokenLimit: number
+  tokenUsed: number
+  tokenRemaining: number
+  costLimit: number | null
+  resetAt: string | null
+}
+
+export interface QuotaRuleAdmin {
+  id: string
+  tier: string
+  tokenLimit: number
+  label: string
+  createdAt: string
+}
+
+export interface QuotaRuleList {
+  items: QuotaRuleAdmin[]
+}

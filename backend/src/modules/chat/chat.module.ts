@@ -9,6 +9,7 @@ import { ConversationsModule } from '../conversations/conversations.module';
 import { ModelsModule } from '../models/models.module';
 import { ProviderModule } from '../provider/provider.module';
 import { UsageModule } from '../usage/usage.module';
+import { QuotasModule } from '../quotas/quotas.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { UsageModule } from '../usage/usage.module';
     ModelsModule,
     ProviderModule,
     UsageModule,
+    QuotasModule,
   ],
   controllers: [ChatController],
   providers: [ChatService],

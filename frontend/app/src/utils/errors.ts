@@ -34,6 +34,11 @@ const MESSAGES: Record<string, string> = {
   duplicate_display_name: 'این نام نمایشی قبلاً استفاده شده است.',
   no_model_available: 'هیچ مدل فعالی برای گفتگو وجود ندارد.',
 
+  // فاز ۵ — سهمیه
+  quota_exceeded: 'سهمیه توکن شما به اتمام رسیده است.',
+  quota_not_found: 'سهمیه‌ای برای حساب شما پیکربندی نشده است.',
+  quota_rule_not_found: 'قاعده سهمیه یافت نشد.',
+
   // Streaming / network
   network_error: 'خطا در ارتباط با سرور.',
   no_stream: 'پاسخی از سرور دریافت نشد.',

@@ -13,6 +13,7 @@ import { useNewChatSignal } from '@/composables/useNewChatSignal'
 import { useTheme } from '@/composables/useTheme'
 import { useModelsStore } from '@/stores/models'
 import { apiErrorMessage } from '@/utils/errors'
+import { useQuota } from '@/composables/useQuota'
 
 const { tick: newChatTick } = useNewChatSignal()
 
@@ -36,6 +37,12 @@ function loadStoredConversationId(): string | null {
 
 const inputText = ref('')
 const justStartedConversation = ref(false)
+
+// فاز ۵ — مانده سهمیه توکن، پیش از ارسال نمایش داده می‌شود.
+const quota = useQuota()
+onMounted(() => {
+  void quota.loadQuota()
+})
 const scrollRoot = useTemplateRef<HTMLDivElement>('scrollRoot')
 
 // scroll هوشمند: فقط وقتی کاربر پایین است خودکار پایین می‌رود.
@@ -380,10 +387,34 @@ const suggestedPrompts = [
     <!-- پایین: ورودی شناور -->
     <div class="shrink-0 px-1 pb-2 pt-1 sm:pb-3">
       <div class="mx-auto w-full max-w-3xl">
+        <!-- فاز ۵ — سهمیه باقی‌مانده / حالت اتمام سهمیه -->
+        <div
+          v-if="quota.quota.value && !quota.isUnlimited.value"
+          class="mb-2 flex items-center justify-between gap-3 rounded-lg border border-line bg-surface px-3 py-2 text-xs"
+        >
+          <span v-if="quota.isExhausted.value" class="text-danger">
+            سهمیه توکن شما به اتمام رسیده است. برای ادامه با مدیر سیستم تماس بگیرید.
+          </span>
+          <span v-else class="text-ink-muted">{{ quota.remainingLabel.value }}</span>
+          <div class="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-elevated" role="presentation">
+            <div
+              class="h-full rounded-full transition-all"
+              :class="quota.percentUsed.value >= 90 ? 'bg-danger' : 'bg-accent'"
+              :style="{ width: `${quota.percentUsed.value}%` }"
+            />
+          </div>
+        </div>
+
         <MessageInput
           v-model="inputText"
-          :placeholder="noModels ? 'مدلی برای گفتگو موجود نیست.' : 'پیام خود را بنویسید…'"
-          :disabled="chat.inputDisabled.value"
+          :placeholder="
+            quota.isExhausted.value
+              ? 'سهمیه توکن شما به اتمام رسیده است.'
+              : noModels
+                ? 'مدلی برای گفتگو موجود نیست.'
+                : 'پیام خود را بنویسید…'
+          "
+          :disabled="chat.inputDisabled.value || quota.isExhausted.value"
           :busy="chat.generationState.value === 'streaming'"
           @submit="onSubmit"
           @stop="onStop"

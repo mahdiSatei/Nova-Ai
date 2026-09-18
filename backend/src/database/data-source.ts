@@ -10,6 +10,8 @@ import { Model } from '../modules/models/entities/model.entity';
 import { AppConfig } from '../modules/app-config/entities/app-config.entity';
 import { Conversation } from '../modules/conversations/entities/conversation.entity';
 import { Message } from '../modules/conversations/entities/message.entity';
+import { Quota } from '../modules/quotas/entities/quota.entity';
+import { QuotaRule } from '../modules/quotas/entities/quota-rule.entity';
 
 // Load .env if present so CLI scripts (migration:run etc.) see the same
 // environment variables as the running app.
@@ -35,7 +37,7 @@ export const dataSourceOptions: DataSourceOptions =
     ? {
         type: 'postgres',
         url: buildPostgresUrl(),
-        entities: [User, RefreshToken, CentralProvider, Provider, Model, AppConfig, Conversation, Message],
+        entities: [User, RefreshToken, CentralProvider, Provider, Model, AppConfig, Conversation, Message, Quota, QuotaRule],
         migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
         synchronize: false,
         logging: process.env.NODE_ENV === 'development',
@@ -43,7 +45,7 @@ export const dataSourceOptions: DataSourceOptions =
     : {
         type: 'sqlite',
         database: process.env.SQLITE_FILE ?? './data/app.sqlite',
-        entities: [User, RefreshToken, CentralProvider, Provider, Model, AppConfig, Conversation, Message],
+        entities: [User, RefreshToken, CentralProvider, Provider, Model, AppConfig, Conversation, Message, Quota, QuotaRule],
         migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
         synchronize: false,
         logging: process.env.NODE_ENV === 'development',
