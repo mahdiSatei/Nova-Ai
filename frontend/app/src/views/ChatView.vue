@@ -72,7 +72,7 @@ watch(
 
 onMounted(async () => {
   console.debug('[ChatView] onMounted start', { routeName: route.name, resolvedId: resolvedId(), propsId: props.id })
-  await models.load()
+  await models.load(true)
   if (!chat.selectedModelId.value) {
     const fallback = models.defaultModelId ?? models.items[0]?.id ?? null
     if (fallback) chat.setModel(fallback)
@@ -177,10 +177,6 @@ function onReconnect(): void {
   void chat.reconnect()
 }
 
-async function onRefreshModels(): Promise<void> {
-  await models.load(true)
-}
-
 function useSuggestedPrompt(text: string): void {
   inputText.value = text
   nextTick(() => scrollToBottom())
@@ -263,16 +259,6 @@ const suggestedPrompts = [
       </div>
 
       <div class="ms-auto flex items-center gap-1">
-        <button
-          type="button"
-          class="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink focus-visible:text-ink"
-          :class="{ 'animate-spin': models.loading }"
-          :disabled="models.loading"
-          aria-label="به‌روزرسانی مدل‌ها"
-          @click="onRefreshModels"
-        >
-          <PhArrowsClockwise class="size-4" aria-hidden="true" />
-        </button>
         <button
           type="button"
           class="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink focus-visible:text-ink"
