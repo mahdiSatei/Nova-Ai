@@ -87,6 +87,15 @@ export class ProviderService {
       throw new ConflictException({ code: 'provider_name_taken', message: 'A provider with that name already exists.' });
     }
 
+    // Explicit id check: TypeORM's `save` upserts when the PK already exists
+    // (INSERT … ON CONFLICT semantics via existence probing), which would
+    // silently overwrite another provider — and even mutate it in place when
+    // the create raced. Guard the contract instead.
+    const dupId = await this.repo.findOne({ where: { id: input.id } });
+    if (dupId) {
+      throw new ConflictException({ code: 'provider_id_taken', message: 'A provider with that id already exists.' });
+    }
+
     const urlCheck = validateProviderUrl(input.baseUrl, this.config.get('nodeEnv'));
     if (!urlCheck.ok) {
       throw new UnprocessableEntityException({
@@ -104,8 +113,19 @@ export class ProviderService {
       apiKeyEncrypted: encrypted,
       isActive: input.isActive ?? true,
     });
-    const saved = await this.repo.save(provider);
-    return this.toAdmin(saved);
+    try {
+      const saved = await this.repo.save(provider);
+      return this.toAdmin(saved);
+    } catch (err) {
+      // A concurrent create with the same id surfaces as a unique-violation
+      // (SQLSTATE 23505); report it as a client conflict, not a 500.
+      const code = (err as { code?: string; driverError?: { code?: string } })?.code ??
+        (err as { driverError?: { code?: string } })?.driverError?.code;
+      if (code === '23505') {
+        throw new ConflictException({ code: 'provider_id_taken', message: 'A provider with that id already exists.' });
+      }
+      throw err as Error;
+    }
   }
 
   async update(id: string, input: ProviderUpdateInput): Promise<ProviderAdmin> {

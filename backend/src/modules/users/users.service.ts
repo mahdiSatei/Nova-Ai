@@ -176,18 +176,16 @@ export class UsersService {
   }
 
   private isUniqueViolation(err: unknown): boolean {
-    // TypeORM / SQLite surfaces unique violations with code SQLITE_CONSTRAINT_UNIQUE
-    // or a message containing "UNIQUE constraint failed"; PostgreSQL uses code 23505.
+    // PostgreSQL surfaces unique violations as SQLSTATE 23505.
     const anyErr = err as { code?: string; message?: string; driverError?: { code?: string } };
     const code = anyErr?.code ?? anyErr?.driverError?.code;
-    if (code === 'SQLITE_CONSTRAINT_UNIQUE' || code === '23505') return true;
-    return typeof anyErr?.message === 'string' && /UNIQUE constraint failed/i.test(anyErr.message);
+    if (code === '23505') return true;
+    return typeof anyErr?.message === 'string' && /duplicate key value violates unique constraint/i.test(anyErr.message);
   }
 
   /**
-   * Distinguish which unique index fired: prefer the constraint name
-   * (PostgreSQL surfaces it on the driver error), fall back to the
-   * SQLite message which names the offending column.
+   * Distinguish which unique index fired: PostgreSQL surfaces the
+   * constraint name on the driver error; fall back to the message.
    */
   private isUsernameViolation(err: unknown): boolean {
     const anyErr = err as {

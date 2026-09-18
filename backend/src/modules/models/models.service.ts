@@ -20,6 +20,8 @@ export interface CreateModelInput {
   providerId: string;
   visibility?: ModelVisibility;
   enabled?: boolean;
+  /** Model used when this model's provider fails (spec 006). One hop only. */
+  fallbackModelId?: string | null;
 }
 
 export interface UpdateModelInput {
@@ -28,6 +30,8 @@ export interface UpdateModelInput {
   providerId?: string;
   visibility?: ModelVisibility;
   enabled?: boolean;
+  /** `null` clears the fallback; absent leaves it untouched. */
+  fallbackModelId?: string | null;
 }
 
 export interface DeleteModelMigrationResult {
@@ -171,6 +175,8 @@ export class ModelsService {
     const actualName = input.actualName;
     const enabled = input.enabled ?? true;
 
+    await this.assertValidFallback(null, input.fallbackModelId);
+
     // Display name uniqueness: case-insensitive lookup catches the
     // common mistake of "GPT-4o Mini" vs "gpt-4o mini".
     const existing = await this.repo
@@ -206,8 +212,54 @@ export class ModelsService {
       visibility: input.visibility ?? 'public',
       enabled,
       isDefault: false,
+      fallbackModelId: input.fallbackModelId ?? null,
     });
     return this.repo.save(created);
+  }
+
+  /**
+   * A fallback must be a different, enabled model on an active provider.
+   *
+   * Validating in the service (not only in the DTO) means the rule holds for
+   * every caller, including the scripts under `scripts/`, and it is the only
+   * place that can catch a self-reference on create, where the id does not
+   * exist yet.
+   */
+  private async assertValidFallback(
+    modelId: string | null,
+    fallbackModelId: string | null | undefined,
+  ): Promise<void> {
+    if (fallbackModelId === undefined || fallbackModelId === null) return;
+
+    if (fallbackModelId === modelId) {
+      throw new UnprocessableEntityException({
+        code: 'invalid_fallback_model',
+        message: 'A model cannot fall back to itself.',
+      });
+    }
+
+    const fallback = await this.repo.findOne({ where: { id: fallbackModelId } });
+    if (!fallback || !fallback.enabled) {
+      throw new UnprocessableEntityException({
+        code: 'invalid_fallback_model',
+        message: 'The fallback model must exist and be enabled.',
+      });
+    }
+
+    // Raw query rather than an injected Provider repository — this is the same
+    // pattern `create` already uses to check the primary provider.
+    const provider = await this.repo.manager
+      .createQueryBuilder()
+      .select('is_active')
+      .from('providers', 'p')
+      .where('p.id = :pid', { pid: fallback.providerId })
+      .getRawOne<{ is_active: boolean }>();
+    if (!provider || !provider.is_active) {
+      throw new UnprocessableEntityException({
+        code: 'invalid_fallback_model',
+        message: 'The fallback model must be on an active provider.',
+      });
+    }
   }
 
   /**
@@ -218,6 +270,11 @@ export class ModelsService {
    */
   async update(id: string, input: UpdateModelInput): Promise<Model> {
     const model = await this.findById(id);
+
+    await this.assertValidFallback(id, input.fallbackModelId);
+    if (input.fallbackModelId !== undefined) {
+      model.fallbackModelId = input.fallbackModelId;
+    }
 
     if (input.displayName !== undefined && input.displayName !== model.displayName) {
       const dup = await this.repo

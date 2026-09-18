@@ -87,24 +87,13 @@ import { AppConfigModule } from './modules/app-config/app-config.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService<AppConfig, true>): TypeOrmModuleOptions => {
-        const driver = config.get('db.driver', { infer: true });
-        if (driver === 'postgres') {
-          const pg = config.get('db.postgres', { infer: true });
-          const url =
-            config.get('db.postgresUrl', { infer: true }) ||
-            `postgres://${encodeURIComponent(pg.user)}:${encodeURIComponent(pg.password)}@${pg.host}:${pg.port}/${pg.db}`;
-          return {
-            type: 'postgres',
-            url,
-            autoLoadEntities: true,
-            synchronize: false,
-            migrations: [migrationsGlob],
-            migrationsRun: false,
-          };
-        }
+        const pg = config.get('db.postgres', { infer: true });
+        const url =
+          config.get('db.postgresUrl', { infer: true }) ||
+          `postgres://${encodeURIComponent(pg.user)}:${encodeURIComponent(pg.password)}@${pg.host}:${pg.port}/${pg.db}`;
         return {
-          type: 'sqlite',
-          database: config.get('db.sqliteFile', { infer: true }),
+          type: 'postgres',
+          url,
           autoLoadEntities: true,
           synchronize: false,
           migrations: [migrationsGlob],

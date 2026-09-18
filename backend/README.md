@@ -7,7 +7,7 @@ NestJS 10 backend for a multi-model chatbot. Provides user auth (JWT), model bro
 - Node.js 20 LTS
 - npm 10+
 - OpenSSL (for generating secrets)
-- SQLite (bundled via `sqlite3`; PostgreSQL supported for production)
+- PostgreSQL 14+
 
 ## Quick Start
 
@@ -28,8 +28,11 @@ JWT_SECRET=$JWT_SECRET
 JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET
 JWT_ACCESS_TTL=15m
 JWT_REFRESH_TTL=7d
-DB_DRIVER=sqlite
-SQLITE_FILE=./data/app.sqlite
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=chatbot_db
 LOG_LEVEL=info
 LOG_DIR=./logs
 PROVIDER_ENCRYPTION_KEY=$PROVIDER_ENCRYPTION_KEY
@@ -117,8 +120,6 @@ See `validateEnv()` in `src/config/env.validation.ts` for the full list. Key var
 | `JWT_REFRESH_SECRET` | *(required)* | HS256 signing secret for refresh tokens |
 | `JWT_ACCESS_TTL` | 15m | Access token TTL |
 | `JWT_REFRESH_TTL` | 7d | Refresh token TTL |
-| `DB_DRIVER` | sqlite | `sqlite` or `postgres` |
-| `SQLITE_FILE` | ./data/app.sqlite | SQLite file path |
 | `POSTGRES_URL` | *(empty)* | Full PostgreSQL connection URL (alternative to individual vars below) |
 | `POSTGRES_HOST` | localhost | PostgreSQL host |
 | `POSTGRES_PORT` | 5432 | PostgreSQL port |
@@ -135,11 +136,12 @@ Structured JSON logs are written to `backend/logs/app-YYYY-MM-DD.log` (14-day re
 
 ## Database
 
-- **Development**: SQLite at `backend/data/app.sqlite` (auto-created on first migration run)
-- **Production**: PostgreSQL — set `DB_DRIVER=postgres` and either `POSTGRES_URL` or the individual `POSTGRES_HOST`/`POSTGRES_PORT`/`POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` variables
+PostgreSQL only. Set either `POSTGRES_URL` or the individual
+`POSTGRES_HOST`/`POSTGRES_PORT`/`POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB`
+variables, then run `npm run migration:run`.
 
-Wipe the SQLite DB to start fresh:
+Recreate the schema from scratch:
 ```bash
-rm -f backend/data/app.sqlite
+dropdb chatbot_db && createdb chatbot_db
 npm run migration:run
 ```

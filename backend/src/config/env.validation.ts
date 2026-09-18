@@ -34,14 +34,6 @@ export class EnvironmentVariables {
   @IsOptional()
   JWT_REFRESH_TTL = '7d';
 
-  @IsEnum(['sqlite', 'postgres'])
-  @IsOptional()
-  DB_DRIVER: 'sqlite' | 'postgres' = 'sqlite';
-
-  @IsString()
-  @IsOptional()
-  SQLITE_FILE = './data/app.sqlite';
-
   @IsString()
   @IsOptional()
   POSTGRES_URL = '';

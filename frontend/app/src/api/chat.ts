@@ -1,6 +1,6 @@
 import { API_BASE, buildUrl, newRequestId, request, tokenStore } from '@/api/http'
 import { streamErrorMessage } from '@/utils/errors'
-import type { ChatRequest, SseDelta, SseError } from '@/types/api'
+import type { ChatRequest, SseDelta, SseError, SseStatus } from '@/types/api'
 
 export interface StreamHandlers {
   /** text is the delta; isFirst is true only for the first event (accumulated text on resume) */
@@ -8,6 +8,8 @@ export interface StreamHandlers {
   onDone: () => void
   /** Stream-level error event, HTTP-level error, or network failure */
   onError: (err: { code: string; message: string }) => void
+  /** Backend is retrying or failing over before any token has been emitted (فاز ۶). */
+  onStatus?: (info: { phase: 'retrying'; attempt: number; maxAttempts: number }) => void
 }
 
 /**
@@ -80,6 +82,21 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
           if (eventName === 'done') {
             handlers.onDone()
             return
+          }
+          if (eventName === 'status') {
+            // Phase 6: non-terminal progress event — the server is retrying
+            // or failing over before any token has been emitted.
+            try {
+              const parsed = JSON.parse(payload) as SseStatus
+              handlers.onStatus?.({
+                phase: 'retrying',
+                attempt: parsed.attempt,
+                maxAttempts: parsed.maxAttempts,
+              })
+            } catch {
+              /* ignore malformed status frame */
+            }
+            continue
           }
           if (eventName === 'error') {
             let parsed: Partial<SseError> = {}

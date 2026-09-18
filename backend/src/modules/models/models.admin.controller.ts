@@ -50,6 +50,7 @@ export class ModelsAdminController {
         visibility: m.visibility,
         enabled: m.enabled,
         isDefault: m.isDefault,
+        fallbackModelId: m.fallbackModelId ?? null,
         createdAt: m.createdAt.toISOString(),
         updatedAt: m.updatedAt.toISOString(),
       })),
@@ -65,6 +66,7 @@ export class ModelsAdminController {
       providerId: body.providerId!,
       visibility: body.visibility,
       enabled: body.enabled,
+      fallbackModelId: body.fallbackModelId,
     });
     return this.toAdminShape(m);
   }
@@ -77,6 +79,7 @@ export class ModelsAdminController {
       providerId: body.providerId,
       visibility: body.visibility,
       enabled: body.enabled,
+      fallbackModelId: body.fallbackModelId,
     });
     return this.toAdminShape(m);
   }
@@ -122,6 +125,7 @@ export class ModelsAdminController {
     visibility: ModelVisibility;
     enabled: boolean;
     isDefault: boolean;
+    fallbackModelId?: string | null;
     createdAt: Date;
     updatedAt: Date;
   }) {
@@ -133,6 +137,7 @@ export class ModelsAdminController {
       visibility: m.visibility,
       enabled: m.enabled,
       isDefault: m.isDefault,
+      fallbackModelId: m.fallbackModelId ?? null,
       createdAt: m.createdAt.toISOString(),
       updatedAt: m.updatedAt.toISOString(),
     };

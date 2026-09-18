@@ -1,4 +1,14 @@
-import { IsBoolean, IsIn, IsOptional, IsString, MaxLength, MinLength, Matches } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  MinLength,
+  Matches,
+  ValidateIf,
+} from 'class-validator';
 import { PROVIDER_ID_PATTERN } from '../../provider/dto/create-provider.dto';
 import { MODEL_VISIBILITIES, ModelVisibility } from '../model-visibility';
 
@@ -38,4 +48,14 @@ export class ModelUpsertDto {
   @IsOptional()
   @IsBoolean()
   enabled?: boolean;
+
+  /**
+   * Fallback model id. `null` clears the fallback; the field being absent
+   * leaves it untouched. `@ValidateIf` is what lets `null` through as an
+   * instruction while a supplied value must still be a UUID.
+   */
+  @IsOptional()
+  @ValidateIf((o: ModelUpsertDto) => o.fallbackModelId !== null)
+  @IsUUID()
+  fallbackModelId?: string | null;
 }

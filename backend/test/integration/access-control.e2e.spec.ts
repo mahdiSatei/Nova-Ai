@@ -34,7 +34,7 @@ describe('Model access control — e2e', () => {
     admin: `access-admin-${RUN}@example.com`,
   };
   // `models.id` is a real `uuid` column (see the init migration), so seeds must
-  // use UUIDs — the older string ids in sibling suites only ever ran on SQLite.
+  // use UUIDs rather than readable string ids.
   const IDS = {
     public: randomUUID(),
     commercial: randomUUID(),
@@ -46,7 +46,10 @@ describe('Model access control — e2e', () => {
 
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
-    process.env.DB_DRIVER = 'postgres';
+    process.env.POSTGRES_HOST = '127.0.0.1';
+    process.env.POSTGRES_PORT = process.env.TEST_POSTGRES_PORT ?? '5432';
+    process.env.POSTGRES_USER = 'postgres';
+    process.env.POSTGRES_PASSWORD = process.env.TEST_POSTGRES_PASSWORD ?? 'postgres';
     process.env.POSTGRES_DB = 'chatbot_test';
     process.env.JWT_SECRET = 'integration-test-secret-with-enough-entropy-here';
     process.env.JWT_REFRESH_SECRET = 'integration-test-refresh-secret-entropy';

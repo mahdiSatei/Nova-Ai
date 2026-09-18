@@ -51,6 +51,8 @@ export interface ChatStreamHandle {
   conversationId: import('vue').Ref<string | null>
   selectedModelId: import('vue').Ref<string | null>
   inputDisabled: import('vue').ComputedRef<boolean>
+  /** Non-null while the server retries or fails over before the first token (فاز ۶). */
+  retrying: import('vue').Ref<{ attempt: number; maxAttempts: number } | null>
   setModel: (id: string | null) => Promise<void>
   loadConversation: (id: string) => Promise<void>
   resetConversation: () => void
@@ -75,6 +77,7 @@ export function useChatStream(): ChatStreamHandle {
   // ── Other ────────────────────────────────────────────────────────
   const conversationId = ref<string | null>(null)
   const selectedModelId = ref<string | null>(loadSavedModelId())
+  const retrying = ref<{ attempt: number; maxAttempts: number } | null>(null)
 
   let controller: AbortController | null = null
   let currentStreamConversationId: string | null = null
@@ -443,13 +446,18 @@ export function useChatStream(): ChatStreamHandle {
     generation.value = null
     generationState.value = 'idle'
     connectionError.value = null
+    retrying.value = null
 
     const targetConversationId = conversationId.value
     currentStreamConversationId = targetConversationId
     if (targetConversationId) saveConversationId(targetConversationId)
 
     const handlers: StreamHandlers = {
+      onStatus: (info) => {
+        retrying.value = { attempt: info.attempt, maxAttempts: info.maxAttempts }
+      },
       onDelta: (_delta: string, _isFirst: boolean) => {
+        retrying.value = null
         if (generation.value) {
           generation.value = {
             ...generation.value,
@@ -470,6 +478,7 @@ export function useChatStream(): ChatStreamHandle {
         }
       },
       onDone: async () => {
+        retrying.value = null
         if (generation.value) {
           generation.value = { ...generation.value, status: 'completed' }
           // Mark the transcript message as completed so recovery UI clears.
@@ -497,6 +506,7 @@ export function useChatStream(): ChatStreamHandle {
       },
       onError: (err) => {
         connectionError.value = err
+        retrying.value = null
         if (generation.value) {
           generation.value = { ...generation.value, status: 'failed' }
           // Mark the transcript message as failed.
@@ -639,6 +649,7 @@ async function setModel(id: string | null): Promise<void> {
     conversationId,
     selectedModelId,
     inputDisabled,
+    retrying,
     setModel,
     loadConversation,
     resetConversation,

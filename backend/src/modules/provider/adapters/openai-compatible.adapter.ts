@@ -8,6 +8,7 @@ import {
   ProviderStreamChunk,
 } from './provider-adapter.interface';
 import { NormalizedProviderError } from '../errors/normalized-provider.error';
+import { normalizeStreamError } from '../failure-classification';
 import { PROVIDER_TIMEOUTS } from '../constants/provider-timeouts';
 
 @Injectable()
@@ -114,7 +115,13 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       stream_options: { include_usage: true },
     });
 
-    const stream = await Promise.race([streamPromise, deadline]);
-    return stream as AsyncIterable<ProviderStreamChunk>;
+    try {
+      const stream = await Promise.race([streamPromise, deadline]);
+      return stream as AsyncIterable<ProviderStreamChunk>;
+    } catch (err) {
+      // Normalize here so the failover layer classifies stable codes and the
+      // client never sees an SDK message (which may include the base URL).
+      throw normalizeStreamError(err);
+    }
   }
 }

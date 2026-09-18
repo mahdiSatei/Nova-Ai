@@ -1,33 +1,38 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { DataSource } from 'typeorm';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import * as argon2 from 'argon2';
 import request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 import { User } from '../../src/modules/users/entities/user.entity';
 import { AppConfig } from '../../src/modules/app-config/entities/app-config.entity';
+import { Provider } from '../../src/modules/provider/entities/provider.entity';
+import { encrypt } from '../../src/common/crypto/credential-cipher';
 
 describe('Models admin CRUD (US7) — e2e', () => {
   let app: INestApplication;
-  let dbPath: string;
   let adminToken: string;
   let userToken: string;
 
-  const ADMIN_EMAIL = 'admin-models@example.com';
-  const USER_EMAIL = 'user-models@example.com';
+  const RUN = Date.now().toString(36);
+  const ADMIN_EMAIL = `admin-models-${RUN}@example.com`;
+  const USER_EMAIL = `user-models-${RUN}@example.com`;
   const PASSWORD = 'correct-horse-battery-staple';
+  const PROVIDER_ID = `madmcrud-prov-${RUN}`;
+  /** Referenced by the migration tests; the outer beforeEach clears conversations. */
+  const CONV_MIG = randomUUID();
 
   jest.setTimeout(30_000);
 
   beforeAll(async () => {
-    dbPath = path.join(os.tmpdir(), `chatbot-models-admin-${Date.now()}.sqlite`);
     process.env.NODE_ENV = 'test';
-    process.env.DB_DRIVER = 'sqlite';
-    process.env.SQLITE_FILE = dbPath;
+    process.env.POSTGRES_HOST = '127.0.0.1';
+    process.env.POSTGRES_PORT = process.env.TEST_POSTGRES_PORT ?? '5432';
+    process.env.POSTGRES_USER = 'postgres';
+    process.env.POSTGRES_PASSWORD = process.env.TEST_POSTGRES_PASSWORD ?? 'postgres';
+    process.env.POSTGRES_DB = 'chatbot_test';
     process.env.JWT_SECRET = 'integration-test-secret-with-enough-entropy-here';
     process.env.JWT_REFRESH_SECRET = 'integration-test-refresh-secret-entropy';
     process.env.PROVIDER_ENCRYPTION_KEY = Buffer.alloc(32, 0x42).toString('base64');
@@ -44,6 +49,21 @@ describe('Models admin CRUD (US7) — e2e', () => {
     const ds = app.get(DataSource);
     await ds.runMigrations();
 
+    // Models require a provider (NOT NULL FK); every POST below reuses it.
+    const providerRepo = ds.getRepository(Provider);
+    if (!(await providerRepo.findOne({ where: { id: PROVIDER_ID } }))) {
+      await providerRepo.save(
+        providerRepo.create({
+          id: PROVIDER_ID,
+          name: `Admin CRUD Provider ${RUN}`,
+          type: 'openai-compatible',
+          baseUrl: 'http://localhost:9999',
+          apiKeyEncrypted: encrypt('test-api-key'),
+          isActive: true,
+        }),
+      );
+    }
+
     const userRepo = ds.getRepository(User);
     const passwordHash = await argon2.hash(PASSWORD);
     await userRepo.save(
@@ -55,18 +75,17 @@ describe('Models admin CRUD (US7) — e2e', () => {
 
     const adminLogin = await request(app.getHttpServer())
       .post('/v1/auth/login')
-      .send({ email: ADMIN_EMAIL, password: PASSWORD });
+      .send({ identifier: ADMIN_EMAIL, password: PASSWORD });
     adminToken = adminLogin.body.accessToken;
 
     const userLogin = await request(app.getHttpServer())
       .post('/v1/auth/login')
-      .send({ email: USER_EMAIL, password: PASSWORD });
+      .send({ identifier: USER_EMAIL, password: PASSWORD });
     userToken = userLogin.body.accessToken;
   });
 
   afterAll(async () => {
     if (app) await app.close();
-    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
   });
 
   beforeEach(async () => {
@@ -107,7 +126,7 @@ describe('Models admin CRUD (US7) — e2e', () => {
       const res = await request(app.getHttpServer())
         .post('/v1/admin/models')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ displayName: 'GPT-4o mini', actualName: 'gpt-4o-mini' });
+        .send({ displayName: 'GPT-4o mini', actualName: 'gpt-4o-mini', providerId: PROVIDER_ID });
 
       expect(res.status).toBe(201);
       expect(res.body.displayName).toBe('GPT-4o mini');
@@ -120,13 +139,13 @@ describe('Models admin CRUD (US7) — e2e', () => {
       await request(app.getHttpServer())
         .post('/v1/admin/models')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ displayName: 'Duplicate', actualName: 'a' })
+        .send({ displayName: 'Duplicate', actualName: 'a', providerId: PROVIDER_ID })
         .expect(201);
 
       const dup = await request(app.getHttpServer())
         .post('/v1/admin/models')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ displayName: 'Duplicate', actualName: 'b' });
+        .send({ displayName: 'Duplicate', actualName: 'b', providerId: PROVIDER_ID });
 
       expect(dup.status).toBe(409);
       expect(dup.body.code).toBe('display_name_taken');
@@ -137,7 +156,7 @@ describe('Models admin CRUD (US7) — e2e', () => {
       const res = await request(app.getHttpServer())
         .post('/v1/admin/models')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ displayName: tooLong, actualName: 'gpt-4o-mini' });
+        .send({ displayName: tooLong, actualName: 'gpt-4o-mini', providerId: PROVIDER_ID });
       expect(res.status).toBe(400);
     });
   });
@@ -148,7 +167,7 @@ describe('Models admin CRUD (US7) — e2e', () => {
       const created = await request(app.getHttpServer())
         .post('/v1/admin/models')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ displayName: 'Editable', actualName: 'gpt-editable' });
+        .send({ displayName: 'Editable', actualName: 'gpt-editable', providerId: PROVIDER_ID });
       modelId = created.body.id;
     });
 
@@ -166,7 +185,7 @@ describe('Models admin CRUD (US7) — e2e', () => {
       const cfg = await ds.getRepository(AppConfig).findOne({ where: { id: 'singleton' } });
       cfg!.defaultModelId = modelId;
       await ds.getRepository(AppConfig).save(cfg!);
-      await ds.query('UPDATE models SET is_default = 1 WHERE id = ?', [modelId]);
+      await ds.query('UPDATE models SET is_default = true WHERE id = $1', [modelId]);
 
       const res = await request(app.getHttpServer())
         .patch(`/v1/admin/models/${modelId}`)
@@ -193,7 +212,7 @@ describe('Models admin CRUD (US7) — e2e', () => {
       const created = await request(app.getHttpServer())
         .post('/v1/admin/models')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ displayName: 'ToDelete', actualName: 'gpt-todelete' });
+        .send({ displayName: 'ToDelete', actualName: 'gpt-todelete', providerId: PROVIDER_ID });
       modelId = created.body.id;
     });
 
@@ -225,11 +244,11 @@ describe('Models admin CRUD (US7) — e2e', () => {
     it('409 message reports the reference counts', async () => {
       const ds = app.get(DataSource);
       const { id: userId } = (
-        await ds.query('SELECT id FROM users WHERE email = ?', [USER_EMAIL])
+        await ds.query('SELECT id FROM users WHERE email = $1', [USER_EMAIL])
       )[0];
       await ds.query(
-        'INSERT INTO conversations (id, user_id, model_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-        ['conv-count-1', userId, modelId, 't', new Date().toISOString(), new Date().toISOString()],
+        'INSERT INTO conversations (id, user_id, model_id, title, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)',
+        [randomUUID(), userId, modelId, 't', new Date().toISOString(), new Date().toISOString()],
       );
 
       const del = await request(app.getHttpServer())
@@ -248,17 +267,17 @@ describe('Models admin CRUD (US7) — e2e', () => {
     async function seedReferences(): Promise<string> {
       const ds = app.get(DataSource);
       const { id: userId } = (
-        await ds.query('SELECT id FROM users WHERE email = ?', [USER_EMAIL])
+        await ds.query('SELECT id FROM users WHERE email = $1', [USER_EMAIL])
       )[0];
       await ds.query(
-        'INSERT INTO conversations (id, user_id, model_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-        ['conv-mig-1', userId, oldId, 'migrated chat', new Date().toISOString(), new Date().toISOString()],
+        'INSERT INTO conversations (id, user_id, model_id, title, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)',
+        [CONV_MIG, userId, oldId, 'migrated chat', new Date().toISOString(), new Date().toISOString()],
       );
-      await ds.query('UPDATE users SET last_selected_model_id = ? WHERE id = ?', [oldId, userId]);
+      await ds.query('UPDATE users SET last_selected_model_id = $1 WHERE id = $2', [oldId, userId]);
       const cfg = await ds.getRepository(AppConfig).findOne({ where: { id: 'singleton' } });
       cfg!.defaultModelId = oldId;
       await ds.getRepository(AppConfig).save(cfg!);
-      await ds.query('UPDATE models SET is_default = 1 WHERE id = ?', [oldId]);
+      await ds.query('UPDATE models SET is_default = true WHERE id = $1', [oldId]);
       return userId;
     }
 
@@ -266,12 +285,12 @@ describe('Models admin CRUD (US7) — e2e', () => {
       const old = await request(app.getHttpServer())
         .post('/v1/admin/models')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ displayName: 'OldModel', actualName: 'old-model-v1' });
+        .send({ displayName: 'OldModel', actualName: 'old-model-v1', providerId: PROVIDER_ID });
       oldId = old.body.id;
       const repl = await request(app.getHttpServer())
         .post('/v1/admin/models')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ displayName: 'ReplModel', actualName: 'repl-model-v1' });
+        .send({ displayName: 'ReplModel', actualName: 'repl-model-v1', providerId: PROVIDER_ID });
       replId = repl.body.id;
     });
 
@@ -286,14 +305,14 @@ describe('Models admin CRUD (US7) — e2e', () => {
       expect(del.body.migrated).toEqual({ conversations: 1, users: 1, defaultSwitched: true });
 
       const ds = app.get(DataSource);
-      const conv = (await ds.query('SELECT model_id FROM conversations WHERE id = ?', ['conv-mig-1']))[0];
+      const conv = (await ds.query('SELECT model_id FROM conversations WHERE id = $1', [CONV_MIG]))[0];
       expect(conv.model_id).toBe(replId);
-      const user = (await ds.query('SELECT last_selected_model_id AS m FROM users WHERE id = ?', [userId]))[0];
+      const user = (await ds.query('SELECT last_selected_model_id AS m FROM users WHERE id = $1', [userId]))[0];
       expect(user.m).toBe(replId);
       const cfg = await ds.getRepository(AppConfig).findOne({ where: { id: 'singleton' } });
       expect(cfg!.defaultModelId).toBe(replId);
       const flags = await ds.query('SELECT id, is_default FROM models ORDER BY id');
-      expect(flags.find((r: any) => r.id === replId)!.is_default).toBe(1);
+      expect(flags.find((r: any) => r.id === replId)!.is_default).toBe(true);
       expect(flags.find((r: any) => r.id === oldId)).toBeUndefined();
 
       // The old model is gone from both admin and public surfaces.
@@ -322,7 +341,7 @@ describe('Models admin CRUD (US7) — e2e', () => {
         .post('/v1/chat/stream')
         .set('Authorization', `Bearer ${userToken}`)
         .set('Accept', 'text/event-stream')
-        .send({ conversationId: 'conv-mig-1', message: 'continue please' });
+        .send({ conversationId: CONV_MIG, message: 'continue please' });
       expect(res.status).toBe(200);
       expect(res.headers['content-type']).toContain('text/event-stream');
     });
@@ -380,7 +399,7 @@ describe('Models admin CRUD (US7) — e2e', () => {
       await request(app.getHttpServer())
         .post('/v1/admin/models')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ displayName: 'Visible To User', actualName: 'secret-actual-name-1234' })
+        .send({ displayName: 'Visible To User', actualName: 'secret-actual-name-1234', providerId: PROVIDER_ID })
         .expect(201);
 
       const res = await request(app.getHttpServer())
@@ -390,7 +409,8 @@ describe('Models admin CRUD (US7) — e2e', () => {
       const bodyText = JSON.stringify(res.body);
       expect(bodyText).not.toContain('secret-actual-name-1234');
       expect(bodyText).not.toContain('actualName');
-      expect(res.body.items[0]).toEqual({
+      const visible = res.body.items.find((m: any) => m.displayName === 'Visible To User');
+      expect(visible).toEqual({
         id: expect.any(String),
         displayName: 'Visible To User',
         isDefault: false,

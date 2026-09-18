@@ -72,6 +72,9 @@ export class UsageRecord {
   @Column({ name: 'estimated_cost', type: 'decimal', precision: 12, scale: 8, default: 0 })
   estimatedCost!: number;
 
+  @Column({ type: 'int', default: 1 })
+  attempts!: number;
+
   @Column({ type: 'text', default: 'pending' })
   status!: 'pending' | 'completed' | 'failed';
 

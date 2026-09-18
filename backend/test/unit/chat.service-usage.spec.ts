@@ -27,6 +27,7 @@ describe('ChatService usage recording', () => {
         finalize: jest.fn(async () => {}),
         refund: jest.fn(async () => {}),
       } as any,
+      {} as any, // failover (phase 6)
     );
   });
 

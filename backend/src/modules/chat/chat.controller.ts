@@ -12,6 +12,7 @@ import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-
 import { ChatService, ChatStreamEvent } from './chat.service';
 import { ChatRequestDto } from './dto/chat-request.dto';
 import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 
 /**
  * SSE streaming chat controller.
@@ -20,9 +21,21 @@ import { Observable } from 'rxjs';
  * `text/event-stream` response. Each SSE event is one of:
  *
  *   - `data: {"delta":"..."}`  — token chunk from the model
+ *   - `event: status`          — retry/failover progress (phase 6)
  *   - `event: done`            — stream completed successfully
  *   - `event: error`           — provider or internal error
+ *
+ * Nest's SSE writer emits the event name from `message.type`, while the
+ * service's event objects use `event`. The map below bridges the two so the
+ * wire format actually carries `event: done` / `event: error` /
+ * `event: status` frames.
  */
+function toSseMessage(e: ChatStreamEvent): Record<string, unknown> {
+  const source = e as unknown as { event?: string } & Record<string, unknown>;
+  const { event, ...rest } = source;
+  return { ...rest, type: event };
+}
+
 @Controller('v1/chat')
 @UseGuards(JwtAuthGuard)
 export class ChatController {
@@ -30,8 +43,13 @@ export class ChatController {
 
   @Post('stream')
   @Sse('text/event-stream')
-  stream(@CurrentUser() user: AuthenticatedUser, @Body() dto: ChatRequestDto): Observable<ChatStreamEvent> {
-    return this.chat.streamChat(user.id, dto);
+  stream(@CurrentUser() user: AuthenticatedUser, @Body() dto: ChatRequestDto): Observable<Record<string, unknown>> {
+    // Nest's SSE writer reads the event name from `message.type`; map the
+    // service's `event` field so `event: done` / `error` / `status` frames
+    // actually reach the wire.
+    return this.chat
+      .streamChat(user.id, dto)
+      .pipe(map((e) => toSseMessage(e)));
   }
 
   /**

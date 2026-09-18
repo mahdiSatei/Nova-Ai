@@ -8,6 +8,8 @@ export interface CreateUsageInput {
   conversationId: string;
   modelId: string;
   providerId: string;
+  /** Provider attempts made, including retries and fallbacks. Defaults to 1. */
+  attempts?: number;
 }
 
 export interface FinalizeUsageInput {
@@ -49,10 +51,15 @@ export class UsageService {
     return Math.round((inputCost + outputCost) * 1e8) / 1e8; // 8 decimal places
   }
 
-  /** Create a pending usage record at the start of a request. */
+  /**
+   * Create a pending usage record once a provider stream has been established.
+   * The model is passed explicitly because with fallback the serving model is
+   * not known until establishment succeeds.
+   */
   async create(input: CreateUsageInput): Promise<UsageRecord> {
     const record = this.repo.create({
       ...input,
+      attempts: input.attempts ?? 1,
       status: 'pending',
     });
     return this.repo.save(record);

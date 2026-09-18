@@ -3,8 +3,13 @@ import { Observable } from 'rxjs';
 import { ModelsService } from '../models/models.service';
 import { ModelAccessService } from '../models/model-access.service';
 import { Model } from '../models/entities/model.entity';
-import { ProviderRuntimeService, ProviderConnection } from '../provider/provider-runtime.service';
+import { ProviderRuntimeService } from '../provider/provider-runtime.service';
 import { ProviderStreamChunk } from '../provider/adapters/provider-adapter.interface';
+import {
+  ProviderFailoverService,
+  AllProvidersUnavailableError,
+  EstablishedStream,
+} from '../provider/provider-failover.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { UsageService } from '../usage/usage.service';
 import { QuotaService } from '../quotas/quotas.service';
@@ -30,7 +35,21 @@ export interface ChatErrorEvent {
   data: { code: string; message: string };
 }
 
-export type ChatStreamEvent = ChatDeltaEvent | ChatDoneEvent | ChatErrorEvent;
+/**
+ * Non-terminal progress event emitted while the server is retrying a provider
+ * or moving to a fallback model (spec 006). No token has been emitted yet, so
+ * this is purely informational.
+ */
+export interface ChatStatusEvent {
+  event: 'status';
+  data: { phase: 'retrying'; attempt: number; maxAttempts: number };
+}
+
+export type ChatStreamEvent =
+  | ChatDeltaEvent
+  | ChatDoneEvent
+  | ChatErrorEvent
+  | ChatStatusEvent;
 
 /** Loose message shape used internally; cast to SDK types at the provider boundary. */
 interface ChatMessage {
@@ -86,6 +105,7 @@ export class ChatService {
     private readonly userRepo: Repository<User>,
     private readonly usage: UsageService,
     private readonly quotas: QuotaService,
+    private readonly failover: ProviderFailoverService,
   ) {}
 
   /**
@@ -327,33 +347,74 @@ export class ChatService {
         );
       }
 
-      // ── provider runtime ───────────────────────────────────────────
-      let connection: ProviderConnection;
+      // ── provider establishment: bounded retry + one-hop fallback ────
+      // Scope ends at "the stream is open". Once a delta has been emitted the
+      // request is never retried or failed over — replaying a partially
+      // delivered answer would append a second response to the same message.
+      let established: EstablishedStream;
       try {
-        connection = await this.runtime.assertReady(model.id);
+        established = await this.failover.establish({
+          model,
+          messages: providerMessages,
+          isAllowed: (candidate) => this.access.canAccessUser(userId, candidate),
+          onRetry: ({ attempt, maxAttempts }) => {
+            if (isActive()) {
+              observer.next({
+                event: 'status',
+                data: { phase: 'retrying', attempt, maxAttempts },
+              });
+            }
+          },
+        });
       } catch (err) {
-        const failure = err as { response?: { code?: string; message?: string } };
-        if (isActive()) {
-          observer.next({
-            event: 'error',
-            data: {
-              code: failure.response?.code ?? 'provider_error',
-              message: failure.response?.message ?? 'Provider is not available.',
-            },
+        if (err instanceof AllProvidersUnavailableError) {
+          this.logger.error(
+            `All provider candidates failed: attempts=${err.attempts} codes=${err.failures
+              .map((f) => f.code)
+              .join(',')}`,
+          );
+          if (isActive()) {
+            observer.next({
+              event: 'error',
+              data: {
+                code: 'all_providers_unavailable',
+                message:
+                  'The selected model is temporarily unavailable. Please try again in a moment.',
+              },
+            });
+          }
+          if (assistantMessageId) {
+            await this.conversations.updateMessageStatus(assistantMessageId, 'failed', '');
+          }
+          await this.recordFailedUsage({
+            userId,
+            conversationId,
+            model,
+            attempts: err.attempts,
           });
+          if (quotaId) {
+            await this.quotas.refund(quotaId, quotaReservedTokens).catch(() => {});
+          }
+          observer.complete();
+          return;
         }
-        observer.complete();
-        return;
+        throw err;
       }
 
+      const effectiveModel = established.model;
+
       // ── usage tracking ───────────────────────────────────────────
+      // Created only now: with fallback the serving model is not known until
+      // establishment succeeds. This also avoids orphaned `pending` rows for
+      // requests that never reached a provider.
       let usageRecordId: string | undefined;
       try {
         const usageRecord = await this.usage.create({
           userId,
           conversationId,
-          modelId: model.id,
-          providerId: model.providerId,
+          modelId: effectiveModel.id,
+          providerId: effectiveModel.providerId,
+          attempts: established.attempts,
         });
         usageRecordId = usageRecord.id;
       } catch (err) {
@@ -364,10 +425,7 @@ export class ChatService {
       let fullResponse = '';
       let lastChunk: ProviderStreamChunk | undefined;
       try {
-        const stream = await this.runtime.stream(connection, {
-          model: model.actualName,
-          messages: providerMessages,
-        });
+        const stream = established.stream;
 
         const state: StreamState = {
           fullResponse: '',
@@ -405,8 +463,8 @@ export class ChatService {
               promptTokens: usage?.prompt_tokens ?? 0,
               completionTokens: usage?.completion_tokens ?? 0,
               totalTokens: usage?.total_tokens ?? 0,
-              inputPricePer1k: model.inputPricePer1k,
-              outputPricePer1k: model.outputPricePer1k,
+              inputPricePer1k: effectiveModel.inputPricePer1k,
+              outputPricePer1k: effectiveModel.outputPricePer1k,
               status: 'completed',
             }).catch((err) => this.logger.warn(`Failed to finalize usage: ${err}`));
           }
@@ -466,6 +524,41 @@ export class ChatService {
         });
       }
       observer.complete();
+    }
+  }
+
+  /**
+   * Account for a request that never reached a provider (spec 006). One row is
+   * written with the requested model, the true attempt count and zero tokens,
+   * so exhausted requests stay visible in the admin report instead of
+   * disappearing.
+   */
+  private async recordFailedUsage(params: {
+    userId: string;
+    conversationId: string;
+    model: Model;
+    attempts: number;
+  }): Promise<void> {
+    try {
+      const record = await this.usage.create({
+        userId: params.userId,
+        conversationId: params.conversationId,
+        modelId: params.model.id,
+        providerId: params.model.providerId,
+        attempts: params.attempts,
+      });
+      await this.usage.finalize(record.id, {
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        inputPricePer1k: 0,
+        outputPricePer1k: 0,
+        status: 'failed',
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Failed to record exhausted usage: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

@@ -1,6 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Backend .gitignore — Multi-Model Chatbot MVP
-# Project type: NestJS + TypeORM + Node.js 20 (SQLite MVP, PostgreSQL later)
+# Project type: NestJS + TypeORM + Node.js 20 (PostgreSQL)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
@@ -26,16 +26,6 @@ out/
 
 # Local config overrides
 *.local
-
-# Database files (SQLite for MVP; even if you switch to Postgres later,
-# never commit SQLite files or local dev dumps)
-data/
-*.sqlite
-*.sqlite3
-*.db
-*.sqlite-journal
-*.sqlite-wal
-*.sqlite-shm
 
 # Postgres local data dir (if someone runs it on-host during dev)
 pgdata/

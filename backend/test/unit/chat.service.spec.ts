@@ -5,6 +5,10 @@ import { ChatService, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent } from '../.
 import { ModelsService } from '../../src/modules/models/models.service';
 import { ModelAccessService } from '../../src/modules/models/model-access.service';
 import { ProviderRuntimeService } from '../../src/modules/provider/provider-runtime.service';
+import {
+  ProviderFailoverService,
+  AllProvidersUnavailableError,
+} from '../../src/modules/provider/provider-failover.service';
 import { ConversationsService } from '../../src/modules/conversations/conversations.service';
 import { User } from '../../src/modules/users/entities/user.entity';
 import { UsageService } from '../../src/modules/usage/usage.service';
@@ -20,6 +24,7 @@ describe('ChatService', () => {
     assertReady: jest.Mock;
     stream: jest.Mock;
   };
+  let failover: { establish: jest.Mock };
   let conversations: {
     create: jest.Mock;
     findById: jest.Mock;
@@ -50,6 +55,37 @@ describe('ChatService', () => {
       }),
       stream: jest.fn(),
     };
+    // Phase 6: ChatService establishes streams through ProviderFailoverService.
+    // This stub delegates to the runtime mocks, so every test below drives the
+    // stream exactly the way it did before failover existed.
+    failover = {
+      establish: jest.fn(async (input: { model: any; messages: any[] }) => {
+        try {
+          const connection = await runtime.assertReady(input.model.id);
+          const stream = await runtime.stream(connection, {
+            model: input.model.actualName,
+            messages: input.messages,
+          });
+          return { model: input.model, connection, stream, attempts: 1, failures: [] };
+        } catch (err) {
+          // Mirrors the real service: exhausted candidates surface as this
+          // error, not as the raw provider throw.
+          throw new AllProvidersUnavailableError(
+            [
+              {
+                modelId: input.model.id,
+                providerId: input.model.providerId ?? 'p1',
+                attempt: 1,
+                code: 'provider_error',
+                category: 'terminal',
+                durationMs: 0,
+              },
+            ],
+            1,
+          );
+        }
+      }),
+    };
     conversations = {
       create: jest.fn(),
       findById: jest.fn(),
@@ -74,6 +110,7 @@ describe('ChatService', () => {
         ChatService,
         { provide: ModelsService, useValue: models },
         { provide: ProviderRuntimeService, useValue: runtime },
+        { provide: ProviderFailoverService, useValue: failover },
         { provide: ConversationsService, useValue: conversations },
         { provide: getRepositoryToken(User), useValue: userRepo },
         { provide: ModelAccessService, useValue: access },
@@ -561,7 +598,11 @@ describe('ChatService', () => {
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'completed', 'hi');
     });
 
-    it('updates message status to failed on provider error', async () => {
+    // Phase 6: a failure while opening the stream is now an establishment
+    // failure. It goes through failover and, with no fallback configured on
+    // this model, surfaces as `all_providers_unavailable` instead of the old
+    // blanket `provider_error`.
+    it('updates message status to failed when every provider candidate fails', async () => {
       models.resolveActiveModel.mockResolvedValue({
         id: 'm1', actualName: 'gpt-4o', enabled: true, isDefault: true,
       } as any);
@@ -582,7 +623,7 @@ describe('ChatService', () => {
 
       expect(events[0]).toEqual({
         event: 'error',
-        data: { code: 'provider_error', message: expect.any(String) },
+        data: { code: 'all_providers_unavailable', message: expect.any(String) },
       });
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'failed', '');
     });

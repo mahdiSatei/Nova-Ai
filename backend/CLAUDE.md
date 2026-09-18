@@ -23,8 +23,7 @@ Current MVP stack (recorded under "Technical Choices" in
 | Runtime | Node.js 20 LTS |
 | Framework | NestJS 10 (TypeScript) |
 | ORM | TypeORM 0.3 (mandatory) |
-| DB (MVP) | SQLite at `backend/data/app.sqlite` |
-| DB (production target) | PostgreSQL via the same TypeORM entities |
+| DB | PostgreSQL via TypeORM 0.3 entities (connection from `POSTGRES_*` env vars) |
 | Auth | JWT (HS256) access + refresh, DB-tracked refresh tokens |
 | Logging | `nestjs-pino` → JSON files in `backend/logs/` via `pino-roll` |
 | Validation | `class-validator` with strict whitelist |

@@ -34,7 +34,10 @@ describe('Conversations — e2e', () => {
 
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
-    process.env.DB_DRIVER = 'postgres';
+    process.env.POSTGRES_HOST = '127.0.0.1';
+    process.env.POSTGRES_PORT = process.env.TEST_POSTGRES_PORT ?? '5432';
+    process.env.POSTGRES_USER = 'postgres';
+    process.env.POSTGRES_PASSWORD = process.env.TEST_POSTGRES_PASSWORD ?? 'postgres';
     process.env.POSTGRES_DB = 'chatbot_test';
     process.env.JWT_SECRET = 'integration-test-secret-with-enough-entropy-here';
     process.env.JWT_REFRESH_SECRET = 'integration-test-refresh-secret-entropy';
@@ -150,9 +153,9 @@ describe('Conversations — e2e', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.items).toHaveLength(2);
-      // SQLite timestamps have second granularity, so both rows can share
-      // an updatedAt when created in the same second — assert membership
-      // and non-ascending timestamps instead of an exact row order.
+      // Both rows can be created within the same clock tick, so they may share
+      // an updatedAt — assert membership and non-ascending timestamps instead
+      // of an exact row order.
       expect(new Set(res.body.items.map((i: any) => i.title))).toEqual(
         new Set(['First message', 'Second message']),
       );

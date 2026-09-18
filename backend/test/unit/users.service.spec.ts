@@ -11,12 +11,15 @@ describe('UsersService', () => {
   beforeEach(async () => {
     const stored: User[] = [];
     let idCounter = 0;
+    // PostgreSQL driver error shape for a unique violation (SQLSTATE 23505).
     const uniqueViolation = (constraint: string) => {
-      const err = new Error('UNIQUE constraint failed') as Error & {
+      const err = new Error(
+        `duplicate key value violates unique constraint "${constraint}"`,
+      ) as Error & {
         code: string;
         driverError: { code: string; constraint: string };
       };
-      err.code = 'SQLITE_CONSTRAINT_UNIQUE';
+      err.code = '23505';
       err.driverError = { code: '23505', constraint };
       return err;
     };

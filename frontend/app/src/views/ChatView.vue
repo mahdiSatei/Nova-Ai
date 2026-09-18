@@ -405,6 +405,16 @@ const suggestedPrompts = [
           </div>
         </div>
 
+        <p
+          v-if="chat.retrying.value"
+          class="px-4 py-1 text-sm text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
+          در حال تلاش مجدد ({{ chat.retrying.value.attempt }} از
+          {{ chat.retrying.value.maxAttempts }})…
+        </p>
+
         <MessageInput
           v-model="inputText"
           :placeholder="

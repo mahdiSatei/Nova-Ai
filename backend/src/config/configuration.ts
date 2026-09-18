@@ -21,8 +21,6 @@ export interface AppConfig {
     refreshTtl: string;
   };
   db: {
-    driver: 'sqlite' | 'postgres';
-    sqliteFile: string;
     postgresUrl: string;
     postgres: {
       host: string;
@@ -51,8 +49,6 @@ export default (): AppConfig => ({
     refreshTtl: process.env.JWT_REFRESH_TTL ?? '7d',
   },
   db: {
-    driver: (process.env.DB_DRIVER as AppConfig['db']['driver']) ?? 'sqlite',
-    sqliteFile: process.env.SQLITE_FILE ?? './data/app.sqlite',
     postgresUrl: process.env.POSTGRES_URL ?? '',
     postgres: {
       host: process.env.POSTGRES_HOST ?? 'localhost',

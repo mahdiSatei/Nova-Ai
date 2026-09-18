@@ -43,6 +43,13 @@ export class Model {
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;
 
+  /**
+   * Model to use when this model's provider fails (spec 006). Nullable;
+   * one hop only, so the fallback's own fallback is never followed.
+   */
+  @Column({ name: 'fallback_model_id', type: 'text', nullable: true })
+  fallbackModelId!: string | null;
+
   @Column({ name: 'is_default', type: 'boolean', default: false })
   isDefault!: boolean;
 

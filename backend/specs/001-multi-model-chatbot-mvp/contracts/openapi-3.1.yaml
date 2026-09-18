@@ -325,6 +325,24 @@ paths:
         choice -> admin's default model. If no model is resolvable, the
         server returns 422 with `code = "no_model_available"`.
 
+        **Retry and fallback (phase 6)**: before any token is emitted the
+        server may retry the same provider once (transient failures only) and
+        then use the model's configured `fallbackModelId`. While it does, it
+        emits a non-terminal progress event:
+
+        ```
+        event: status
+        data: {"phase":"retrying","attempt":2,"maxAttempts":2}
+        ```
+
+        If every eligible provider fails, the stream ends with
+        `event: error` and `code = "all_providers_unavailable"`. The message is
+        deliberately generic: no provider identity, base URL or credential
+        information is disclosed. Once the first token has been delivered the
+        request is never retried or failed over — replaying would append a
+        second answer to the same message — so a mid-stream failure ends the
+        stream with `code = "provider_error"` and the partial content is kept.
+
         **Disconnect resilience**: if the client disconnects mid-stream
         (browser closed, network dropped, navigation away, page refresh),
         the server keeps generating the assistant response to completion
@@ -1030,6 +1048,27 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /v1/admin/provider-metrics:
+    get:
+      tags: [admin]
+      summary: In-process provider attempt counters
+      description: |
+        Counters for provider stream establishment attempts since process
+        start. Counters reset on restart; they are not persisted.
+      security:
+        - bearerAdminAuth: []
+      responses:
+        '200':
+          description: Current counters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderMetrics'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
   /v1/admin/usage:
     get:
       tags: [admin]
@@ -1356,6 +1395,11 @@ components:
         estimatedCost:
           type: number
           format: float
+        attempts:
+          type: integer
+          minimum: 1
+          default: 1
+          description: Provider attempts made for this request, including retries and fallbacks.
         status:
           type: string
           enum: [pending, completed, failed]
@@ -1388,6 +1432,27 @@ components:
             requestCount:
               type: integer
 
+    ProviderMetrics:
+      type: object
+      required: [attempts, successes, failures, fallbacks, failuresByCode]
+      properties:
+        attempts:
+          type: integer
+          minimum: 0
+        successes:
+          type: integer
+          minimum: 0
+        failures:
+          type: integer
+          minimum: 0
+        fallbacks:
+          type: integer
+          minimum: 0
+        failuresByCode:
+          type: object
+          additionalProperties:
+            type: integer
+
     ModelPublic:
       type: object
       required: [id, displayName, isDefault]
@@ -1419,6 +1484,15 @@ components:
               $ref: '#/components/schemas/ModelVisibility'
             enabled:
               type: boolean
+            fallbackModelId:
+              type: string
+              format: uuid
+              nullable: true
+              description: >
+                Model used when this model's provider fails. One hop only — the
+                fallback's own fallback is not followed. Must be a different
+                model, enabled, on an active provider, and accessible to the
+                caller.
             createdAt:
               type: string
               format: date-time
@@ -1441,6 +1515,10 @@ components:
         enabled:
           type: boolean
           default: true
+        fallbackModelId:
+          type: string
+          format: uuid
+          nullable: true
 
     ModelCreateRequest:
       type: object

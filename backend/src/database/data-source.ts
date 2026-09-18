@@ -17,8 +17,6 @@ import { QuotaRule } from '../modules/quotas/entities/quota-rule.entity';
 // environment variables as the running app.
 loadDotenv({ path: join(process.cwd(), '.env') });
 
-const driver = (process.env.DB_DRIVER ?? 'sqlite') as 'sqlite' | 'postgres';
-
 function buildPostgresUrl(): string {
   // Prefer individual connection vars; fall back to POSTGRES_URL if provided.
   if (process.env.POSTGRES_URL) {
@@ -32,23 +30,13 @@ function buildPostgresUrl(): string {
   return `postgres://${user}:${password}@${host}:${port}/${db}`;
 }
 
-export const dataSourceOptions: DataSourceOptions =
-  driver === 'postgres'
-    ? {
-        type: 'postgres',
-        url: buildPostgresUrl(),
-        entities: [User, RefreshToken, CentralProvider, Provider, Model, AppConfig, Conversation, Message, Quota, QuotaRule],
-        migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
-        synchronize: false,
-        logging: process.env.NODE_ENV === 'development',
-      }
-    : {
-        type: 'sqlite',
-        database: process.env.SQLITE_FILE ?? './data/app.sqlite',
-        entities: [User, RefreshToken, CentralProvider, Provider, Model, AppConfig, Conversation, Message, Quota, QuotaRule],
-        migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
-        synchronize: false,
-        logging: process.env.NODE_ENV === 'development',
-      };
+export const dataSourceOptions: DataSourceOptions = {
+  type: 'postgres',
+  url: buildPostgresUrl(),
+  entities: [User, RefreshToken, CentralProvider, Provider, Model, AppConfig, Conversation, Message, Quota, QuotaRule],
+  migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
+  synchronize: false,
+  logging: process.env.NODE_ENV === 'development',
+};
 
 export default new DataSource(dataSourceOptions);

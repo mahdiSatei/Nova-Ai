@@ -156,6 +156,13 @@ export interface SseError {
   message: string
 }
 
+/** فاز ۶ — تلاش مجدد ارائه‌دهنده پیش از ارسال اولین توکن. */
+export interface SseStatus {
+  phase: 'retrying'
+  attempt: number
+  maxAttempts: number
+}
+
 export interface PaginatedQuery {
   limit?: number
   offset?: number

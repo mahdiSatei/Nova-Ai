@@ -43,6 +43,7 @@ export class UsageAdminController {
         completionTokens: r.completionTokens,
         totalTokens: r.totalTokens,
         estimatedCost: Number(r.estimatedCost),
+        attempts: r.attempts ?? 1,
         status: r.status,
         createdAt: r.createdAt.toISOString(),
         completedAt: r.completedAt?.toISOString() ?? null,

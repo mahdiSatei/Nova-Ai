@@ -4,6 +4,10 @@ import { ChatService } from '../../src/modules/chat/chat.service';
 import { ModelsService } from '../../src/modules/models/models.service';
 import { ModelAccessService } from '../../src/modules/models/model-access.service';
 import { ProviderRuntimeService } from '../../src/modules/provider/provider-runtime.service';
+import {
+  ProviderFailoverService,
+  AllProvidersUnavailableError,
+} from '../../src/modules/provider/provider-failover.service';
 import { ConversationsService } from '../../src/modules/conversations/conversations.service';
 import { UsageService } from '../../src/modules/usage/usage.service';
 import { QuotaService } from '../../src/modules/quotas/quotas.service';
@@ -33,8 +37,36 @@ describe('ChatService quota preflight', () => {
       }),
     };
     runtime = {
-      assertReady: jest.fn(),
+      assertReady: jest.fn().mockResolvedValue({ provider: { id: 'p1' }, adapter: {} }),
       stream: jest.fn(),
+    };
+    // Phase 6: establishment goes through the failover service, so this stub
+    // delegates to the runtime mocks to keep each test's stream setup intact.
+    const failover = {
+      establish: jest.fn(async (input: { model: any; messages: any[] }) => {
+        try {
+          const connection = await runtime.assertReady(input.model.id);
+          const stream = await runtime.stream(connection, {
+            model: input.model.actualName,
+            messages: input.messages,
+          });
+          return { model: input.model, connection, stream, attempts: 1, failures: [] };
+        } catch {
+          throw new AllProvidersUnavailableError(
+            [
+              {
+                modelId: input.model.id,
+                providerId: input.model.providerId ?? 'p1',
+                attempt: 1,
+                code: 'provider_error',
+                category: 'terminal',
+                durationMs: 0,
+              },
+            ],
+            1,
+          );
+        }
+      }),
     };
     conversations = {
       findById: jest.fn(),
@@ -55,6 +87,7 @@ describe('ChatService quota preflight', () => {
         { provide: ModelsService, useValue: models },
         { provide: ModelAccessService, useValue: { canAccessUser: jest.fn().mockResolvedValue(true) } },
         { provide: ProviderRuntimeService, useValue: runtime },
+        { provide: ProviderFailoverService, useValue: failover },
         { provide: ConversationsService, useValue: conversations },
         { provide: getRepositoryToken(User), useValue: { update: jest.fn().mockResolvedValue({}) } },
         {
