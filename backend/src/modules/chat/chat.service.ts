@@ -6,6 +6,7 @@ import { Model } from '../models/entities/model.entity';
 import { ProviderRuntimeService, ProviderConnection } from '../provider/provider-runtime.service';
 import { ProviderStreamChunk } from '../provider/adapters/provider-adapter.interface';
 import { ConversationsService } from '../conversations/conversations.service';
+import { UsageService } from '../usage/usage.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
@@ -82,6 +83,7 @@ export class ChatService {
     private readonly conversations: ConversationsService,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    private readonly usage: UsageService,
   ) {}
 
   /**
@@ -312,8 +314,23 @@ export class ChatService {
         return;
       }
 
+      // ── usage tracking ───────────────────────────────────────────
+      let usageRecordId: string | undefined;
+      try {
+        const usageRecord = await this.usage.create({
+          userId,
+          conversationId,
+          modelId: model.id,
+          providerId: model.providerId,
+        });
+        usageRecordId = usageRecord.id;
+      } catch (err) {
+        this.logger.warn(`Failed to create usage record: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
       // ── consume phase ───────────────────────────────────────────────
       let fullResponse = '';
+      let lastChunk: ProviderStreamChunk | undefined;
       try {
         const stream = await this.runtime.stream(connection, {
           model: model.actualName,
@@ -331,6 +348,7 @@ export class ChatService {
 
         try {
           for await (const chunk of stream) {
+            lastChunk = chunk;
             const delta = chunk.choices?.[0]?.delta?.content;
             if (delta) {
               fullResponse += delta;
@@ -346,6 +364,19 @@ export class ChatService {
           await this.conversations.updateMessageStatus(assistantMessageId, 'completed', fullResponse);
           for (const sub of state.subscribers) {
             sub({ event: 'done', data: {} });
+          }
+
+          // Finalize usage with provider-reported token counts
+          if (usageRecordId) {
+            const usage = lastChunk?.usage;
+            await this.usage.finalize(usageRecordId, {
+              promptTokens: usage?.prompt_tokens ?? 0,
+              completionTokens: usage?.completion_tokens ?? 0,
+              totalTokens: usage?.total_tokens ?? 0,
+              inputPricePer1k: model.inputPricePer1k,
+              outputPricePer1k: model.outputPricePer1k,
+              status: 'completed',
+            }).catch((err) => this.logger.warn(`Failed to finalize usage: ${err}`));
           }
         } finally {
           this.activeStreams.delete(conversationId);
@@ -365,6 +396,17 @@ export class ChatService {
         }
         if (assistantMessageId) {
           await this.conversations.updateMessageStatus(assistantMessageId, 'failed', fullResponse);
+        }
+        // Mark usage as failed
+        if (usageRecordId) {
+          await this.usage.finalize(usageRecordId, {
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+            inputPricePer1k: 0,
+            outputPricePer1k: 0,
+            status: 'failed',
+          }).catch(() => {});
         }
       } finally {
         observer.complete();

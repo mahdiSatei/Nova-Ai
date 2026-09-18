@@ -7,6 +7,7 @@ import { ModelAccessService } from '../../src/modules/models/model-access.servic
 import { ProviderRuntimeService } from '../../src/modules/provider/provider-runtime.service';
 import { ConversationsService } from '../../src/modules/conversations/conversations.service';
 import { User } from '../../src/modules/users/entities/user.entity';
+import { UsageService } from '../../src/modules/usage/usage.service';
 
 describe('ChatService', () => {
   let svc: ChatService;
@@ -75,6 +76,7 @@ describe('ChatService', () => {
         { provide: ConversationsService, useValue: conversations },
         { provide: getRepositoryToken(User), useValue: userRepo },
         { provide: ModelAccessService, useValue: access },
+        { provide: UsageService, useValue: { create: jest.fn(async () => ({ id: 'usage-1' })), finalize: jest.fn(async () => {}) } },
       ],
     }).compile();
 

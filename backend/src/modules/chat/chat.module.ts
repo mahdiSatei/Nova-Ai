@@ -8,6 +8,7 @@ import { Provider } from '../provider/entities/provider.entity';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { ModelsModule } from '../models/models.module';
 import { ProviderModule } from '../provider/provider.module';
+import { UsageModule } from '../usage/usage.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { ProviderModule } from '../provider/provider.module';
     ConversationsModule,
     ModelsModule,
     ProviderModule,
+    UsageModule,
   ],
   controllers: [ChatController],
   providers: [ChatService],

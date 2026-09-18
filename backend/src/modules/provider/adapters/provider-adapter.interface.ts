@@ -9,6 +9,12 @@ export interface ProviderStreamChunk {
   choices?: Array<{
     delta?: { content?: string };
   }>;
+  /** Present in the final chunk when the provider supplies usage data. */
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
 }
 
 /**

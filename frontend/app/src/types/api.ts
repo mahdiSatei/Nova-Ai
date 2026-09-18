@@ -160,3 +160,32 @@ export interface PaginatedQuery {
   limit?: number
   offset?: number
 }
+
+/** Phase 4 — Usage & Cost Tracking */
+export interface UsageRecord {
+  id: string
+  userId: string
+  conversationId: string
+  messageId: string | null
+  modelId: string
+  modelName: string | null
+  providerId: string
+  providerName: string | null
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  estimatedCost: number
+  status: 'pending' | 'completed' | 'failed'
+  createdAt: string
+  completedAt: string | null
+}
+
+export interface UsageReport {
+  items: UsageRecord[]
+  total: number
+  totals: {
+    totalTokens: number
+    totalCost: number
+    requestCount: number
+  }
+}

@@ -111,6 +111,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       model: params.model,
       messages: params.messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
       stream: true,
+      stream_options: { include_usage: true },
     });
 
     const stream = await Promise.race([streamPromise, deadline]);

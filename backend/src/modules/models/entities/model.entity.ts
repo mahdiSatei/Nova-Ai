@@ -46,6 +46,14 @@ export class Model {
   @Column({ name: 'is_default', type: 'boolean', default: false })
   isDefault!: boolean;
 
+  /** Cost per 1,000 input tokens (USD). Zero means free or unpriced. */
+  @Column({ name: 'input_price_per_1k', type: 'decimal', precision: 10, scale: 6, default: 0 })
+  inputPricePer1k!: number;
+
+  /** Cost per 1,000 output tokens (USD). Zero means free or unpriced. */
+  @Column({ name: 'output_price_per_1k', type: 'decimal', precision: 10, scale: 6, default: 0 })
+  outputPricePer1k!: number;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

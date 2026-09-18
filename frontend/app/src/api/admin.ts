@@ -12,6 +12,7 @@ import type {
   ModelList,
   ModelUpsertRequest,
   PaginatedQuery,
+  UsageReport,
 } from '@/types/api'
 
 export function listProviders(): Promise<ProviderList> {
@@ -79,4 +80,19 @@ export function getConfig(): Promise<AppConfigPublic> {
 
 export function putConfig(body: AppConfigUpdateRequest): Promise<AppConfigPublic> {
   return request<AppConfigPublic>('/v1/admin/config', { method: 'PUT', body })
+}
+
+// ── Phase 4: Usage & Cost Tracking ──────────────────────────────────────────
+
+export function listAdminUsage(query: {
+  userId?: string
+  modelId?: string
+  providerId?: string
+  status?: string
+  from?: string
+  to?: string
+  limit?: number
+  offset?: number
+} = {}): Promise<UsageReport> {
+  return request<UsageReport>('/v1/admin/usage', { query: { ...query } })
 }
