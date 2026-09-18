@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { FilesService } from './files.service';
 import { FileRecord } from './entities/file.entity';
 
@@ -51,6 +52,7 @@ export class FilesController {
     }),
   )
   async upload(
+    @CurrentUser() user: AuthenticatedUser,
     @UploadedFile() file?: Express.Multer.File,
   ): Promise<{
     id: string;
@@ -74,7 +76,7 @@ export class FilesController {
         message: 'File exceeds the 10MB size limit.',
       });
     }
-    const record = await this.files.create(file);
+    const record = await this.files.create(file, user.id);
     return FilesController.toPublic(record);
   }
 

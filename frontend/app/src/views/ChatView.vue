@@ -124,10 +124,11 @@ async function onSubmit(): Promise<void> {
   const text = inputText.value
   if (!text.trim() || inputDisabled.value) return
   if (!resolvedId()) justStartedConversation.value = true
+  const fileId = attachedFile.value?.id ?? null
   inputText.value = ''
   attachedFile.value = null
   pinnedToBottom.value = true
-  await chat.send(text)
+  await chat.send(text, { fileId })
 }
 
 function onStop(): void {
@@ -304,12 +305,12 @@ const suggestedPrompts = [
       <div class="mx-auto w-full max-w-3xl">
         <MessageInput
           v-model="inputText"
+          v-model:attachment="attachedFile"
           :placeholder="noModels ? 'مدلی برای گفتگو موجود نیست.' : 'پیام خود را بنویسید…'"
           :disabled="inputDisabled"
           :busy="chat.isStreaming.value"
           @submit="onSubmit"
           @stop="onStop"
-          @file-uploaded="attachedFile = $event"
         />
       </div>
     </div>

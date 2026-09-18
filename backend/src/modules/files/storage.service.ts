@@ -61,6 +61,16 @@ export class StorageService implements OnModuleInit {
     return { fileKey, url };
   }
 
+  /** Downloads an object by key into a memory buffer. */
+  async getObjectBuffer(fileKey: string): Promise<Buffer> {
+    const stream = await this.client.getObject(this.bucket, fileKey);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(chunk as Buffer);
+    }
+    return Buffer.concat(chunks);
+  }
+
   private buildFileKey(originalName: string): string {
     const dot = originalName.lastIndexOf('.');
     const ext =

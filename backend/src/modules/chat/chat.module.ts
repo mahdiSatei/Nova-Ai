@@ -8,12 +8,14 @@ import { Model } from '../models/entities/model.entity';
 import { User } from '../users/entities/user.entity';
 import { ConversationsModule } from '../conversations/conversations.module';
 import { ModelsModule } from '../models/models.module';
+import { FilesModule } from '../files/files.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([CentralProvider, Model, User]),
     ConversationsModule,
     ModelsModule,
+    FilesModule,
   ],
   controllers: [ChatController],
   providers: [ChatService, OpenAICompatibleClient],

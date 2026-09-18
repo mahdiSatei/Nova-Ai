@@ -38,7 +38,7 @@ export interface ChatStreamHandle {
   setModel: (id: string | null) => void
   loadConversation: (id: string) => Promise<void>
   resetConversation: () => void
-  send: (text: string) => Promise<void>
+  send: (text: string, opts?: { fileId?: string | null }) => Promise<void>
   abort: () => void
 }
 
@@ -109,9 +109,10 @@ export function useChatStream(): ChatStreamHandle {
     }
   }
 
-  function send(text: string): Promise<void> {
+  function send(text: string, opts?: { fileId?: string | null }): Promise<void> {
     const trimmed = text.trim()
     if (!trimmed || phase.value === 'streaming') return Promise.resolve()
+    const fileId = opts?.fileId?.trim() || null
 
     // ۱. پیام کاربر را در همان لحظه در pendingUser می‌گذاریم
     const userMsg: MessagePublic = {
@@ -188,6 +189,7 @@ export function useChatStream(): ChatStreamHandle {
         conversationId: conversationId.value,
         modelId: selectedModelId.value,
         message: trimmed,
+        fileId,
       },
       handlers,
     )

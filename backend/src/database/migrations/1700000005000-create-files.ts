@@ -26,6 +26,7 @@ export class CreateFiles1700000005000 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS files (
         ${idCol},
+        user_id TEXT NOT NULL DEFAULT '',
         original_name TEXT NOT NULL,
         mime_type TEXT NOT NULL,
         size INTEGER NOT NULL,
@@ -35,9 +36,13 @@ export class CreateFiles1700000005000 implements MigrationInterface {
         created_at TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP)
       );
     `);
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS idx_files_user ON files (user_id);`,
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`DROP INDEX IF EXISTS idx_files_user;`);
     await queryRunner.query(`DROP TABLE IF EXISTS files;`);
   }
 }

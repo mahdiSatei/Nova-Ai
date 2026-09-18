@@ -2,7 +2,7 @@
 // ورودی شناور پایین صفحه: textarea خوداِندازه، Enter ارسال / Shift+Enter خط جدید.
 // دکمه هنگام استریم به «توقف» تبدیل می‌شود (رویداد stop). منطق ارسال دست ChatView است.
 // پیوست فایل: دکمه گیره + drag&drop + چیپ پیش‌نمایش؛ آپلود فوراً انجام می‌شود
-// و شناسه فایل از طریق `fileId` در اختیار والد قرار می‌گیرد.
+// و شناسه فایل از طریق v-model:attachment در اختیار والد قرار می‌گیرد.
 import { computed, nextTick, ref, watch } from 'vue'
 import { PhArrowUp, PhStop, PhPaperclip, PhX, PhFile } from '@phosphor-icons/vue'
 import { formatFileSize, uploadFile, validateLocalFile, type UploadedFile } from '@/api/files'
@@ -13,15 +13,17 @@ const props = withDefaults(
     placeholder?: string
     disabled?: boolean
     busy?: boolean
+    /** پیوست فعال (شناسه‌اش همراه پیام بعدی ارسال می‌شود). */
+    attachment?: UploadedFile | null
   }>(),
-  { placeholder: 'پیام خود را بنویسید…', disabled: false, busy: false },
+  { placeholder: 'پیام خود را بنویسید…', disabled: false, busy: false, attachment: null },
 )
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
+  'update:attachment': [value: UploadedFile | null]
   submit: []
   stop: []
-  fileUploaded: [file: UploadedFile | null]
 }>()
 
 const textarea = ref<HTMLTextAreaElement | null>(null)
@@ -29,12 +31,18 @@ const fileInput = ref<HTMLInputElement | null>(null)
 
 // پیوست فایل
 const uploading = ref(false)
-const uploadedFile = ref<UploadedFile | null>(null)
 const uploadError = ref<string | null>(null)
 const isDragging = ref(false)
 
+const attachment = computed(() => props.attachment)
+const hasAttachment = computed(() => attachment.value !== null || uploading.value)
+
 const canSend = computed(
-  () => !props.disabled && !props.busy && !uploading.value && props.modelValue.trim().length > 0,
+  () =>
+    !props.disabled &&
+    !props.busy &&
+    !uploading.value &&
+    props.modelValue.trim().length > 0,
 )
 
 function autoResize(): void {
@@ -71,10 +79,9 @@ function openFilePicker(): void {
 }
 
 function clearFile(): void {
-  uploadedFile.value = null
   uploadError.value = null
   if (fileInput.value) fileInput.value.value = ''
-  emit('fileUploaded', null)
+  emit('update:attachment', null)
 }
 
 async function handleFile(file: File | undefined): Promise<void> {
@@ -90,8 +97,8 @@ async function handleFile(file: File | undefined): Promise<void> {
 
   uploading.value = true
   try {
-    uploadedFile.value = await uploadFile(file)
-    emit('fileUploaded', uploadedFile.value)
+    const uploaded = await uploadFile(file)
+    emit('update:attachment', uploaded)
   } catch (err) {
     uploadError.value = err instanceof Error && err.message ? err.message : 'آپلود فایل ناموفق بود.'
   } finally {
@@ -132,14 +139,14 @@ function onDrop(e: DragEvent): void {
 
     <!-- چیپ فایل پیوست‌شده / در حال آپلود -->
     <div
-      v-if="uploadedFile || uploading"
+      v-if="hasAttachment"
       class="mb-1.5 mx-1 flex w-fit max-w-full items-center gap-2 rounded-xl border border-line bg-elevated px-3 py-1.5 text-xs shadow-sm"
     >
       <PhFile class="size-3.5 shrink-0 text-primary" aria-hidden="true" />
       <span v-if="uploading" class="truncate text-ink-muted">در حال آپلود فایل…</span>
-      <template v-else-if="uploadedFile">
-        <span class="truncate font-medium text-ink">{{ uploadedFile.originalName }}</span>
-        <span class="shrink-0 text-ink-muted/70">{{ formatFileSize(uploadedFile.size) }}</span>
+      <template v-else-if="attachment">
+        <span class="truncate font-medium text-ink">{{ attachment.originalName }}</span>
+        <span class="shrink-0 text-ink-muted/70">{{ formatFileSize(attachment.size) }}</span>
       </template>
       <button
         type="button"

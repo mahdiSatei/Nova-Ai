@@ -109,6 +109,8 @@ export interface ChatRequest {
   conversationId?: string | null
   modelId?: string | null
   message: string
+  /** Optional uploaded file id to attach to this turn. */
+  fileId?: string | null
 }
 
 export interface SseDelta {

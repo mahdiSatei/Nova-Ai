@@ -23,6 +23,10 @@ export class FileRecord {
   @Column({ name: 'mime_type', type: 'text' })
   mimeType!: string;
 
+  /** Owning user; stamped at upload from the auth context. */
+  @Column({ name: 'user_id', type: 'text', default: '' })
+  userId!: string;
+
   @Column({ type: 'integer' })
   size!: number;
 

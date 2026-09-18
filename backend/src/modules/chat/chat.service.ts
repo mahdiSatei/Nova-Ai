@@ -8,21 +8,27 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { ChatRequestDto } from './dto/chat-request.dto';
+import { FilesService } from '../files/files.service';
+import { FileContentService, FileParseError } from '../files/file-content.service';
 
 /**
  * Event shapes emitted on the SSE stream.
+ *
+ * NOTE: the wire property is `type` — Nest's SseStream serializes
+ * `type` into the SSE `event:` field; an `event` property would be
+ * silently dropped.
  */
 export interface ChatDeltaEvent {
   data: { delta: string };
 }
 
 export interface ChatDoneEvent {
-  event: 'done';
+  type: 'done';
   data: Record<string, never>;
 }
 
 export interface ChatErrorEvent {
-  event: 'error';
+  type: 'error';
   data: { code: string; message: string };
 }
 
@@ -56,6 +62,8 @@ export class ChatService {
     private readonly models: ModelsService,
     private readonly providerClient: OpenAICompatibleClient,
     private readonly conversations: ConversationsService,
+    private readonly files: FilesService,
+    private readonly fileContent: FileContentService,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
   ) {}
@@ -136,7 +144,7 @@ export class ChatService {
       if (!model) {
         if (isClientConnected()) {
           observer.next({
-            event: 'error',
+            type: 'error',
             data: {
               code: 'no_model_available',
               message: 'No model is available. Ask an admin to set a default model or select one explicitly.',
@@ -153,7 +161,7 @@ export class ChatService {
       } catch {
         if (isClientConnected()) {
           observer.next({
-            event: 'error',
+            type: 'error',
             data: {
               code: 'provider_not_configured',
               message: 'Central provider is not configured. Ask an admin to set it up.',
@@ -168,7 +176,7 @@ export class ChatService {
       if (dto.message.length < 1 || dto.message.length > 32000) {
         if (isClientConnected()) {
           observer.next({
-            event: 'error',
+            type: 'error',
             data: { code: 'invalid_message', message: 'Message must be 1..32000 characters.' },
           });
         }
@@ -176,14 +184,51 @@ export class ChatService {
         return;
       }
 
-      // 4. Resolve or create conversation.
+      // 4. Resolve the attachment before any persistence (fail fast —
+      // a failed attach must not create an orphan conversation).
+      let finalUserContent = dto.message;
+      if (dto.fileId && dto.fileId.trim().length > 0) {
+        const file = await this.files.findOwned(dto.fileId, userId);
+        if (!file) {
+          if (isClientConnected()) {
+            observer.next({
+              type: 'error',
+              data: {
+                code: 'file_not_found',
+                message: 'Attached file was not found.',
+              },
+            });
+          }
+          observer.complete();
+          return;
+        }
+        try {
+          const context = await this.fileContent.buildAttachmentContext(file);
+          finalUserContent = `${context}${dto.message}`;
+        } catch (err) {
+          const code = err instanceof FileParseError ? err.code : 'file_unreadable';
+          if (isClientConnected()) {
+            observer.next({
+              type: 'error',
+              data: {
+                code,
+                message: 'The attached file could not be read.',
+              },
+            });
+          }
+          observer.complete();
+          return;
+        }
+      }
+
+      // 5. Resolve or create conversation.
       let priorTurns: ChatMessage[];
       if (dto.conversationId) {
         const existing = await this.conversations.findById(dto.conversationId);
         if (!existing) {
           if (isClientConnected()) {
             observer.next({
-              event: 'error',
+              type: 'error',
               data: { code: 'conversation_not_found', message: 'Conversation not found.' },
             });
           }
@@ -201,18 +246,23 @@ export class ChatService {
           userMessage: dto.message,
         });
         conversationId = conv.id;
-        priorTurns = [{ role: 'user', content: dto.message }];
+        // The final user message is appended uniformly below; priorTurns
+        // is only for resumed conversations (prevents double-prompting
+        // the provider on new chats).
+        priorTurns = [];
       }
 
-      // 5. Persist sticky model choice (fire-and-forget).
+      // 6. Persist sticky model choice (fire-and-forget).
       this.updateUserLastSelectedModel(userId, model.id).catch(() => {
         this.logger.warn(`Failed to update lastSelectedModelId for user ${userId}`);
       });
 
-      // 6. Build the messages array for the provider (FR-015).
+      // 7. Build the messages array for the provider (FR-015).
+      // With an attached file, only this turn's final user message is
+      // augmented; history and the persisted message stay clean.
       const providerMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
         ...priorTurns,
-        { role: 'user', content: dto.message },
+        { role: 'user', content: finalUserContent },
       ];
 
       // ── consume phase ───────────────────────────────────────────────
@@ -233,7 +283,7 @@ export class ChatService {
         }
 
         if (isClientConnected()) {
-          observer.next({ event: 'done', data: {} });
+          observer.next({ type: 'done', data: {} });
         }
       } catch (err) {
         this.logger.error(
@@ -241,7 +291,7 @@ export class ChatService {
         );
         if (isClientConnected()) {
           observer.next({
-            event: 'error',
+            type: 'error',
             data: {
               code: 'provider_error',
               message: 'The model provider returned an error.',
@@ -266,7 +316,7 @@ export class ChatService {
       );
       if (isClientConnected()) {
         observer.next({
-          event: 'error',
+          type: 'error',
           data: { code: 'internal_error', message: 'An unexpected error occurred.' },
         });
       }

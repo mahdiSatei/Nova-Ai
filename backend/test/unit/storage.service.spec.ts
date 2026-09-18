@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { Readable } from 'stream';
 import { ConfigService } from '@nestjs/config';
 import { StorageService, MINIO_CLIENT } from '../../src/modules/files/storage.service';
 
@@ -9,6 +10,7 @@ describe('StorageService', () => {
     makeBucket: jest.Mock;
     putObject: jest.Mock;
     presignedGetObject: jest.Mock;
+    getObject: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -17,6 +19,15 @@ describe('StorageService', () => {
       makeBucket: jest.fn(() => Promise.resolve()),
       putObject: jest.fn(() => Promise.resolve('etag')),
       presignedGetObject: jest.fn(() => Promise.resolve('http://signed-url')),
+      getObject: jest.fn(() => {
+        const stream = new Readable({ read() {} });
+        process.nextTick(() => {
+          stream.push(Buffer.from('file'));
+          stream.push(Buffer.from(' content'));
+          stream.push(null);
+        });
+        return Promise.resolve(stream);
+      }),
     };
 
     const config = {
@@ -106,6 +117,21 @@ describe('StorageService', () => {
       const [, key] = client.putObject.mock.calls[0];
       expect(key).toMatch(/^[0-9a-f-]{36}$/);
       expect(result.fileKey).toBe(key);
+    });
+  });
+
+  describe('getObjectBuffer', () => {
+    it('downloads the object from the configured bucket and returns its bytes', async () => {
+      const buf = await svc.getObjectBuffer('some-key.pdf');
+
+      expect(client.getObject).toHaveBeenCalledWith('chat-files', 'some-key.pdf');
+      expect(buf.toString()).toBe('file content');
+    });
+
+    it('propagates storage errors to the caller', async () => {
+      client.getObject.mockRejectedValue(new Error('S3 error: NoSuchKey'));
+
+      await expect(svc.getObjectBuffer('gone.pdf')).rejects.toThrow('NoSuchKey');
     });
   });
 });
