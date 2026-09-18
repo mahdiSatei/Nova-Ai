@@ -43,27 +43,20 @@ export class OpenAICompatibleClient {
   /**
    * Start a streaming chat completion. Returns the raw OpenAI stream
    * object; the caller iterates it and extracts `chunk.choices[0]?.delta?.content`.
-   *
-   * `signal` is optional; when aborted, the SDK cancels the upstream
-   * HTTP request (used to implement user-initiated cancellation).
    */
   async stream(params: {
     model: string;
     messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
-    signal?: AbortSignal;
   }): Promise<ChatStream> {
     const client = await this.getClient();
 
     this.logger.debug(`Streaming chat: model=${params.model}, messages=${params.messages.length}`);
 
-    const stream = await client.chat.completions.create(
-      {
-        model: params.model,
-        messages: params.messages,
-        stream: true,
-      },
-      { signal: params.signal },
-    );
+    const stream = await client.chat.completions.create({
+      model: params.model,
+      messages: params.messages,
+      stream: true,
+    });
 
     return stream as ChatStream;
   }

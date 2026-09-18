@@ -11,7 +11,6 @@ import MessageList from '@/components/chat/MessageList.vue'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
 import { getConversation, deleteConversation } from '@/api/conversations'
-import { useChatStream } from '@/composables/useChatStream'
 import { useModelsStore } from '@/stores/models'
 import { formatDateTime } from '@/utils/time'
 import type { ConversationDetail } from '@/types/api'
@@ -20,8 +19,6 @@ const props = defineProps<{ id: string }>()
 
 const router = useRouter()
 const models = useModelsStore()
-// Only for the localStorage id helpers — no stream state is touched here.
-const chat = useChatStream()
 
 const conversation = ref<ConversationDetail | null>(null)
 const loading = ref(true)
@@ -52,9 +49,6 @@ async function onConfirmDelete(): Promise<void> {
   deleting.value = true
   try {
     await deleteConversation(props.id)
-    // Keep the persisted last-conversation id from pointing at a deleted
-    // row — otherwise the next reload 404-loops on it.
-    if (chat.loadSavedConversationId() === props.id) chat.clearSavedConversationId()
     await router.push({ name: 'chat' })
   } catch (err) {
     if (err instanceof ApiError) error.value = err

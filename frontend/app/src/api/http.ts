@@ -185,29 +185,3 @@ export async function request<T>(path: string, opts: HttpOptions = {}): Promise<
 export async function deleteRequest(path: string): Promise<void> {
   await request<void>(path, { method: 'DELETE' })
 }
-
-/**
- * Execute a stream fetch with automatic 401 → refresh → retry.
- * Always attempts the fetch first (with the current token, or without
- * auth if none is stored). On 401, tries to refresh the token and
- * retries once. Returns null only when the session is unrecoverable
- * (refresh failed), in which case the session-expired handler fires.
- */
-export async function withStreamAuthRetry(
-  fetchFn: (accessToken: string | null) => Promise<Response>,
-): Promise<Response | null> {
-  const tokens = tokenStore.load()
-  let res = await fetchFn(tokens?.accessToken ?? null)
-
-  if (res.status === 401 && tokens) {
-    const refreshed = await refreshTokens()
-    if (refreshed) {
-      res = await fetchFn(refreshed.accessToken)
-    } else {
-      sessionExpiredHandler?.()
-      return null
-    }
-  }
-
-  return res
-}

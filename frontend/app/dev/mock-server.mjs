@@ -101,12 +101,8 @@ const server = createServer(async (req, res) => {
       store.conversations.push(conv)
       store.messages.set(conv.id, [])
     }
-    const ts = Date.now()
-    store.messages.get(conv.id).push({ id: 'm-' + ts, role: 'user', content: b.message, createdAt: now, status: 'completed' })
-    const assistantMsgId = 'm-' + ts + '-a'
-    // Same SSE contract as the real backend: a start event carrying the
-    // real ids BEFORE any delta, so the client can sync the transcript.
-    res.write(`event: start\ndata: ${JSON.stringify({ conversationId: conv.id, assistantMessageId })}\n\n`)
+    store.messages.get(conv.id).push({ id: 'm-' + Date.now(), role: 'user', content: b.message, createdAt: now })
+    res.write(`event: started\ndata: ${JSON.stringify({ conversationId: conv.id })}\n\n`)
     const text = [
       'Hello! You said: "' + b.message + '".',
       '',
@@ -128,35 +124,7 @@ const server = createServer(async (req, res) => {
       await new Promise((r) => setTimeout(r, 10))
     }
     conv.updatedAt = new Date().toISOString()
-    store.messages.get(conv.id).push({ id: assistantMsgId, role: 'assistant', content: text, createdAt: conv.updatedAt, status: 'completed' })
-    res.write('event: done\ndata: {}\n\n')
-    return res.end()
-  }
-
-  const retryMatch = p.match(/^\/v1\/chat\/([^/]+)\/retry$/)
-  if (retryMatch && m === 'POST') {
-    if (!authUser(req)) return err(res, 401, 'invalid_token', 'invalid')
-    const conv = store.conversations.find((c) => c.id === retryMatch[1])
-    if (!conv) return err(res, 404, 'not_found', 'Conversation not found.')
-    const b = await readBody(req)
-    const msgs = store.messages.get(conv.id) ?? []
-    const target = msgs.find((x) => x.id === b.failedMessageId)
-    if (!target) return err(res, 404, 'not_found', 'Message not found in this conversation.')
-    if (target.role !== 'assistant' || (target.status !== 'failed' && target.status !== 'cancelled')) {
-      return err(res, 400, 'message_not_retryable', 'Only failed or cancelled messages can be retried.')
-    }
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' })
-    const assistantMsgId = 'm-' + Date.now() + '-r'
-    res.write(`event: start\ndata: ${JSON.stringify({ conversationId: conv.id, assistantMessageId })}\n\n`)
-    const text = 'This is the retried answer. Your last good prompt was: "' +
-      ([...msgs].reverse().find((x) => x.role === 'user' && x.status === 'completed')?.content ?? '') +
-      '".'
-    for (const ch of Array.from(text)) {
-      res.write(`data: ${JSON.stringify({ delta: ch })}\n\n`)
-      await new Promise((r) => setTimeout(r, 10))
-    }
-    conv.updatedAt = new Date().toISOString()
-    msgs.push({ id: assistantMsgId, role: 'assistant', content: text, createdAt: conv.updatedAt, status: 'completed' })
+    store.messages.get(conv.id).push({ id: 'm-' + Date.now() + '-a', role: 'assistant', content: text, createdAt: conv.updatedAt })
     res.write('event: done\ndata: {}\n\n')
     return res.end()
   }

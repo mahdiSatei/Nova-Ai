@@ -18,7 +18,6 @@ import UserAvatar from '@/components/user/UserAvatar.vue'
 import { useAuthStore } from '@/stores/auth'
 import { avatarValueFor } from '@/utils/avatar'
 import { requestNewChat } from '@/composables/useNewChatSignal'
-import { useChatStream } from '@/composables/useChatStream'
 import { listConversations, deleteConversation, setConversationPinned } from '@/api/conversations'
 import type { ConversationSummary } from '@/types/api'
 
@@ -28,8 +27,6 @@ const mobileOpen = defineModel<boolean>('mobileOpen', { required: true })
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
-// Only for the localStorage id helpers — no stream state is touched here.
-const chat = useChatStream()
 
 const collapsed = ref(localStorage.getItem('mmcb.sidebar') === 'collapsed')
 const items = ref<ConversationSummary[]>([])
@@ -193,9 +190,6 @@ async function onConfirmDelete(): Promise<void> {
     await deleteConversation(id)
     items.value = items.value.filter((c) => c.id !== id)
     deletingId.value = null
-    // Keep the persisted last-conversation id from pointing at a deleted
-    // row — otherwise the next reload 404-loops on it.
-    if (chat.loadSavedConversationId() === id) chat.clearSavedConversationId()
     if (activeId.value === id) {
       closeMobile()
       emit('navigate')

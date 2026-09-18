@@ -8,7 +8,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
-import { MessageStatus } from './conversations.types';
 
 /**
  * Persistent ConversationsService backed by TypeORM.
@@ -59,31 +58,6 @@ export class ConversationsService {
       where: { id: saved.id },
       relations: ['messages'],
     }) as Promise<Conversation>;
-  }
-
-  /**
-   * Append a user message to an existing conversation.
-   * Used for turns after the first (the first user message is persisted
-   * by `create`). Returns the created message, or undefined if the
-   * conversation does not exist (caller should treat this as a no-op).
-   */
-  async appendUserMessage(conversationId: string, content: string): Promise<Message | undefined> {
-    const conversation = await this.conversationRepo.findOne({
-      where: { id: conversationId },
-    });
-    if (!conversation) return undefined;
-
-    const message = this.messageRepo.create({
-      conversationId,
-      role: 'user',
-      content,
-    });
-    const saved = await this.messageRepo.save(message);
-
-    // Bump the conversation's updatedAt.
-    await this.conversationRepo.update(conversationId, { updatedAt: new Date() });
-
-    return saved;
   }
 
   /**
@@ -183,93 +157,6 @@ export class ConversationsService {
 
     await this.conversationRepo.delete(id);
     return true;
-  }
-
-  // ─── streaming message methods ──────────────────────────────────────────
-
-  /**
-   * Find the assistant message with status 'streaming' for a conversation.
-   * Returns null if no streaming message exists (allows one active generation).
-   */
-  async findStreamingMessage(conversationId: string): Promise<Message | null> {
-    return this.messageRepo.findOne({
-      where: { conversationId, status: 'streaming' as MessageStatus },
-      order: { createdAt: 'DESC' },
-    });
-  }
-
-  /**
-   * Atomically mark a streaming message as completed with its full
-   * content. The update only applies while the row is still
-   * 'streaming', so a concurrent cancel can never be overwritten:
-   * returns false when the row was not in 'streaming' state (nothing
-   * was written).
-   */
-  async completeIfStreaming(messageId: string, content: string): Promise<boolean> {
-    const result = await this.messageRepo.update(
-      { id: messageId, status: 'streaming' as MessageStatus },
-      { status: 'completed' as MessageStatus, content },
-    );
-    return (result.affected ?? 0) > 0;
-  }
-
-  /**
-   * Update a message's status, and optionally its content.
-   * Returns the updated message or null if not found.
-   */
-  async updateMessageStatus(
-    messageId: string,
-    status: MessageStatus,
-    content?: string,
-  ): Promise<Message | null> {
-    const patch: Record<string, string | undefined> = { status };
-    if (content !== undefined) {
-      patch.content = content;
-    }
-    await this.messageRepo.update(messageId, patch);
-    return this.messageRepo.findOne({ where: { id: messageId } });
-  }
-
-  /**
-   * Find a message by id with its conversation relation.
-   * Used for ownership checks before mutations.
-   */
-  async findMessageById(messageId: string): Promise<(Message & { conversation: Conversation }) | null> {
-    return this.messageRepo.findOne({
-      where: { id: messageId },
-      relations: ['conversation'],
-    }) as Promise<(Message & { conversation: Conversation }) | null>;
-  }
-
-  /**
-   * Cancel an active (streaming) generation.
-   * Validates: the message exists, is streaming, and the requester owns the conversation.
-   */
-  async cancelGeneration(
-    conversationId: string,
-    messageId: string,
-    requesterId: string,
-  ): Promise<Message | null> {
-    const streaming = await this.messageRepo.findOne({
-      where: { id: messageId, conversationId, status: 'streaming' as MessageStatus },
-    });
-    if (!streaming) {
-      throw new ConflictException({
-        code: 'no_active_generation',
-        message: 'No active generation to cancel.',
-      });
-    }
-
-    const msgWithConv = await this.findMessageById(messageId);
-    if (!msgWithConv || msgWithConv.conversation.userId !== requesterId) {
-      throw new ForbiddenException({
-        code: 'forbidden',
-        message: 'You do not own this conversation.',
-      });
-    }
-
-    await this.messageRepo.update(messageId, { status: 'cancelled' as MessageStatus });
-    return this.messageRepo.findOne({ where: { id: messageId } });
   }
 
   // ─────────────────────────── helpers ────────────────────────────────────

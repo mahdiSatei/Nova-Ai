@@ -21,7 +21,4 @@ export interface MessageRecord {
   role: 'user' | 'assistant';
   content: string;
   createdAt: Date;
-  status: MessageStatus;
 }
-
-export type MessageStatus = 'pending' | 'streaming' | 'completed' | 'failed' | 'cancelled';

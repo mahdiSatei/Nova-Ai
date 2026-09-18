@@ -4,9 +4,8 @@
 // - دستیار: avatar روی ستون مقابل + متن Markdown تقریباً تمام‌عرض که با
 //   پس‌زمینه ترکیب می‌شود (سبک Claude/ChatGPT).
 // - pending (در حال ارسال) و streaming (caret + نقطه‌های پران) همین‌جا.
-// - recovery actions for failed/cancelled/streaming messages.
 import { computed, ref } from 'vue'
-import { PhRobot, PhCopy, PhCheck, PhHourglassMedium, PhWarning, PhArrowsClockwise, PhStop } from '@phosphor-icons/vue'
+import { PhRobot, PhCopy, PhCheck, PhHourglassMedium } from '@phosphor-icons/vue'
 import MarkdownRenderer from '@/components/chat/MarkdownRenderer.vue'
 import TypingIndicator from '@/components/chat/TypingIndicator.vue'
 import UserAvatar from '@/components/user/UserAvatar.vue'
@@ -14,25 +13,16 @@ import { copyText } from '@/utils/clipboard'
 import { formatDateTime } from '@/utils/time'
 import { avatarValueFor } from '@/utils/avatar'
 import { useAuthStore } from '@/stores/auth'
-import type { MessageStatus } from '@/types/api'
 
 const props = withDefaults(
   defineProps<{
     role: 'user' | 'assistant'
-    /** Real message id, used to target retry on the correct failed row. */
-    messageId?: string
     content: string
     createdAt?: string | null
     streaming?: boolean
     pending?: boolean
-    status?: MessageStatus
-    showRecovery?: boolean
-    recoveryStatus?: MessageStatus
-    onRetry?: (failedMessageId: string) => void
-    onReconnect?: () => void
-    onCancel?: () => void
   }>(),
-  { createdAt: null, streaming: false, pending: false, status: 'completed', showRecovery: false },
+  { createdAt: null, streaming: false, pending: false },
 )
 
 const isUser = props.role === 'user'
@@ -86,7 +76,7 @@ function onCopy(): void {
         <TypingIndicator v-if="streaming && !content" />
       </div>
 
-      <!-- فوتر: زمان / وضعیت / کپی / اقدامات بازیابی -->
+      <!-- فوتر: زمان / وضعیت / کپی -->
       <footer
         class="flex items-center gap-2 px-1 text-[11px] text-ink-muted/70"
         :class="{ 'flex-row-reverse': !isUser }"
@@ -116,58 +106,6 @@ function onCopy(): void {
             <PhCopy v-else class="size-3" aria-hidden="true" />
             <span>{{ copied ? 'کپی شد' : 'کپی' }}</span>
           </button>
-        </template>
-
-        <!-- Recovery actions for non-completed messages -->
-        <template v-if="showRecovery && !isUser">
-          <!-- Streaming: reconnect -->
-          <template v-if="recoveryStatus === 'streaming'">
-            <span class="flex items-center gap-1 text-warning">
-              <PhWarning class="size-3" aria-hidden="true" />
-              <span>اتصال قطع شد</span>
-            </span>
-            <button
-              v-if="onReconnect"
-              type="button"
-              class="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-xs text-primary hover:bg-primary-soft"
-              @click="onReconnect"
-            >
-              <PhArrowsClockwise class="size-3" aria-hidden="true" />
-              <span>اتصال مجدد</span>
-            </button>
-          </template>
-          <!-- Failed: retry -->
-          <template v-if="recoveryStatus === 'failed'">
-            <span class="flex items-center gap-1 text-danger">
-              <PhWarning class="size-3" aria-hidden="true" />
-              <span>خطا در تولید پاسخ</span>
-            </span>
-            <button
-              v-if="onRetry"
-              type="button"
-              class="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-xs text-primary hover:bg-primary-soft"
-              @click="onRetry(messageId ?? content)"
-            >
-              <PhArrowsClockwise class="size-3" aria-hidden="true" />
-              <span>تلاش مجدد</span>
-            </button>
-          </template>
-          <!-- Cancelled: retry -->
-          <template v-if="recoveryStatus === 'cancelled'">
-            <span class="flex items-center gap-1 text-ink-muted">
-              <PhStop class="size-3" aria-hidden="true" />
-              <span>تولید پاسخ متوقف شد</span>
-            </span>
-            <button
-              v-if="onRetry"
-              type="button"
-              class="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-xs text-primary hover:bg-primary-soft"
-              @click="onRetry(messageId ?? content)"
-            >
-              <PhArrowsClockwise class="size-3" aria-hidden="true" />
-              <span>تلاش مجدد</span>
-            </button>
-          </template>
         </template>
       </footer>
     </div>
