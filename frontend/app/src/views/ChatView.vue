@@ -39,12 +39,7 @@ const noModels = computed(() => models.loaded && models.isEmpty)
 const hasMessages = computed(
   () =>
     chat.transcript.value.length > 0 ||
-    Boolean(chat.pendingUser.value) ||
-    Boolean(chat.streamingText.value) ||
-    chat.isStreaming.value,
-)
-const inputDisabled = computed(
-  () => chat.isStreaming.value || noModels.value || chat.phase.value === 'loading',
+    chat.generation.value !== null,
 )
 
 function resolvedId(): string | undefined {
@@ -70,7 +65,7 @@ function scrollToBottom(smooth = true): void {
 
 // auto-scroll به پایین هنگام تغییر ترنسکریپت یا streaming text (اگر کاربر چسبیده باشد)
 watch(
-  () => [chat.transcript.value, chat.streamingText.value, chat.pendingUser.value],
+  () => [chat.transcript.value, chat.generation.value?.content],
   async () => {
     await nextTick()
     if (pinnedToBottom.value) scrollToBottom(false)
@@ -78,19 +73,8 @@ watch(
   { deep: true },
 )
 
-watch(
-  () => resolvedId(),
-  async (id) => {
-    if (id) await chat.loadConversation(id)
-    else chat.resetConversation()
-    pinnedToBottom.value = true
-    await nextTick()
-    scrollToBottom(false)
-  },
-  { immediate: true },
-)
-
 onMounted(async () => {
+  console.debug('[ChatView] onMounted start', { routeName: route.name, resolvedId: resolvedId(), propsId: props.id })
   await models.load()
   if (!chat.selectedModelId.value) {
     const fallback = models.defaultModelId ?? models.items[0]?.id ?? null
@@ -98,7 +82,62 @@ onMounted(async () => {
   } else if (!models.items.find((m) => m.id === chat.selectedModelId.value)) {
     chat.setModel(models.defaultModelId ?? models.items[0]?.id ?? null)
   }
+
+  // Load conversation after models are ready and props are resolved
+  const id = resolvedId()
+  console.debug('[ChatView] onMounted resolvedId', { id })
+
+  if (id) {
+    await chat.loadConversation(id)
+    // The conversation was deleted (404): loadConversation already reset
+    // state and set the banner — just move the URL back to new-chat.
+    if (chat.connectionError.value?.code === 'conversation_not_found') {
+      void router.replace({ name: 'chat' })
+    }
+  } else {
+    const stored = chat.loadSavedConversationId()
+    if (stored) {
+      void router.replace({ name: 'chat-conversation', params: { id: stored } })
+    } else {
+      chat.resetConversation()
+    }
+  }
+
+  console.debug('[ChatView] onMounted after load', { transcriptLen: chat.transcript.value.length, generation: chat.generation.value })
+  pinnedToBottom.value = true
+  await nextTick()
+  scrollToBottom(false)
 })
+
+// Handle route changes after initial load (e.g., navigating between conversations)
+watch(
+  () => resolvedId(),
+  async (id) => {
+    console.debug('[ChatView] route watch resolvedId', { id })
+    if (id) {
+      // If we're already streaming this conversation (the id was just
+      // adopted via the SSE start event), only sync the URL — reloading
+      // would tear down and re-subscribe the live stream.
+      if (chat.generationState.value === 'streaming' && chat.generation.value?.conversationId === id) {
+        return
+      }
+      await chat.loadConversation(id)
+      if (chat.connectionError.value?.code === 'conversation_not_found') {
+        void router.replace({ name: 'chat' })
+      }
+    }
+    else {
+      // Returning to /chat right after a stale-conversation 404: the
+      // banner was just set — don't wipe it with a full reset.
+      if (chat.connectionError.value?.code !== 'conversation_not_found') {
+        chat.resetConversation()
+      }
+    }
+    pinnedToBottom.value = true
+    await nextTick()
+    scrollToBottom(false)
+  },
+)
 
 watch(
   () => chat.conversationId.value,
@@ -122,7 +161,7 @@ watch(newChatTick, () => {
 
 async function onSubmit(): Promise<void> {
   const text = inputText.value
-  if (!text.trim() || inputDisabled.value) return
+  if (!text.trim() || chat.inputDisabled.value) return
   if (!resolvedId()) justStartedConversation.value = true
   
   // نگه‌داشتن فایل قبل از پاک شدن ورودی
@@ -137,8 +176,16 @@ async function onSubmit(): Promise<void> {
   await chat.send(text, { fileId, file: fileToAttach })
 }
 
-function onStop(): void {
-  chat.abort()
+async function onStop(): Promise<void> {
+  await chat.cancel()
+}
+
+function onRetry(failedMessageId: string): void {
+  void chat.retry(failedMessageId)
+}
+
+function onReconnect(): void {
+  void chat.reconnect()
 }
 
 async function onRefreshModels(): Promise<void> {
@@ -162,22 +209,66 @@ const suggestedPrompts = [
   <section class="flex min-h-0 flex-1 flex-col py-2 sm:py-3">
     <!-- هدر شناور: چیپ وضعیت + مدل + ابزارها -->
     <header class="flex h-11 shrink-0 items-center gap-2 px-1">
+
+      <!-- Connection status banner -->
+      <div
+        v-if="chat.connectionState.value !== 'connected'"
+        class="mx-auto w-full max-w-3xl"
+      >
+        <div
+          class="flex items-center justify-between gap-3 rounded-lg border px-4 py-2.5 text-sm"
+          :class="
+            chat.connectionState.value === 'reconnecting'
+              ? 'border-primary/40 bg-primary-soft text-primary'
+              : 'border-accent/40 bg-accent/10 text-ink'
+          "
+        >
+          <div class="flex items-center gap-2">
+            <PhWarning v-if="chat.connectionState.value === 'disconnected'" class="size-4 shrink-0" aria-hidden="true" />
+            <PhArrowsClockwise v-else class="size-4 animate-spin shrink-0" aria-hidden="true" />
+            <span class="font-medium">
+              {{
+                chat.connectionState.value === 'disconnected'
+                  ? 'اتصال با سرور قطع شد.'
+                  : 'در حال اتصال مجدد…'
+              }}
+            </span>
+          </div>
+          <button
+            v-if="chat.connectionState.value === 'disconnected' && chat.generationState.value === 'streaming'"
+            type="button"
+            class="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary-soft"
+            @click="onReconnect"
+          >
+            <PhArrowsClockwise class="size-3.5" aria-hidden="true" />
+            <span>اتصال مجدد</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- status chip + model picker + buttons (original header content) -->
       <div
         class="inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 py-1 pe-1 ps-3 text-xs shadow-sm backdrop-blur transition-colors"
       >
         <span
           class="size-1.5 rounded-full"
-          :class="chat.isStreaming.value ? 'animate-pulse bg-primary' : 'bg-success'"
+          :class="chat.generationState.value === 'streaming' ? 'animate-pulse bg-primary' : 'bg-success'"
           aria-hidden="true"
         />
         <span class="font-medium text-ink">
-          {{ chat.isStreaming.value ? 'در حال پاسخ…' : 'آماده' }}
+          {{
+            chat.connectionState.value === 'disconnected'
+              ? 'قطع شده'
+              : chat.generationState.value === 'streaming'
+                ? 'در حال پاسخ…'
+                : 'آماده'
+          }}
         </span>
         <span v-if="!noModels" class="h-4 w-px bg-line" aria-hidden="true" />
         <ModelPicker
           v-if="!noModels"
           v-model="chat.selectedModelId.value"
-          :disabled="chat.isStreaming.value"
+          :disabled="chat.inputDisabled.value"
           inline
         />
       </div>
@@ -269,11 +360,11 @@ const suggestedPrompts = [
             />
           </div>
 
-          <!-- خطای استریم داخل فید -->
-          <div v-if="chat.streamError.value" class="mx-auto max-w-3xl">
+          <!-- خطای اتصال یا استریم داخل فید -->
+          <div v-if="chat.connectionError.value" class="mx-auto max-w-3xl">
             <ErrorBanner
-              :message="chat.streamError.value.message"
-              :code="chat.streamError.value.code"
+              :message="chat.connectionError.value.message"
+              :code="chat.connectionError.value.code"
               :show-code="true"
             />
             <div
@@ -287,9 +378,10 @@ const suggestedPrompts = [
 
           <MessageList
             :messages="chat.transcript.value"
-            :pending-user="chat.pendingUser.value"
-            :streaming-text="chat.streamingText.value"
-            :is-streaming="chat.isStreaming.value"
+            :generation="chat.generation.value"
+            :on-retry="onRetry"
+            :on-reconnect="onReconnect"
+            :on-cancel="onStop"
           />
         </template>
       </div>
@@ -313,8 +405,8 @@ const suggestedPrompts = [
           v-model="inputText"
           v-model:attachment="attachedFile"
           :placeholder="noModels ? 'مدلی برای گفتگو موجود نیست.' : 'پیام خود را بنویسید…'"
-          :disabled="inputDisabled"
-          :busy="chat.isStreaming.value"
+          :disabled="chat.inputDisabled.value"
+          :busy="chat.generationState.value === 'streaming'"
           @submit="onSubmit"
           @stop="onStop"
         />

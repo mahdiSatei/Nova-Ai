@@ -203,6 +203,7 @@ describe('Conversations — e2e', () => {
       expect(detailRes.body.messages.length).toBeGreaterThanOrEqual(1);
       expect(detailRes.body.messages[0].role).toBe('user');
       expect(detailRes.body.messages[0].content).toBe('Hello detail');
+      expect(detailRes.body.messages[0].status).toBe('completed');
     });
 
     it('returns 403 for another user\'s conversation', async () => {

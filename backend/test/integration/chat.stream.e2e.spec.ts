@@ -106,10 +106,14 @@ describe('Chat stream — e2e', () => {
       await appConfigRepo.save(cfg);
     }
 
-    // Register + login.
+    // Register + login. (username is required by RegisterRequestDto.)
     const reg = await request(app.getHttpServer())
       .post('/v1/auth/register')
-      .send({ email: 'chat-e2e@example.com', password: 'correct-horse-battery-staple' });
+      .send({
+        username: 'chat_e2e_user',
+        email: 'chat-e2e@example.com',
+        password: 'correct-horse-battery-staple',
+      });
     accessToken = reg.body.accessToken;
 
     // Capture the bound URL so the disconnect-resilience test can issue
@@ -185,6 +189,7 @@ describe('Chat stream — e2e', () => {
 
     let firstDeltaResolve!: () => void;
     let firstDeltaReject!: (err: Error) => void;
+    let firstWireChunk = '';
     const firstDelta = new Promise<void>((resolve, reject) => {
       firstDeltaResolve = resolve;
       firstDeltaReject = reject;
@@ -205,7 +210,11 @@ describe('Chat stream — e2e', () => {
       },
       (res) => {
         res.on('data', (buf: Buffer) => {
-          if (buf.toString('utf8').includes('"delta":"Hello"')) {
+          const chunk = buf.toString('utf8');
+          // Skip SseStream's leading blank line when picking the first
+          // meaningful frame.
+          if (!firstWireChunk && chunk.trim().length > 0) firstWireChunk = chunk;
+          if (chunk.includes('"delta":"Hello"')) {
             firstDeltaResolve();
           }
         });
@@ -227,6 +236,13 @@ describe('Chat stream — e2e', () => {
 
     await firstDelta;
     clearTimeout(watchdog);
+
+    // Wire-format guard: Nest's SseStream serializes event names from the
+    // `type` property. The FIRST frame on the wire must be a named `start`
+    // event — if the service ever reverts to `event:` keys, frames go out
+    // unnamed and the frontend silently drops ids/errors (real regression).
+    expect(firstWireChunk).toContain('event: start');
+    expect(firstWireChunk).toContain('"assistantMessageId"');
 
     // Force the underlying socket to close — simulates the user
     // closing the browser or navigating away.

@@ -9,9 +9,11 @@ import {
 } from 'typeorm';
 import { Conversation } from './conversation.entity';
 import { FileRecord } from '../../files/entities/file.entity';
+import { MessageStatus } from '../conversations.types';
 
 @Entity({ name: 'messages' })
 @Index('idx_msg_conv_created', ['conversationId', 'createdAt'])
+@Index('idx_msg_conv_status', ['conversationId', 'status'])
 export class Message {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -38,4 +40,7 @@ export class Message {
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
+
+  @Column({ name: 'status', type: 'text', default: 'completed' })
+  status!: MessageStatus;
 }

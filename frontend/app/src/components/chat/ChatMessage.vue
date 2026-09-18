@@ -1,6 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { PhRobot, PhCopy, PhCheck, PhHourglassMedium, PhFile, PhFilePdf, PhFileXls, PhImage } from '@phosphor-icons/vue'
+import {
+  PhRobot,
+  PhCopy,
+  PhCheck,
+  PhHourglassMedium,
+  PhFile,
+  PhFilePdf,
+  PhFileXls,
+  PhImage,
+  PhWarning,
+  PhArrowsClockwise,
+  PhStop,
+} from '@phosphor-icons/vue'
 import MarkdownRenderer from '@/components/chat/MarkdownRenderer.vue'
 import TypingIndicator from '@/components/chat/TypingIndicator.vue'
 import UserAvatar from '@/components/user/UserAvatar.vue'
@@ -9,18 +21,33 @@ import { formatDateTime } from '@/utils/time'
 import { avatarValueFor } from '@/utils/avatar'
 import { formatFileSize } from '@/api/files'
 import { useAuthStore } from '@/stores/auth'
-import type { MessagePublic } from '@/types/api'
+import type { MessagePublic, MessageStatus } from '@/types/api'
 
 const props = withDefaults(
   defineProps<{
     role: 'user' | 'assistant'
+    /** Real message id, used to target retry on the correct failed row. */
+    messageId?: string
     content: string
     createdAt?: string | null
     streaming?: boolean
     pending?: boolean
-    file?: MessagePublic['file']
+    file?: MessagePublic['file'] | null
+    status?: MessageStatus
+    showRecovery?: boolean
+    recoveryStatus?: MessageStatus
+    onRetry?: (failedMessageId: string) => void
+    onReconnect?: () => void
+    onCancel?: () => void
   }>(),
-  { createdAt: null, streaming: false, pending: false, file: null },
+  {
+    createdAt: null,
+    streaming: false,
+    pending: false,
+    file: null,
+    status: 'completed',
+    showRecovery: false,
+  },
 )
 
 const isUser = props.role === 'user'
@@ -79,7 +106,6 @@ function onCopy(): void {
             <PhFile v-else class="size-5" />
           </span>
           <div class="min-w-0 flex-1">
-            <!-- تگ bdi مانع از جابه‌جا شدن پسوند فایل در نام‌های فارسی می‌شود -->
             <bdi dir="auto" class="block truncate font-medium text-ink">{{ file.originalName }}</bdi>
             <span class="text-[11px] text-ink-muted/80">{{ formatFileSize(file.size) }}</span>
           </div>
@@ -94,7 +120,7 @@ function onCopy(): void {
         <TypingIndicator v-if="streaming && !content" />
       </div>
 
-      <!-- فوتر -->
+      <!-- فوتر: زمان / وضعیت / کپی / اقدامات بازیابی -->
       <footer
         class="flex items-center gap-2 px-1 text-[11px] text-ink-muted/70"
         :class="{ 'flex-row-reverse': !isUser }"
@@ -124,6 +150,58 @@ function onCopy(): void {
             <PhCopy v-else class="size-3" aria-hidden="true" />
             <span>{{ copied ? 'کپی شد' : 'کپی' }}</span>
           </button>
+        </template>
+
+        <!-- Recovery actions for non-completed messages -->
+        <template v-if="showRecovery && !isUser">
+          <!-- Streaming: reconnect -->
+          <template v-if="recoveryStatus === 'streaming'">
+            <span class="flex items-center gap-1 text-warning">
+              <PhWarning class="size-3" aria-hidden="true" />
+              <span>اتصال قطع شد</span>
+            </span>
+            <button
+              v-if="onReconnect"
+              type="button"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-xs text-primary hover:bg-primary-soft"
+              @click="onReconnect"
+            >
+              <PhArrowsClockwise class="size-3" aria-hidden="true" />
+              <span>اتصال مجدد</span>
+            </button>
+          </template>
+          <!-- Failed: retry -->
+          <template v-if="recoveryStatus === 'failed'">
+            <span class="flex items-center gap-1 text-danger">
+              <PhWarning class="size-3" aria-hidden="true" />
+              <span>خطا در تولید پاسخ</span>
+            </span>
+            <button
+              v-if="onRetry"
+              type="button"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-xs text-primary hover:bg-primary-soft"
+              @click="onRetry(messageId ?? content)"
+            >
+              <PhArrowsClockwise class="size-3" aria-hidden="true" />
+              <span>تلاش مجدد</span>
+            </button>
+          </template>
+          <!-- Cancelled: retry -->
+          <template v-if="recoveryStatus === 'cancelled'">
+            <span class="flex items-center gap-1 text-ink-muted">
+              <PhStop class="size-3" aria-hidden="true" />
+              <span>تولید پاسخ متوقف شد</span>
+            </span>
+            <button
+              v-if="onRetry"
+              type="button"
+              class="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-xs text-primary hover:bg-primary-soft"
+              @click="onRetry(messageId ?? content)"
+            >
+              <PhArrowsClockwise class="size-3" aria-hidden="true" />
+              <span>تلاش مجدد</span>
+            </button>
+          </template>
         </template>
       </footer>
     </div>
