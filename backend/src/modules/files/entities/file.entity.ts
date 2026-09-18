@@ -41,4 +41,10 @@ export class FileRecord {
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
+
+  @Column({ name: 'extracted_text', type: 'text', nullable: true })
+  extractedText!: string | null;
+
+  @Column({ name: 'error_message', type: 'text', nullable: true })
+  errorMessage!: string | null;
 }

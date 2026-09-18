@@ -120,6 +120,16 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   SEED_ADMIN_PASSWORD?: string;
+
+  @IsString()
+  @IsOptional()
+  REDIS_HOST = 'localhost';
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @IsOptional()
+  REDIS_PORT = 6379;
 }
 
 /**

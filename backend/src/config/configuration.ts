@@ -48,6 +48,10 @@ export interface AppConfig {
     bucket: string;
     presignExpirySec: number;
   };
+  redis: {
+    host: string;
+    port: number;
+  };
 }
 
 export default (): AppConfig => ({
@@ -86,5 +90,9 @@ export default (): AppConfig => ({
     secretKey: process.env.STORAGE_SECRET_KEY ?? 'minioadminpassword',
     bucket: process.env.STORAGE_BUCKET ?? 'chat-files',
     presignExpirySec: Number(process.env.STORAGE_PRESIGN_EXPIRY_SEC ?? 604800),
+  },
+  redis: {
+    host: process.env.REDIS_HOST ?? 'localhost',
+    port: Number(process.env.REDIS_PORT ?? 6379),
   },
 });

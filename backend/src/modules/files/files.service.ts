@@ -1,8 +1,11 @@
 import { Injectable, BadGatewayException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { StorageService } from './storage.service';
 import { FileRecord, FileStatus } from './entities/file.entity';
+import { FILE_PROCESSING_QUEUE, EXTRACT_TEXT_JOB } from './files.constants';
 
 @Injectable()
 export class FilesService {
@@ -10,6 +13,8 @@ export class FilesService {
     private readonly storage: StorageService,
     @InjectRepository(FileRecord)
     private readonly repo: Repository<FileRecord>,
+    @InjectQueue(FILE_PROCESSING_QUEUE)
+    private readonly fileQueue: Queue,
   ) {}
 
   async create(file: Express.Multer.File, userId: string): Promise<FileRecord> {
@@ -24,7 +29,6 @@ export class FilesService {
       });
     }
 
-    // ✨ تبدیل نام فایل به UTF-8 استاندارد جهت رفع باگ کاراکترهای فارسی در Multer
     let cleanName = file.originalname;
     try {
       cleanName = Buffer.from(file.originalname, 'latin1').toString('utf8');
@@ -41,7 +45,12 @@ export class FilesService {
       url: stored.url,
       status: FileStatus.UPLOADED,
     });
-    return this.repo.save(record);
+    const saved = await this.repo.save(record);
+
+    // افزودن جاب به صف پردازش ناهمگام
+    await this.fileQueue.add(EXTRACT_TEXT_JOB, { fileId: saved.id });
+
+    return saved;
   }
 
   findOwned(fileId: string, userId: string): Promise<FileRecord | null> {

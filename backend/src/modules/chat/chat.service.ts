@@ -10,6 +10,7 @@ import { User } from '../users/entities/user.entity';
 import { ChatRequestDto } from './dto/chat-request.dto';
 import { FilesService } from '../files/files.service';
 import { FileContentService, FileParseError } from '../files/file-content.service';
+import { FileStatus } from '../files/entities/file.entity';
 
 /**
  * Event shapes emitted on the SSE stream.
@@ -184,9 +185,10 @@ export class ChatService {
         return;
       }
 
-      // 4. Resolve the attachment before any persistence (fail fast —
-      // a failed attach must not create an orphan conversation).
+      // 4. Resolve the attachment before any persistence (Async Queue / Phase 3)
       let finalUserContent = dto.message;
+      let validFileId: string | null = null;
+
       if (dto.fileId && dto.fileId.trim().length > 0) {
         const file = await this.files.findOwned(dto.fileId, userId);
         if (!file) {
@@ -202,22 +204,47 @@ export class ChatService {
           observer.complete();
           return;
         }
-        try {
-          const context = await this.fileContent.buildAttachmentContext(file);
-          finalUserContent = `${context}${dto.message}`;
-        } catch (err) {
-          const code = err instanceof FileParseError ? err.code : 'file_unreadable';
+
+        // بررسی اینکه آیا فایل در صف در حال پردازش است
+        if (file.status === FileStatus.UPLOADED || file.status === FileStatus.PROCESSING) {
           if (isClientConnected()) {
             observer.next({
               type: 'error',
               data: {
-                code,
-                message: 'The attached file could not be read.',
+                code: 'file_processing',
+                message: 'فایل هنوز در حال پردازش است. لطفاً چند لحظه بعد پیام را ارسال کنید.',
               },
             });
           }
           observer.complete();
           return;
+        }
+
+        // بررسی خطای پردازش فایل
+        if (file.status === FileStatus.FAILED) {
+          if (isClientConnected()) {
+            observer.next({
+              type: 'error',
+              data: {
+                code: 'file_unreadable',
+                message: file.errorMessage || 'پردازش فایل پیوست با خطا مواجه شد.',
+              },
+            });
+          }
+          observer.complete();
+          return;
+        }
+
+        // فایل با موفقیت در ورکر پردازش شده و آماده است
+        if (file.status === FileStatus.READY) {
+          validFileId = file.id;
+          if (file.extractedText) {
+            const context =
+              `[Attached file: ${file.originalName} (${file.mimeType})]\n` +
+              `${file.extractedText}\n` +
+              `[/Attached file]\n\n`;
+            finalUserContent = `${context}${dto.message}`;
+          }
         }
       }
 
@@ -239,16 +266,16 @@ export class ChatService {
         priorTurns = existing.messages.map(
           (m) => ({ role: m.role as ChatMessage['role'], content: m.content }),
         );
+        // ذخیره پیام جدید کاربر در گفتگوی موجود همراه با شناسه فایل
+        await this.conversations.appendUserMessage(existing.id, dto.message, validFileId);
       } else {
         const conv = await this.conversations.create({
           userId,
           modelId: model.id,
           userMessage: dto.message,
+          fileId: validFileId,
         });
         conversationId = conv.id;
-        // The final user message is appended uniformly below; priorTurns
-        // is only for resumed conversations (prevents double-prompting
-        // the provider on new chats).
         priorTurns = [];
       }
 
@@ -258,8 +285,6 @@ export class ChatService {
       });
 
       // 7. Build the messages array for the provider (FR-015).
-      // With an attached file, only this turn's final user message is
-      // augmented; history and the persisted message stay clean.
       const providerMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
         ...priorTurns,
         { role: 'user', content: finalUserContent },
@@ -299,18 +324,13 @@ export class ChatService {
           });
         }
       } finally {
-        // Persistence ALWAYS runs in the consume-phase finally, even if
-        // the client disconnected long ago. This is the core invariant
-        // of this plan: the user's message is not lost to a network
-        // failure, tab close, or page refresh.
+        // پایداری پیام پاسخ حتی در صورت قطعی کاربر
         if (fullResponse && conversationId) {
           await this.conversations.appendMessage(conversationId, fullResponse);
         }
         observer.complete();
       }
     } catch (err) {
-      // Setup-phase catch (errors from model resolution / DB lookups,
-      // not from the provider stream itself).
       this.logger.error(
         `Chat setup error: ${err instanceof Error ? err.message : String(err)}`,
       );

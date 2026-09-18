@@ -28,6 +28,7 @@ import { UsersModule } from './modules/users/users.module';
 import { HealthModule } from './modules/health/health.module';
 import { ProviderModule } from './modules/provider/provider.module';
 import { AppConfigModule } from './modules/app-config/app-config.module';
+import { BullModule } from '@nestjs/bullmq';
 
 @Module({
   imports: [
@@ -113,6 +114,16 @@ import { AppConfigModule } from './modules/app-config/app-config.module';
           migrationsRun: false,
         };
       },
+    }),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<AppConfig, true>) => ({
+        connection: {
+          host: config.get('redis.host', { infer: true }),
+          port: config.get('redis.port', { infer: true }),
+        },
+      }),
     }),
     TypeOrmModule.forFeature([
       User,
