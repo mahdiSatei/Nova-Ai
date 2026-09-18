@@ -38,7 +38,16 @@ export class ConversationsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
-  ): Promise<{ items: Array<{ id: string; modelId: string; title: string | null; pinned: boolean; createdAt: string; updatedAt: string }> }> {
+  ): Promise<{
+    items: Array<{
+      id: string;
+      modelId: string;
+      title: string | null;
+      pinned: boolean;
+      createdAt: string;
+      updatedAt: string;
+    }>;
+  }> {
     const parsedLimit = limit ? Math.min(parseInt(limit, 10), 100) : 20;
     const parsedOffset = offset ? parseInt(offset, 10) : 0;
 
@@ -63,7 +72,71 @@ export class ConversationsController {
   /**
    * Get a single conversation with its full message transcript.
    */
-  
+  @Get(':id')
+  async get(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<{
+    id: string;
+    modelId: string;
+    title: string | null;
+    pinned: boolean;
+    createdAt: string;
+    updatedAt: string;
+    messages: Array<{
+      id: string;
+      role: string;
+      content: string;
+      createdAt: string;
+      file?: {
+        id: string;
+        originalName: string;
+        mimeType: string;
+        size: number;
+        url?: string;
+      } | null;
+    }>;
+  }> {
+    const conversation = await this.conversations.findById(id);
+
+    if (!conversation) {
+      throw new NotFoundException({
+        code: 'conversation_not_found',
+        message: 'Conversation not found.',
+      });
+    }
+
+    if (conversation.userId !== user.id) {
+      throw new ForbiddenException({
+        code: 'forbidden',
+        message: 'You do not have access to this conversation.',
+      });
+    }
+
+    return {
+      id: conversation.id,
+      modelId: conversation.modelId,
+      title: conversation.title,
+      pinned: conversation.pinned,
+      createdAt: conversation.createdAt.toISOString(),
+      updatedAt: conversation.updatedAt.toISOString(),
+      messages: conversation.messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        createdAt: m.createdAt.toISOString(),
+        file: m.file
+          ? {
+              id: m.file.id,
+              originalName: m.file.originalName,
+              mimeType: m.file.mimeType,
+              size: m.file.size,
+              url: m.file.url,
+            }
+          : null,
+      })),
+    };
+  }
 
   /**
    * Pin or unpin a conversation. Idempotent full-state replacement.
