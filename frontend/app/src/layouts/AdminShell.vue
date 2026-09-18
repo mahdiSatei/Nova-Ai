@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RouterLink, RouterView, useRouter } from 'vue-router'
-import { PhGear, PhListBullets, PhPlugsConnected, PhSignOut, PhStar, PhMoon, PhSun } from '@phosphor-icons/vue'
+import { PhGear, PhListBullets, PhPlugsConnected, PhSignOut, PhStar, PhMoon, PhSun, PhUsers } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useTheme } from '@/composables/useTheme'
@@ -12,6 +12,7 @@ const { theme, toggleTheme } = useTheme()
 const nav = [
   { to: { name: 'admin-provider' }, label: 'ارائه‌دهنده', icon: PhPlugsConnected },
   { to: { name: 'admin-models' }, label: 'کاتالوگ مدل‌ها', icon: PhListBullets },
+  { to: { name: 'admin-users' }, label: 'سطح دسترسی کاربران', icon: PhUsers },
   { to: { name: 'admin-default-model' }, label: 'مدل پیش‌فرض', icon: PhStar },
 ]
 

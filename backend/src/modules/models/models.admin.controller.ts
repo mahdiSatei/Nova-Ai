@@ -19,7 +19,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ModelsService, DeleteModelMigrationResult } from './models.service';
 import { ModelUpsertDto } from './dto/model-upsert.dto';
-import { Provider } from '../provider/entities/provider.entity';
+import type { ModelVisibility } from './model-visibility';
 
 /**
  * Admin-only CRUD for the model catalog. US7.
@@ -47,6 +47,7 @@ export class ModelsAdminController {
         displayName: m.displayName,
         actualName: m.actualName,
         providerId: m.providerId,
+        visibility: m.visibility,
         enabled: m.enabled,
         isDefault: m.isDefault,
         createdAt: m.createdAt.toISOString(),
@@ -62,6 +63,7 @@ export class ModelsAdminController {
       displayName: body.displayName!,
       actualName: body.actualName!,
       providerId: body.providerId!,
+      visibility: body.visibility,
       enabled: body.enabled,
     });
     return this.toAdminShape(m);
@@ -73,6 +75,7 @@ export class ModelsAdminController {
       displayName: body.displayName,
       actualName: body.actualName,
       providerId: body.providerId,
+      visibility: body.visibility,
       enabled: body.enabled,
     });
     return this.toAdminShape(m);
@@ -116,6 +119,7 @@ export class ModelsAdminController {
     displayName: string;
     actualName: string;
     providerId: string;
+    visibility: ModelVisibility;
     enabled: boolean;
     isDefault: boolean;
     createdAt: Date;
@@ -126,6 +130,7 @@ export class ModelsAdminController {
       displayName: m.displayName,
       actualName: m.actualName,
       providerId: m.providerId,
+      visibility: m.visibility,
       enabled: m.enabled,
       isDefault: m.isDefault,
       createdAt: m.createdAt.toISOString(),

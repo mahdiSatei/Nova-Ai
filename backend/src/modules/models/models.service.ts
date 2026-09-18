@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -10,11 +11,14 @@ import { Model } from './entities/model.entity';
 import { AppConfig } from '../app-config/entities/app-config.entity';
 import { Conversation } from '../conversations/entities/conversation.entity';
 import { User } from '../users/entities/user.entity';
+import { ModelAccessService } from './model-access.service';
+import { MODEL_VISIBILITIES, ModelVisibility } from './model-visibility';
 
 export interface CreateModelInput {
   displayName: string;
   actualName: string;
   providerId: string;
+  visibility?: ModelVisibility;
   enabled?: boolean;
 }
 
@@ -22,6 +26,7 @@ export interface UpdateModelInput {
   displayName?: string;
   actualName?: string;
   providerId?: string;
+  visibility?: ModelVisibility;
   enabled?: boolean;
 }
 
@@ -50,9 +55,12 @@ interface ModelReferences {
  */
 @Injectable()
 export class ModelsService {
+  private readonly logger = new Logger(ModelsService.name);
+
   constructor(
     @InjectRepository(Model)
     private readonly repo: Repository<Model>,
+    private readonly access: ModelAccessService,
   ) {}
 
   /**
@@ -64,6 +72,16 @@ export class ModelsService {
       where: { enabled: true },
       order: { displayName: 'ASC' },
     });
+  }
+
+  /**
+   * The catalog a given user may pick from: enabled models filtered by the
+   * access policy (spec 003 — "Filter model catalog by current user").
+   * `listEnabled()` stays as the unfiltered primitive used internally.
+   */
+  async listAccessibleFor(userId: string): Promise<Model[]> {
+    const enabled = await this.listEnabled();
+    return this.access.filterAccessible(userId, enabled);
   }
 
   /**
@@ -86,40 +104,45 @@ export class ModelsService {
   /**
    * Resolve which model should be used for a chat request.
    *
-   * Resolution order:
+   * Resolution order (every candidate is checked against the access policy):
    *   1. explicitModelId (caller picked a model in the request body)
    *   2. caller's sticky choice (User.lastSelectedModelId)
    *   3. admin's default model (AppConfig.defaultModelId → Model.isDefault)
    *   4. null — caller surfaces 422 "no_model_available"
+   *
+   * The viewer is loaded ONCE so all three candidates share a single
+   * entitlement read. `userId` is required: without a viewer nothing is
+   * resolvable, which stops a caller that forgets to pass the user from
+   * silently handing out restricted models.
    */
   async resolveActiveModel(params: {
     explicitModelId?: string | null;
     userId?: string | null;
   }): Promise<Model | null> {
+    if (!params.userId) {
+      this.logger.warn('resolveActiveModel called without userId; refusing to resolve a model');
+      return null;
+    }
+    const viewer = await this.access.loadViewer(params.userId);
+
     // 1. Explicit selection takes priority — user chose in-request.
     if (params.explicitModelId) {
-      const explicit = await this.repo.findOne({
-        where: { id: params.explicitModelId, enabled: true },
-      });
-      if (explicit) return explicit;
+      const explicit = await this.repo.findOne({ where: { id: params.explicitModelId } });
+      if (explicit && this.access.canAccess(viewer, explicit)) return explicit;
     }
 
     // 2. Sticky user choice (User.lastSelectedModelId).
-    if (params.userId) {
-      const userRow = await this.repo.manager
-        .createQueryBuilder()
-        .select('last_selected_model_id')
-        .from('users', 'u')
-        .where('u.id = :uid', { uid: params.userId })
-        .getRawOne<{ last_selected_model_id: string }>();
+    const userRow = await this.repo.manager
+      .createQueryBuilder()
+      .select('last_selected_model_id')
+      .from('users', 'u')
+      .where('u.id = :uid', { uid: params.userId })
+      .getRawOne<{ last_selected_model_id: string }>();
 
-      const stickyId = userRow?.last_selected_model_id;
-      if (stickyId) {
-        const sticky = await this.repo.findOne({
-          where: { id: stickyId, enabled: true },
-        });
-        if (sticky) return sticky;
-      }
+    const stickyId = userRow?.last_selected_model_id;
+    if (stickyId) {
+      const sticky = await this.repo.findOne({ where: { id: stickyId } });
+      if (sticky && this.access.canAccess(viewer, sticky)) return sticky;
     }
 
     // 3. Admin default model (AppConfig.default_model_id → Model).
@@ -132,10 +155,8 @@ export class ModelsService {
 
     const defaultId = appConfigRow?.default_model_id;
     if (defaultId) {
-      const defaultModel = await this.repo.findOne({
-        where: { id: defaultId, enabled: true },
-      });
-      if (defaultModel) return defaultModel;
+      const defaultModel = await this.repo.findOne({ where: { id: defaultId } });
+      if (defaultModel && this.access.canAccess(viewer, defaultModel)) return defaultModel;
     }
     return null;
   }
@@ -182,6 +203,7 @@ export class ModelsService {
       displayName,
       actualName,
       providerId: input.providerId,
+      visibility: input.visibility ?? 'public',
       enabled,
       isDefault: false,
     });
@@ -218,6 +240,30 @@ export class ModelsService {
     }
     if (input.providerId !== undefined) {
       model.providerId = input.providerId;
+    }
+    if (input.visibility !== undefined) {
+      if (!MODEL_VISIBILITIES.includes(input.visibility)) {
+        throw new UnprocessableEntityException({
+          code: 'validation_failed',
+          message: 'visibility must be one of public, commercial, private.',
+        });
+      }
+      // Invariant: the configured system default must stay usable by every
+      // user. Demoting it would silently strand the default for most users,
+      // so refuse and let the admin pick another default first.
+      const cfg = await this.repo.manager
+        .createQueryBuilder()
+        .select('ac.default_model_id', 'default_model_id')
+        .from('app_config', 'ac')
+        .where('ac.id = :sid', { sid: 'singleton' })
+        .getRawOne<{ default_model_id: string | null }>();
+      if (input.visibility !== 'public' && (model.isDefault || cfg?.default_model_id === id)) {
+        throw new ConflictException({
+          code: 'model_is_default',
+          message: 'This model is the system default. Choose another default before restricting its visibility.',
+        });
+      }
+      model.visibility = input.visibility;
     }
     if (input.enabled !== undefined) {
       model.enabled = input.enabled;

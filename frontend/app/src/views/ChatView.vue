@@ -48,6 +48,7 @@ const hasMessages = computed(
     chat.transcript.value.length > 0 ||
     chat.generation.value !== null,
 )
+const activeModelName = computed(() => models.displayName(chat.selectedModelId.value, ''))
 
 function resolvedId(): string | undefined {
   const raw = props.id ?? (route.params.id as string | undefined)
@@ -248,6 +249,7 @@ const suggestedPrompts = [
           :disabled="chat.inputDisabled.value"
           inline
         />
+        <span v-if="activeModelName" class="hidden text-ink-muted sm:inline">— {{ activeModelName }}</span>
       </div>
 
       <div class="ms-auto flex items-center gap-1">

@@ -1,8 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Observable } from 'rxjs';
-import OpenAI from 'openai';
 import { ModelsService } from '../models/models.service';
-import { OpenAICompatibleClient } from './provider/openai-compatible.client';
+import { ModelAccessService } from '../models/model-access.service';
+import { Model } from '../models/entities/model.entity';
+import { ProviderRuntimeService, ProviderConnection } from '../provider/provider-runtime.service';
+import { ProviderStreamChunk } from '../provider/adapters/provider-adapter.interface';
 import { ConversationsService } from '../conversations/conversations.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -44,7 +46,7 @@ interface StreamState {
   /** Active SSE subscribers for this stream. */
   subscribers: Set<(e: ChatStreamEvent) => void>;
   /** The underlying provider async iterator (kept so we can consume it). */
-  providerStream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
+  providerStream: AsyncIterable<ProviderStreamChunk>;
   /** Conversation + assistant message ids for DB writes at the end. */
   conversationId: string;
   assistantMessageId: string;
@@ -75,7 +77,8 @@ export class ChatService {
 
   constructor(
     private readonly models: ModelsService,
-    private readonly providerClient: OpenAICompatibleClient,
+    private readonly access: ModelAccessService,
+    private readonly runtime: ProviderRuntimeService,
     private readonly conversations: ConversationsService,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
@@ -138,38 +141,73 @@ export class ChatService {
 
     try {
       // ── setup phase ─────────────────────────────────────────────────
-      const model = await this.models.resolveActiveModel({
-        explicitModelId: dto.modelId ?? null,
-        userId,
-      });
-      if (!model) {
-        if (isActive()) {
-          observer.next({
-            event: 'error',
-            data: {
-              code: 'no_model_available',
-              message: 'No model is available. Ask an admin to set a default model or select one explicitly.',
-            },
-          });
+      let model: Model | null = null;
+
+      // Explicit modelId validation: when the client picks a specific model we
+      // verify existence + enabled FIRST (preserving the existing
+      // `model_unavailable` contract for unknown/disabled ids), then verify
+      // entitlement (`model_forbidden`). No conversation or provider work
+      // happens for either failure.
+      if (dto.modelId) {
+        let explicit: Model | null = null;
+        try {
+          explicit = await this.models.findById(dto.modelId);
+        } catch (err) {
+          if (err instanceof NotFoundException) {
+            explicit = null;
+          } else {
+            throw err;
+          }
         }
-        observer.complete();
-        return;
+
+        if (!explicit || !explicit.enabled) {
+          if (isActive()) {
+            observer.next({
+              event: 'error',
+              data: {
+                code: 'model_unavailable',
+                message: 'The selected model is not available. Choose another model or remove the selection.',
+              },
+            });
+          }
+          observer.complete();
+          return;
+        }
+
+        if (!(await this.access.canAccessUser(userId, explicit))) {
+          if (isActive()) {
+            observer.next({
+              event: 'error',
+              data: {
+                code: 'model_forbidden',
+                message: 'You do not have access to this model.',
+              },
+            });
+          }
+          observer.complete();
+          return;
+        }
+
+        model = explicit;
       }
 
-      try {
-        await this.providerClient.getClient();
-      } catch {
-        if (isActive()) {
-          observer.next({
-            event: 'error',
-            data: {
-              code: 'provider_not_configured',
-              message: 'Central provider is not configured. Ask an admin to set it up.',
-            },
-          });
+      if (!model) {
+        // No explicit selection (or it failed) → sticky/default resolver, which
+        // is itself access-filtered.
+        model = await this.models.resolveActiveModel({ explicitModelId: null, userId });
+        if (!model) {
+          if (isActive()) {
+            observer.next({
+              event: 'error',
+              data: {
+                code: 'no_model_available',
+                message: 'No model is available for your account. Ask an admin to grant access or set a default model.',
+              },
+            });
+          }
+          observer.complete();
+          return;
         }
-        observer.complete();
-        return;
       }
 
       if (dto.message.length < 1 || dto.message.length > 32000) {
@@ -232,7 +270,7 @@ export class ChatService {
         this.logger.warn(`Failed to update lastSelectedModelId for user ${userId}`);
       });
 
-      const providerMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      const providerMessages: { role: 'user' | 'assistant' | 'system'; content: string }[] = [
         ...priorTurns,
         { role: 'user', content: dto.message },
       ];
@@ -255,10 +293,29 @@ export class ChatService {
       assistantMessageId = assistantMessage.id;
       await this.conversations.updateMessageStatus(assistantMessageId, 'streaming');
 
+      // ── provider runtime ───────────────────────────────────────────
+      let connection: ProviderConnection;
+      try {
+        connection = await this.runtime.assertReady(model.id);
+      } catch (err) {
+        const failure = err as { response?: { code?: string; message?: string } };
+        if (isActive()) {
+          observer.next({
+            event: 'error',
+            data: {
+              code: failure.response?.code ?? 'provider_error',
+              message: failure.response?.message ?? 'Provider is not available.',
+            },
+          });
+        }
+        observer.complete();
+        return;
+      }
+
       // ── consume phase ───────────────────────────────────────────────
       let fullResponse = '';
       try {
-        const stream = await this.providerClient.stream({
+        const stream = await this.runtime.stream(connection, {
           model: model.actualName,
           messages: providerMessages,
         });
@@ -272,9 +329,8 @@ export class ChatService {
         };
         this.activeStreams.set(conversationId, state);
 
-        const streamStarted = false;
         try {
-          for await (const chunk of stream as unknown as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>) {
+          for await (const chunk of stream) {
             const delta = chunk.choices?.[0]?.delta?.content;
             if (delta) {
               fullResponse += delta;

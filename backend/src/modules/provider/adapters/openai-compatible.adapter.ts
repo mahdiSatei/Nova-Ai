@@ -8,6 +8,7 @@ import {
   ProviderStreamChunk,
 } from './provider-adapter.interface';
 import { NormalizedProviderError } from '../errors/normalized-provider.error';
+import { PROVIDER_TIMEOUTS } from '../constants/provider-timeouts';
 
 @Injectable()
 export class OpenAICompatibleAdapter implements ProviderAdapter {
@@ -19,11 +20,25 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
 
   async validate(provider: Provider): Promise<void> {
     const apiKey = decrypt(provider.apiKeyEncrypted);
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(new NormalizedProviderError({
+          code: 'provider_timeout',
+          message: 'Provider validation timed out.',
+          statusCode: 504,
+          originalMessage: 'Validation deadline exceeded',
+        }));
+        controller.abort();
+      }, PROVIDER_TIMEOUTS.VALIDATION_MS);
+    });
 
     try {
-      const res = await fetch(`${provider.baseUrl.replace(/\/+$/, '')}/models`, {
+      const res = await Promise.race([fetch(`${provider.baseUrl.replace(/\/+$/, '')}/models`, {
         headers: { Authorization: `Bearer ${apiKey}` },
-      });
+        signal: controller.signal,
+      }), deadline]);
       if (res.ok) return;
 
       const status = res.status;
@@ -36,18 +51,19 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         });
       }
       if (status === 404 || status === 405) {
-        // Fallback: try a minimal chat probe
-        const chatRes = await fetch(`${provider.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model: 'probe', messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }),
-        });
-        if (chatRes.ok) return;
         throw new NormalizedProviderError({
-          code: 'provider_request_invalid',
-          message: 'Provider returned unexpected response to probe.',
+          code: 'provider_type_unsupported',
+          message: 'Provider does not support GET /models or the endpoint is unavailable.',
           statusCode: 422,
-          originalMessage: `HTTP ${chatRes.status}`,
+          originalMessage: `HTTP ${status}`,
+        });
+      }
+      if (status >= 500 && status < 600) {
+        throw new NormalizedProviderError({
+          code: status === 503 ? 'provider_rate_limited' : 'provider_unreachable',
+          message: 'Upstream provider error.',
+          statusCode: status === 503 ? 503 : 502,
+          originalMessage: `HTTP ${status}`,
         });
       }
       throw new NormalizedProviderError({
@@ -64,6 +80,8 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         statusCode: 422,
         originalMessage: err instanceof Error ? err.message : String(err),
       });
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
   }
 
@@ -76,12 +94,26 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
 
     this.logger.debug(`Streaming chat via provider=${provider.id}, model=${params.model}`);
 
-    const stream = await client.chat.completions.create({
+    // Apply a total-generation deadline so a hung upstream does not
+    // keep the connection open forever.
+    const deadline = new Promise<never>((_resolve, reject) => {
+      setTimeout(() => {
+        reject(new NormalizedProviderError({
+          code: 'provider_timeout',
+          message: 'Provider generation timed out.',
+          statusCode: 504,
+          originalMessage: `Generation exceeded ${PROVIDER_TIMEOUTS.GENERATION_MS}ms`,
+        }));
+      }, PROVIDER_TIMEOUTS.GENERATION_MS);
+    });
+
+    const streamPromise = client.chat.completions.create({
       model: params.model,
       messages: params.messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
       stream: true,
     });
 
+    const stream = await Promise.race([streamPromise, deadline]);
     return stream as AsyncIterable<ProviderStreamChunk>;
   }
 }

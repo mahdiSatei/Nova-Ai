@@ -174,6 +174,29 @@ describe('UsersService', () => {
     );
   });
 
+  it('setModelPreference stores the given model id', async () => {
+    const u = await svc.create({ email: 'setPref@example.com', password: 'super-long-password-1' });
+    const updated = await svc.setModelPreference(u.id, 'model-123');
+    expect(updated.lastSelectedModelId).toBe('model-123');
+    const reloaded = await svc.findById(u.id);
+    expect(reloaded.lastSelectedModelId).toBe('model-123');
+  });
+
+  it('setModelPreference accepts null to clear the value', async () => {
+    const u = await svc.create({ email: 'clearPref@example.com', password: 'super-long-password-1' });
+    await svc.setModelPreference(u.id, 'model-123');
+    const cleared = await svc.setModelPreference(u.id, null);
+    expect(cleared.lastSelectedModelId).toBeNull();
+    const reloaded = await svc.findById(u.id);
+    expect(reloaded.lastSelectedModelId).toBeNull();
+  });
+
+  it('setModelPreference throws NotFoundException for an unknown id', async () => {
+    await expect(svc.setModelPreference('no-such-id', 'model-123')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
   it('updateProfile applies only the provided fields (partial patch)', async () => {
     const u = await svc.create({
       username: 'partial_me',

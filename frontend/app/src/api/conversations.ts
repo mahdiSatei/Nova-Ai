@@ -23,3 +23,10 @@ export function setConversationPinned(id: string, pinned: boolean): Promise<{ id
     body: { pinned },
   })
 }
+
+export function setConversationModel(id: string, modelId: string): Promise<ConversationSummary> {
+  return request<ConversationSummary>(`/v1/conversations/${id}/model`, {
+    method: 'PATCH',
+    body: { modelId },
+  })
+}

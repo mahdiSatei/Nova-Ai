@@ -1,7 +1,6 @@
 <script setup lang="ts">
-// فرم پیکربندی provider: baseUrl + apiKey. طبق FR-021..FR-023، BR-011.
-// قبل از ذخیره، سرور credential را probe می‌کند؛ در خطا هیچ‌چیز ذخیره نمی‌شود.
-// Cleartext credential هرگز به UI نمی‌آید؛ فقط `apiKeyMasked`.
+// فرم پیکربندی provider: baseUrl + apiKey (اختیاری برای به‌روزرسانی).
+// طبق FR-021..FR-023، BR-011. قبل از ذخیره، سرور credential را probe می‌کند.
 import { reactive, ref } from 'vue'
 import { PhFloppyDisk, PhArrowsCounterClockwise, PhEye, PhEyeSlash } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
@@ -11,11 +10,12 @@ import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
 import { getProvider, updateProvider } from '@/api/admin'
 import { formatDateTime } from '@/utils/time'
-import type { CentralProviderPublic } from '@/types/api'
+import type { ProviderAdmin } from '@/types/api'
 
-const props = defineProps<{ provider: CentralProviderPublic | null }>()
-const emit = defineEmits<{ saved: [provider: CentralProviderPublic] }>()
+const props = defineProps<{ provider: ProviderAdmin | null }>()
+const emit = defineEmits<{ saved: [provider: ProviderAdmin] }>()
 
+const providerId = 'central'
 const form = reactive({ baseUrl: props.provider?.baseUrl ?? '', apiKey: '' })
 const fieldErrors = reactive<{ baseUrl: string | null; apiKey: string | null }>({ baseUrl: null, apiKey: null })
 const submitError = ref<{ message: string; code?: string; requestId?: string } | null>(null)
@@ -51,7 +51,9 @@ async function onSubmit(): Promise<void> {
 
   submitting.value = true
   try {
-    const next = await updateProvider({ baseUrl: form.baseUrl.trim(), apiKey: form.apiKey })
+    const body: { baseUrl: string; apiKey?: string } = { baseUrl: form.baseUrl.trim() }
+    if (form.apiKey.trim()) body.apiKey = form.apiKey.trim()
+    const next = await updateProvider(providerId, body)
     emit('saved', next)
     form.apiKey = ''
   } catch (err) {
@@ -105,7 +107,7 @@ defineExpose({ reset, reload: async () => { const p = await getProvider(); form.
     <div class="flex flex-col gap-1.5">
       <label for="provider-apikey" class="text-sm font-medium text-ink-muted">
         کلید API
-        <span v-if="provider?.isConfigured" class="ms-2 text-xs text-ink-muted/70">
+        <span v-if="provider?.hasApiKey" class="ms-2 text-xs text-ink-muted/70">
           (برای به‌روزرسانی، مقدار جدید وارد کنید)
         </span>
       </label>
@@ -145,11 +147,10 @@ defineExpose({ reset, reload: async () => { const p = await getProvider(); form.
       >{{ fieldErrors.apiKey }}</p>
 
       <div
-        v-else-if="provider?.isConfigured && provider.apiKeyMasked"
+        v-else-if="provider?.hasApiKey"
         class="mt-1 flex items-center gap-2 text-xs text-ink-muted"
       >
-        <span>کلید فعلی:</span>
-        <span class="rounded bg-elevated px-2 py-1 font-mono text-ink">{{ provider.apiKeyMasked }}</span>
+        <span>کلید API قبلاً تنظیم شده است.</span>
       </div>
 
       <p

@@ -19,7 +19,12 @@ const models = useModelsStore()
 watch(
   () => models.items,
   (items) => {
-    if (props.modelValue) return
+    // Re-resolve whenever the current value is not in the (entitlement-filtered)
+    // catalog — e.g. an admin restricted the model after this client loaded it,
+    // or the user's own access changed. Never leave an inaccessible model
+    // selected. (فاز ۳: انتخاب‌گر مدل نباید مدل غیرمجاز را نشان دهد.)
+    const current = props.modelValue
+    if (current && items.some((m) => m.id === current)) return
     const last = (() => {
       try {
         return sessionStorage.getItem('mmcb.lastModelId')
@@ -31,7 +36,7 @@ watch(
     const defaultId = items.find((m) => m.isDefault)?.id
     const fallbackId = items[0]?.id ?? null
     const resolved = explicitId ?? defaultId ?? fallbackId
-    if (resolved) emit('update:modelValue', resolved)
+    if (resolved !== current) emit('update:modelValue', resolved)
   },
   { immediate: true },
 )
@@ -73,7 +78,7 @@ function onChange(e: Event): void {
     >
       <EmptyState
         title="چت هنوز پیکربندی نشده است"
-        description="مدیر سیستم هنوز هیچ مدل فعالی اضافه نکرده است."
+        description="هیچ مدلی برای حساب شما در دسترس نیست."
       >
         <template #icon>
           <PhSparkle class="size-7 text-primary" aria-hidden="true" />

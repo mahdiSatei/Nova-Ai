@@ -60,6 +60,15 @@ export class AppConfigService {
           message: 'Only enabled models can be the default.',
         });
       }
+      // The default model is preselected for every user, so it must be visible
+      // to everyone (spec 003 §Decision recap). Commercial/private models stay
+      // selectable by entitled users; they just cannot be the system default.
+      if (m.visibility !== 'public') {
+        throw new UnprocessableEntityException({
+          code: 'model_not_eligible_default',
+          message: 'Only public models can be the default. Set the model visibility to public first.',
+        });
+      }
     }
 
     await this.ds.transaction(async (em) => {

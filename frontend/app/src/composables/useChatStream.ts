@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { streamChat, resumeStream, type StreamHandlers } from '@/api/chat'
 import { cancelGeneration, retryGeneration } from '@/api/chat'
-import { getConversation, listConversations } from '@/api/conversations'
+import { getConversation, listConversations, setConversationModel } from '@/api/conversations'
 import { ApiError } from '@/api/http'
 import { streamErrorMessage } from '@/utils/errors'
 import type { MessagePublic } from '@/types/api'
@@ -36,6 +36,13 @@ function saveModelId(id: string): void {
   }
 }
 
+/**
+ * Codes that mean "the model this client holds is not usable by this account".
+ * When one arrives, drop the selection and reload the entitlement-filtered
+ * catalog so the picker repopulates with what is actually available.
+ */
+const MODEL_REJECTION_CODES = new Set(['model_forbidden', 'model_unavailable'])
+
 export interface ChatStreamHandle {
   connectionState: import('vue').Ref<ConnectionState>
   generationState: import('vue').Ref<GenerationState>
@@ -44,7 +51,7 @@ export interface ChatStreamHandle {
   conversationId: import('vue').Ref<string | null>
   selectedModelId: import('vue').Ref<string | null>
   inputDisabled: import('vue').ComputedRef<boolean>
-  setModel: (id: string | null) => void
+  setModel: (id: string | null) => Promise<void>
   loadConversation: (id: string) => Promise<void>
   resetConversation: () => void
   send: (text: string) => Promise<void>
@@ -80,6 +87,28 @@ export function useChatStream(): ChatStreamHandle {
   const inputDisabled = computed(
     () => generationState.value === 'streaming' || generationState.value === 'completed',
   )
+
+  /**
+   * Recover from a server-side model rejection (فاز ۳). The store is imported
+   * lazily so this composable stays usable without an active Pinia instance
+   * (e.g. in unit tests).
+   */
+  async function recoverFromModelRejection(code: string | undefined): Promise<boolean> {
+    if (!code || !MODEL_REJECTION_CODES.has(code)) return false
+    selectedModelId.value = null
+    try {
+      sessionStorage.removeItem(SESSION_KEY)
+    } catch {
+      /* ignore */
+    }
+    try {
+      const { useModelsStore } = await import('@/stores/models')
+      await useModelsStore().load(true)
+    } catch {
+      /* catalog refresh is best-effort; the banner still explains the rejection */
+    }
+    return true
+  }
 
   // ── Connection helpers ────────────────────────────────────────────
   function setConnected(): void {
@@ -339,6 +368,12 @@ export function useChatStream(): ChatStreamHandle {
       currentStreamConversationId = detail.id
       saveConversationId(detail.id)
 
+      // Sync the picker to the conversation's persisted model so reloading
+      // a conversation restores the user's previous selection.
+      if (detail.modelId && detail.modelId !== selectedModelId.value) {
+        selectedModelId.value = detail.modelId
+      }
+
       const streamingMsg = detail.messages.find(
         (m) => m.role === 'assistant' && m.status === 'streaming',
       )
@@ -478,6 +513,7 @@ export function useChatStream(): ChatStreamHandle {
         }
         generationState.value = 'failed'
         controller = null
+        void recoverFromModelRejection(err.code)
       },
     }
 
@@ -551,7 +587,11 @@ function loadSavedConversationId(): string | null {
   }
 }
 
-function setModel(id: string | null): void {
+async function setModel(id: string | null): Promise<void> {
+    // Guard programmatic calls; the picker is already disabled in the UI
+    // but this prevents a stray setModel during streaming from mutating
+    // state mid-turn.
+    if (generationState.value === 'streaming') return
     selectedModelId.value = id
     if (id) saveModelId(id)
     else {
@@ -559,6 +599,23 @@ function setModel(id: string | null): void {
         sessionStorage.removeItem(SESSION_KEY)
       } catch {
         /* ignore */
+      }
+    }
+    // If a conversation is loaded, persist the choice server-side so the
+    // active model survives reload and follows the user across devices.
+    // Errors are surfaced but non-blocking — the in-memory selection
+    // still drives the next chat request.
+    const convId = conversationId.value
+    if (convId && id) {
+      try {
+        await setConversationModel(convId, id)
+      } catch (err) {
+        const apiErr = err as ApiError
+        connectionError.value = {
+          code: apiErr.code ?? 'set_model_failed',
+          message: streamErrorMessage(apiErr.code ?? 'set_model_failed', apiErr.message),
+        }
+        await recoverFromModelRejection(apiErr.code)
       }
     }
   }

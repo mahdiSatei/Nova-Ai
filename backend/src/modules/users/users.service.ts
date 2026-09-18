@@ -3,10 +3,12 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
+import { USER_ACCESS_TIERS, UserAccessTier } from '../models/model-visibility';
 
 @Injectable()
 export class UsersService {
@@ -93,6 +95,64 @@ export class UsersService {
     if (!user) throw new NotFoundException();
     if (patch.displayName !== undefined) user.displayName = patch.displayName;
     if (patch.avatarSeed !== undefined) user.avatarSeed = patch.avatarSeed;
+    return this.repo.save(user);
+  }
+
+  /**
+   * Set or clear the caller's last-selected model. Passing null clears
+   * the sticky preference; a string id sets it after the controller has
+   * already validated that the model exists and is enabled.
+   */
+  async setModelPreference(id: string, modelId: string | null): Promise<User> {
+    const user = await this.repo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException();
+    user.lastSelectedModelId = modelId;
+    return this.repo.save(user);
+  }
+
+  /**
+   * Admin: paginated user list with an optional case-insensitive substring
+   * match on email or username. Returns the rows plus the unpaginated total so
+   * the admin UI can show "n of m". Ordering is by email for stability.
+   */
+  async listForAdmin(params: {
+    query?: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ items: User[]; total: number }> {
+    const qb = this.repo
+      .createQueryBuilder('u')
+      .orderBy('u.email', 'ASC')
+      .skip(params.offset)
+      .take(params.limit);
+
+    const term = params.query?.trim();
+    if (term) {
+      qb.where('LOWER(u.email) LIKE :term OR LOWER(u.username) LIKE :term', {
+        term: `%${term.toLowerCase()}%`,
+      });
+    }
+
+    const [items, total] = await qb.getManyAndCount();
+    return { items, total };
+  }
+
+  /**
+   * Admin: set a user's entitlement tier. Throws 404 `user_not_found` for an
+   * unknown id so the admin UI can distinguish "gone" from "invalid input".
+   */
+  async setAccessTier(id: string, accessTier: UserAccessTier): Promise<User> {
+    if (!USER_ACCESS_TIERS.includes(accessTier)) {
+      throw new UnprocessableEntityException({
+        code: 'validation_failed',
+        message: 'accessTier must be one of free, commercial.',
+      });
+    }
+    const user = await this.repo.findOne({ where: { id } });
+    if (!user) {
+      throw new NotFoundException({ code: 'user_not_found', message: 'User not found.' });
+    }
+    user.accessTier = accessTier;
     return this.repo.save(user);
   }
 

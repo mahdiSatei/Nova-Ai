@@ -83,8 +83,13 @@ describe('AppConfigService', () => {
     svc = moduleRef.get(AppConfigService);
   });
 
-  function seedModel(id: string, enabled = true, isDefault = false) {
-    models.set(id, { id, enabled, isDefault });
+  function seedModel(
+    id: string,
+    enabled = true,
+    isDefault = false,
+    visibility: 'public' | 'commercial' | 'private' = 'public',
+  ) {
+    models.set(id, { id, enabled, isDefault, visibility });
   }
 
   describe('read()', () => {
@@ -137,6 +142,24 @@ describe('AppConfigService', () => {
       await expect(svc.update({ defaultModelId: 'm1' })).rejects.toMatchObject({
         response: { code: 'model_not_eligible_default' },
       });
+    });
+
+    it('rejects with 422 when the referenced model is not public', async () => {
+      seedModel('com-1', true, false, 'commercial');
+
+      const err = await svc.update({ defaultModelId: 'com-1' }).catch((e) => e);
+
+      expect(err).toBeInstanceOf(UnprocessableEntityException);
+      expect(err.getResponse()).toMatchObject({ code: 'model_not_eligible_default' });
+      expect(err.getResponse().message).toMatch(/public/i);
+    });
+
+    it('accepts a public enabled model as the default', async () => {
+      seedModel('pub-1', true, false, 'public');
+
+      const r = await svc.update({ defaultModelId: 'pub-1' });
+
+      expect(r).toEqual({ defaultModelId: 'pub-1' });
     });
 
     it('runs clear → set → findOne → save inside a single transaction', async () => {

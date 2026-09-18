@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  HttpException,
   Inject,
   Injectable,
   Logger,
@@ -7,11 +8,14 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
+import { AppConfig } from '../../config/configuration';
 import { Provider, ProviderType } from './entities/provider.entity';
 import { encrypt, decrypt } from '../../common/crypto/credential-cipher';
 import { ProviderAdapter } from './adapters/provider-adapter.interface';
 import { NormalizedProviderError } from './errors/normalized-provider.error';
+import { validateProviderUrl } from './utils/url-policy';
 
 export const PROVIDER_ADAPTERS = Symbol('PROVIDER_ADAPTERS');
 
@@ -27,9 +31,7 @@ export interface ProviderPublic {
   updatedAt: string;
 }
 
-export interface ProviderAdmin extends ProviderPublic {
-  apiKeyMasked: string;
-}
+export type ProviderAdmin = ProviderPublic;
 
 export interface ProviderCreateInput {
   id: string;
@@ -56,6 +58,7 @@ export class ProviderService {
     @InjectRepository(Provider)
     private readonly repo: Repository<Provider>,
     @Inject(PROVIDER_ADAPTERS) adapters: ProviderAdapter[],
+    private readonly config: ConfigService<AppConfig, true>,
   ) {
     this.adapters = adapters;
   }
@@ -82,6 +85,14 @@ export class ProviderService {
       .getOne();
     if (dup) {
       throw new ConflictException({ code: 'provider_name_taken', message: 'A provider with that name already exists.' });
+    }
+
+    const urlCheck = validateProviderUrl(input.baseUrl, this.config.get('nodeEnv'));
+    if (!urlCheck.ok) {
+      throw new UnprocessableEntityException({
+        code: 'provider_url_invalid',
+        message: urlCheck.reason ?? 'Invalid provider URL.',
+      });
     }
 
     const encrypted = encrypt(input.apiKey);
@@ -111,7 +122,16 @@ export class ProviderService {
       }
       provider.name = input.name;
     }
-    if (input.baseUrl !== undefined) provider.baseUrl = input.baseUrl;
+    if (input.baseUrl !== undefined) {
+      const urlCheck = validateProviderUrl(input.baseUrl, this.config.get('nodeEnv'));
+      if (!urlCheck.ok) {
+        throw new UnprocessableEntityException({
+          code: 'provider_url_invalid',
+          message: urlCheck.reason ?? 'Invalid provider URL.',
+        });
+      }
+      provider.baseUrl = input.baseUrl;
+    }
     if (input.isActive !== undefined) provider.isActive = input.isActive;
     if (input.apiKey !== undefined) provider.apiKeyEncrypted = encrypt(input.apiKey);
 
@@ -144,7 +164,10 @@ export class ProviderService {
     const provider = await this.repo.findOne({ where: { id } });
     if (!provider) throw new NotFoundException({ code: 'provider_not_found', message: 'Provider not found.' });
 
-    const adapter = this.adapters.find((a) => (a as any).supports?.(provider.type) ?? true);
+    const adapter = this.adapters.find(
+      (a) =>
+        (a as { supports?: (type: string) => boolean }).supports?.(provider.type) ?? true,
+    );
     if (!adapter) {
       throw new UnprocessableEntityException({
         code: 'provider_type_unsupported',
@@ -156,14 +179,15 @@ export class ProviderService {
       await adapter.validate(provider);
     } catch (err) {
       if (err instanceof NormalizedProviderError) {
-        throw new UnprocessableEntityException({
+        throw new HttpException({
           code: err.code,
           message: err.message,
-        });
+        }, err.statusCode);
       }
       throw err as Error;
     }
 
+    provider.lastValidatedAt = new Date();
     const saved = await this.repo.save(provider);
     return this.toAdmin(saved);
   }
@@ -185,27 +209,13 @@ export class ProviderService {
       baseUrl: provider.baseUrl,
       hasApiKey: hasKey,
       isActive: provider.isActive,
-      lastValidatedAt: null,
+      lastValidatedAt: provider.lastValidatedAt?.toISOString() ?? null,
       createdAt: provider.createdAt.toISOString(),
       updatedAt: provider.updatedAt.toISOString(),
     };
   }
 
   private toAdmin(provider: Provider): ProviderAdmin {
-    let plain: string;
-    try {
-      plain = decrypt(provider.apiKeyEncrypted);
-    } catch {
-      plain = '***';
-    }
-    return {
-      ...this.toPublic(provider),
-      apiKeyMasked: this.mask(plain),
-    };
-  }
-
-  private mask(plain: string): string {
-    if (plain.length <= 4) return '***';
-    return `***${plain.slice(-4)}`;
+    return this.toPublic(provider);
   }
 }

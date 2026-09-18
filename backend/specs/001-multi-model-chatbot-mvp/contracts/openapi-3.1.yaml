@@ -142,7 +142,12 @@ paths:
   /v1/models:
     get:
       tags: [user]
-      summary: List enabled models (display names only)
+      summary: List the enabled models the caller is entitled to use (display names only)
+      description: |
+        Returns every enabled model whose visibility the caller satisfies:
+        `public` for any authenticated user, `commercial` for users whose access
+        tier is `commercial`, and `private` for admins. Models the caller may
+        not use are never returned.
       security:
         - bearerAuth: []
       responses:
@@ -248,6 +253,63 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /v1/conversations/{id}/model:
+    patch:
+      tags: [user]
+      summary: Change the model used by a conversation
+      description: |
+        Updates `Conversation.modelId`. Future turns in this conversation
+        use the new model. Existing message history is retained as-is;
+        the model that produced each message is not re-stamped.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetConversationModelRequest'
+      responses:
+        '200':
+          description: Conversation model updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationSummary'
+        '400':
+          description: Validation error (missing or malformed modelId)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: The model exists and is enabled, but the caller is not entitled to it (`model_forbidden`), or the conversation belongs to a different user (`forbidden`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Model not available (unknown or disabled)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/chat/stream:
     post:
@@ -407,6 +469,46 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /v1/users/me/model-preference:
+    patch:
+      tags: [user]
+      summary: Set or clear the caller's preferred model
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetModelPreferenceRequest'
+      responses:
+        '200':
+          description: Preference updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [modelId]
+                properties:
+                  modelId:
+                    type: string
+                    format: uuid
+                    nullable: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: The model exists and is enabled, but the caller is not entitled to it (`model_forbidden`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Model not available (unknown or disabled)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /v1/admin/auth/login:
     post:
       tags: [admin]
@@ -495,7 +597,7 @@ paths:
   /v1/admin/models/{id}:
     patch:
       tags: [admin]
-      summary: Edit a model (display name, actual name, enabled, providerId)
+      summary: Edit a model (display name, actual name, enabled, providerId, visibility)
       security:
         - bearerAdminAuth: []
       parameters:
@@ -528,6 +630,12 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           description: providerId references inactive provider or model would be enabled with inactive provider
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Refused because the model is the system default and the change would make it non-public (`model_is_default`)
           content:
             application/json:
               schema:
@@ -841,6 +949,87 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /v1/admin/users:
+    get:
+      tags: [admin]
+      summary: List user accounts with their access tier
+      security:
+        - bearerAdminAuth: []
+      parameters:
+        - in: query
+          name: query
+          schema:
+            type: string
+            maxLength: 120
+          description: Case-insensitive substring match on email or username.
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Users list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/admin/users/{id}/access-tier:
+    patch:
+      tags: [admin]
+      summary: Set a user's access tier
+      description: |
+        Sets the user's entitlement tier. `commercial` grants access to models
+        with `visibility: commercial`; `free` is the floor. Models with
+        `visibility: private` stay admin-only regardless of tier.
+      security:
+        - bearerAdminAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetUserAccessTierRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: User not found (`user_not_found`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /v1/admin/config:
     get:
       tags: [admin]
@@ -864,7 +1053,7 @@ paths:
       description: |
         PUT with `{ "defaultModelId": "<uuid>" }` sets the default.
         PUT with `{ "defaultModelId": null }` clears the default.
-        Referenced model MUST be enabled; otherwise 422.
+        Referenced model MUST be enabled and public; otherwise 422.
       security:
         - bearerAdminAuth: []
       requestBody:
@@ -887,7 +1076,7 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '422':
-          description: Referenced model is disabled or does not exist
+          description: Default model not found, disabled, or not public (code model_not_eligible_default)
           content:
             application/json:
               schema:
@@ -1021,6 +1210,59 @@ components:
           format: date-time
           nullable: true
 
+    ModelVisibility:
+      type: string
+      enum: [public, commercial, private]
+      description: |
+        public — usable by any authenticated user; commercial — usable by users
+        whose access tier is `commercial`; private — admin role only.
+
+    UserAccessTier:
+      type: string
+      enum: [free, commercial]
+
+    AdminUser:
+      type: object
+      required: [id, email, username, role, accessTier, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum: [user, admin]
+        accessTier:
+          $ref: '#/components/schemas/UserAccessTier'
+        createdAt:
+          type: string
+          format: date-time
+
+    AdminUserList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUser'
+        total:
+          type: integer
+          minimum: 0
+
+    SetUserAccessTierRequest:
+      type: object
+      additionalProperties: false
+      required: [accessTier]
+      properties:
+        accessTier:
+          $ref: '#/components/schemas/UserAccessTier'
+
     ModelPublic:
       type: object
       required: [id, displayName, isDefault]
@@ -1037,7 +1279,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/ModelPublic'
         - type: object
-          required: [actualName, providerId, enabled, createdAt, updatedAt]
+          required: [actualName, providerId, visibility, enabled, createdAt, updatedAt]
           properties:
             actualName:
               type: string
@@ -1048,6 +1290,8 @@ components:
               minLength: 1
               maxLength: 80
               pattern: '^[a-z0-9-]+$'
+            visibility:
+              $ref: '#/components/schemas/ModelVisibility'
             enabled:
               type: boolean
             createdAt:
@@ -1090,6 +1334,10 @@ components:
           minLength: 1
           maxLength: 80
           pattern: '^[a-z0-9-]+$'
+        visibility:
+          allOf:
+            - $ref: '#/components/schemas/ModelVisibility'
+          description: Defaults to `public` when omitted.
         enabled:
           type: boolean
           default: true
@@ -1110,6 +1358,8 @@ components:
           minLength: 1
           maxLength: 80
           pattern: '^[a-z0-9-]+$'
+        visibility:
+          $ref: '#/components/schemas/ModelVisibility'
         enabled:
           type: boolean
 
@@ -1255,6 +1505,28 @@ components:
           format: uuid
           nullable: true
 
+    SetModelPreferenceRequest:
+      type: object
+      properties:
+        modelId:
+          type:
+            - string
+            - "null"
+          format: uuid
+          nullable: true
+          description: |
+            The model to prefer. Omit or null to clear the preference.
+            Must reference an enabled model.
+
+    SetConversationModelRequest:
+      type: object
+      required: [modelId]
+      properties:
+        modelId:
+          type: string
+          format: uuid
+          description: The enabled model the conversation should use going forward.
+
     ConversationSummary:
       type: object
       required: [id, modelId, createdAt, updatedAt]
@@ -1265,6 +1537,10 @@ components:
         modelId:
           type: string
           format: uuid
+        modelDisplayName:
+          type: string
+          description: Human-facing display name of the model used in this conversation.
+          nullable: true
         title:
           type: string
           nullable: true

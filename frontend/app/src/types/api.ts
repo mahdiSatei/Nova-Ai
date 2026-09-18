@@ -2,6 +2,10 @@ export type Role = 'user' | 'admin'
 export type MessageRole = 'user' | 'assistant'
 export type MessageStatus = 'pending' | 'streaming' | 'completed' | 'failed' | 'cancelled'
 
+/** فاز ۳ — سطح دسترسی مدل و کاربر. */
+export type ModelVisibility = 'public' | 'commercial' | 'private'
+export type UserAccessTier = 'free' | 'commercial'
+
 export interface UserPublic {
   id: string
   email: string
@@ -51,6 +55,8 @@ export interface ModelPublic {
 
 export interface ModelAdmin extends ModelPublic {
   actualName: string
+  providerId: string
+  visibility: ModelVisibility
   enabled: boolean
   createdAt: string
   updatedAt: string
@@ -59,6 +65,8 @@ export interface ModelAdmin extends ModelPublic {
 export interface ModelUpsertRequest {
   displayName?: string
   actualName?: string
+  providerId?: string
+  visibility?: ModelVisibility
   enabled?: boolean
 }
 
@@ -66,16 +74,41 @@ export interface ModelList<T> {
   items: T[]
 }
 
-export interface CentralProviderPublic {
-  baseUrl: string
-  apiKeyMasked?: string
-  isConfigured: boolean
-  lastValidatedAt?: string | null
+/** فاز ۳ — کاربر از دید مدیر (هیچ‌گاه شامل هش رمز نیست). */
+export interface AdminUser {
+  id: string
+  email: string
+  username: string | null
+  role: Role
+  accessTier: UserAccessTier
+  createdAt: string
 }
 
-export interface CentralProviderUpdateRequest {
+export interface AdminUserList {
+  items: AdminUser[]
+  total: number
+}
+
+export interface ProviderAdmin {
+  id: string
+  name: string
+  type: string
   baseUrl: string
-  apiKey: string
+  hasApiKey: boolean
+  isActive: boolean
+  lastValidatedAt?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ProviderUpdateRequest {
+  baseUrl: string
+  apiKey?: string
+}
+
+export interface ProviderList {
+  items: ProviderAdmin[]
+  total: number
 }
 
 export interface AppConfigPublic {
@@ -89,6 +122,7 @@ export interface AppConfigUpdateRequest {
 export interface ConversationSummary {
   id: string
   modelId: string
+  modelDisplayName?: string | null
   title?: string | null
   pinned?: boolean
   createdAt: string

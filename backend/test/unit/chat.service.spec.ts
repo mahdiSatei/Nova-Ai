@@ -1,8 +1,10 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { NotFoundException } from '@nestjs/common';
 import { ChatService, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent } from '../../src/modules/chat/chat.service';
 import { ModelsService } from '../../src/modules/models/models.service';
-import { OpenAICompatibleClient } from '../../src/modules/chat/provider/openai-compatible.client';
+import { ModelAccessService } from '../../src/modules/models/model-access.service';
+import { ProviderRuntimeService } from '../../src/modules/provider/provider-runtime.service';
 import { ConversationsService } from '../../src/modules/conversations/conversations.service';
 import { User } from '../../src/modules/users/entities/user.entity';
 
@@ -10,9 +12,10 @@ describe('ChatService', () => {
   let svc: ChatService;
   let models: {
     resolveActiveModel: jest.Mock;
+    findById: jest.Mock;
   };
-  let providerClient: {
-    getClient: jest.Mock;
+  let runtime: {
+    assertReady: jest.Mock;
     stream: jest.Mock;
   };
   let conversations: {
@@ -28,11 +31,21 @@ describe('ChatService', () => {
   let userRepo: {
     update: jest.Mock;
   };
+  let access: {
+    loadViewer: jest.Mock;
+    canAccess: jest.Mock;
+    canAccessUser: jest.Mock;
+    filterAccessible: jest.Mock;
+    assertCanUseModel: jest.Mock;
+  };
 
   beforeEach(async () => {
-    models = { resolveActiveModel: jest.fn() };
-    providerClient = {
-      getClient: jest.fn().mockResolvedValue({}),
+    models = { resolveActiveModel: jest.fn(), findById: jest.fn() };
+    runtime = {
+      assertReady: jest.fn().mockResolvedValue({
+        provider: { id: 'p1', type: 'openai-compatible', baseUrl: 'https://example', apiKeyEncrypted: 'enc', isActive: true },
+        adapter: { stream: jest.fn() },
+      }),
       stream: jest.fn(),
     };
     conversations = {
@@ -46,14 +59,22 @@ describe('ChatService', () => {
       retryGeneration: jest.fn(),
     };
     userRepo = { update: jest.fn() };
+    access = {
+      loadViewer: jest.fn().mockResolvedValue({ role: 'user', accessTier: 'free' }),
+      canAccess: jest.fn().mockReturnValue(true),
+      canAccessUser: jest.fn().mockResolvedValue(true),
+      filterAccessible: jest.fn(async (_userId: string, models: any[]) => models),
+      assertCanUseModel: jest.fn().mockResolvedValue(undefined),
+    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         ChatService,
         { provide: ModelsService, useValue: models },
-        { provide: OpenAICompatibleClient, useValue: providerClient },
+        { provide: ProviderRuntimeService, useValue: runtime },
         { provide: ConversationsService, useValue: conversations },
         { provide: getRepositoryToken(User), useValue: userRepo },
+        { provide: ModelAccessService, useValue: access },
       ],
     }).compile();
 
@@ -85,6 +106,123 @@ describe('ChatService', () => {
         event: 'error',
         data: { code: 'no_model_available', message: expect.any(String) },
       });
+    });
+  });
+
+  // ─── explicit modelId validation ────────────────────────────────────────
+
+  describe('explicit modelId validation', () => {
+    it('rejects stream request when explicit modelId is not found', async () => {
+      models.findById.mockRejectedValue(new NotFoundException('Model not found'));
+
+      const obs = svc.streamChat('user-1', { message: 'hi', modelId: 'nonexistent-model-id' });
+      const events: any[] = [];
+
+      await new Promise<void>((resolve) => {
+        obs.subscribe({
+          next: (e) => events.push(e),
+          complete: () => resolve(),
+        });
+      });
+
+      expect(events).toEqual([
+        { event: 'error', data: { code: 'model_unavailable', message: expect.any(String) } },
+      ]);
+    });
+
+    it('rejects stream request when explicit modelId is disabled', async () => {
+      models.findById.mockResolvedValue({
+        id: 'm-disabled',
+        displayName: 'Disabled',
+        actualName: 'disabled-model',
+        enabled: false,
+        isDefault: false,
+        providerId: 'p1',
+      } as any);
+
+      const obs = svc.streamChat('user-1', { message: 'hi', modelId: 'm-disabled' });
+      const events: any[] = [];
+
+      await new Promise<void>((resolve) => {
+        obs.subscribe({
+          next: (e) => events.push(e),
+          complete: () => resolve(),
+        });
+      });
+
+      expect(events).toEqual([
+        { event: 'error', data: { code: 'model_unavailable', message: expect.any(String) } },
+      ]);
+    });
+
+    it('accepts stream request when explicit modelId is found and enabled', async () => {
+      models.findById.mockResolvedValue({
+        id: 'm1',
+        displayName: 'GPT-4o',
+        actualName: 'gpt-4o',
+        enabled: true,
+        isDefault: true,
+        providerId: 'p1',
+      } as any);
+      models.resolveActiveModel.mockResolvedValue({
+        id: 'm1',
+        actualName: 'gpt-4o',
+        isDefault: true,
+        enabled: true,
+      } as any);
+      conversations.create.mockReturnValue({ id: 'conv-1', messages: [] });
+
+      const asyncStream = (async function* () {
+        yield { choices: [{ delta: { content: 'hi' } }] } as any;
+      })();
+      runtime.stream.mockResolvedValue(asyncStream);
+      conversations.appendMessage.mockResolvedValue({ id: 'msg-1', status: 'streaming' });
+
+      const obs = svc.streamChat('user-1', { message: 'hi', modelId: 'm1' });
+      const events: any[] = [];
+
+      await new Promise<void>((resolve) => {
+        obs.subscribe({
+          next: (e) => events.push(e),
+          complete: () => resolve(),
+        });
+      });
+
+      // Should get delta + done, not model_unavailable error.
+      const errorEvents = events.filter((e: any) => e.event === 'error');
+      expect(errorEvents).toHaveLength(0);
+      expect(events.some((e: any) => e.data?.delta)).toBe(true);
+    });
+
+    it('falls back to sticky/default when no explicit modelId is provided', async () => {
+      models.resolveActiveModel.mockResolvedValue({
+        id: 'm-default',
+        actualName: 'gpt-4o',
+        isDefault: true,
+        enabled: true,
+      } as any);
+      conversations.create.mockReturnValue({ id: 'conv-1', messages: [] });
+
+      const asyncStream = (async function* () {
+        yield { choices: [{ delta: { content: 'hi' } }] } as any;
+      })();
+      runtime.stream.mockResolvedValue(asyncStream);
+      conversations.appendMessage.mockResolvedValue({ id: 'msg-1', status: 'streaming' });
+
+      const obs = svc.streamChat('user-1', { message: 'hi' });
+      const events: any[] = [];
+
+      await new Promise<void>((resolve) => {
+        obs.subscribe({
+          next: (e) => events.push(e),
+          complete: () => resolve(),
+        });
+      });
+
+      // resolveActiveModel should be called with null explicitModelId.
+      expect(models.resolveActiveModel).toHaveBeenCalledWith({ explicitModelId: null, userId: 'user-1' });
+      const errorEvents = events.filter((e: any) => e.event === 'error');
+      expect(errorEvents).toHaveLength(0);
     });
   });
 
@@ -133,7 +271,7 @@ describe('ChatService', () => {
         }
       })();
 
-      providerClient.stream.mockResolvedValue(asyncStream);
+      runtime.stream.mockResolvedValue(asyncStream);
       conversations.appendMessage.mockResolvedValue({ id: 'msg-1', status: 'streaming' });
     };
 
@@ -196,7 +334,7 @@ describe('ChatService', () => {
       const asyncStream = (async function* () {
         yield { choices: [{ delta: { content: 'New answer' } }] } as any;
       })();
-      providerClient.stream.mockResolvedValue(asyncStream);
+      runtime.stream.mockResolvedValue(asyncStream);
 
       const obs = svc.streamChat('user-1', { message: 'Follow-up', conversationId: 'conv-2' });
       const events: any[] = [];
@@ -208,15 +346,18 @@ describe('ChatService', () => {
         });
       });
 
-      // provider stream got prior turns + new message
-      expect(providerClient.stream).toHaveBeenCalledWith({
-        model: 'gpt-4o',
-        messages: [
-          { role: 'user', content: 'Previous question' },
-          { role: 'assistant', content: 'Previous answer' },
-          { role: 'user', content: 'Follow-up' },
-        ],
-      });
+      // provider stream called with (connection, { model, messages })
+      expect(runtime.stream).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: expect.any(Object), adapter: expect.any(Object) }),
+        {
+          model: 'gpt-4o',
+          messages: [
+            { role: 'user', content: 'Previous question' },
+            { role: 'assistant', content: 'Previous answer' },
+            { role: 'user', content: 'Follow-up' },
+          ],
+        },
+      );
 
       // Status tracking: append with empty content, then update to completed
       expect(conversations.appendMessage).toHaveBeenCalledWith('conv-2', '');
@@ -259,7 +400,7 @@ describe('ChatService', () => {
       // Three chunks, 30 ms apart. After ~45 ms the first two have been
       // yielded; the test unsubscribes then and waits long enough for
       // the third to also be consumed and persisted.
-      providerClient.stream.mockResolvedValue(
+      runtime.stream.mockResolvedValue(
         buildSlowStream(['Hello', ' ', 'world'], 30),
       );
 
@@ -294,7 +435,7 @@ describe('ChatService', () => {
       conversations.findStreamingMessage.mockResolvedValue(null);
       conversations.create.mockReturnValue({ id: 'conv-2', messages: [] });
       conversations.appendMessage.mockResolvedValue({ id: 'msg-2' });
-      providerClient.stream.mockResolvedValue(
+      runtime.stream.mockResolvedValue(
         buildSlowStream(['a', 'b', 'c', 'd'], 30),
       );
 
@@ -335,7 +476,7 @@ describe('ChatService', () => {
         await new Promise((r) => setTimeout(r, 30));
         throw new Error('upstream blew up');
       })();
-      providerClient.stream.mockResolvedValue(erroringStream);
+      runtime.stream.mockResolvedValue(erroringStream);
 
       // Act
       const obs = svc.streamChat('user-1', { message: 'Hi' });
@@ -389,7 +530,7 @@ describe('ChatService', () => {
       const asyncStream = (async function* () {
         yield { choices: [{ delta: { content: 'hi' } }] } as any;
       })();
-      providerClient.stream.mockResolvedValue(asyncStream);
+      runtime.stream.mockResolvedValue(asyncStream);
 
       conversations.appendMessage.mockResolvedValue({ id: 'msg-1', status: 'streaming' });
 
@@ -415,7 +556,7 @@ describe('ChatService', () => {
       conversations.findStreamingMessage.mockResolvedValue(null);
       conversations.create.mockReturnValue({ id: 'conv-1', messages: [] });
       conversations.appendMessage.mockResolvedValue({ id: 'msg-1', status: 'streaming' });
-      providerClient.stream.mockRejectedValue(new Error('provider down'));
+      runtime.stream.mockRejectedValue(new Error('provider down'));
 
       const obs = svc.streamChat('user-1', { message: 'hi', conversationId: 'conv-1' });
       const events: any[] = [];
@@ -429,6 +570,53 @@ describe('ChatService', () => {
         data: { code: 'provider_error', message: expect.any(String) },
       });
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'failed', '');
+    });
+  });
+
+  // ─── explicit model entitlement (phase 3) ────────────────────────────────
+
+  describe('explicit model entitlement', () => {
+    it('emits model_forbidden when the model exists but the caller is not entitled', async () => {
+      models.findById.mockResolvedValue({ id: 'com', enabled: true, visibility: 'commercial' });
+      access.canAccessUser.mockResolvedValue(false);
+
+      const events: any[] = [];
+      svc.streamChat('user-1', { message: 'hi', modelId: 'com' }).subscribe((e) => events.push(e));
+
+      await new Promise((r) => setTimeout(r, 0));
+      expect(events).toContainEqual({
+        event: 'error',
+        data: expect.objectContaining({ code: 'model_forbidden' }),
+      });
+      expect(conversations.create).not.toHaveBeenCalled();
+    });
+
+    it('keeps model_unavailable for a disabled model (no entitlement leak)', async () => {
+      models.findById.mockResolvedValue({ id: 'off', enabled: false, visibility: 'public' });
+      access.canAccessUser.mockResolvedValue(false);
+
+      const events: any[] = [];
+      svc.streamChat('user-1', { message: 'hi', modelId: 'off' }).subscribe((e) => events.push(e));
+
+      await new Promise((r) => setTimeout(r, 0));
+      expect(events).toContainEqual({
+        event: 'error',
+        data: expect.objectContaining({ code: 'model_unavailable' }),
+      });
+    });
+
+    it('proceeds for an entitled explicit model', async () => {
+      models.findById.mockResolvedValue({ id: 'pub', enabled: true, visibility: 'public' });
+      access.canAccessUser.mockResolvedValue(true);
+      conversations.create.mockReturnValue({ id: 'conv-1', messages: [] });
+
+      const events: any[] = [];
+      svc.streamChat('user-1', { message: 'hi', modelId: 'pub' }).subscribe((e) => events.push(e));
+
+      await new Promise((r) => setTimeout(r, 0));
+      expect(events.some((e: any) => e?.event === 'error' && e.data.code === 'model_forbidden')).toBe(
+        false,
+      );
     });
   });
 });

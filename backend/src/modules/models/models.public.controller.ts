@@ -7,9 +7,10 @@ import { Model } from './entities/model.entity';
 /**
  * Public model-list endpoint for end users.
  *
- * Returns only enabled models with display names — actualName and
- * admin-only fields are never exposed. This surface is what the
- * frontend model picker consumes.
+ * Returns only the enabled models the caller is entitled to use, with display
+ * names — actualName and admin-only fields are never exposed. Models whose
+ * visibility the caller does not satisfy are never returned, so the frontend
+ * model picker can never offer an inaccessible model.
  */
 @Controller('v1/models')
 @UseGuards(JwtAuthGuard)
@@ -18,8 +19,8 @@ export class ModelsPublicController {
 
   @Get()
   @HttpCode(HttpStatus.OK)
-  async list(@CurrentUser() _user: AuthenticatedUser) {
-    const items = await this.models.listEnabled();
+  async list(@CurrentUser() user: AuthenticatedUser) {
+    const items = await this.models.listAccessibleFor(user.id);
     return { items: items.map((m) => this.toPublic(m)) };
   }
 

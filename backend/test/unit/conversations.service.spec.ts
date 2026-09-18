@@ -188,6 +188,32 @@ describe('ConversationsService', () => {
     });
   });
 
+  // ─── setModel ──────────────────────────────────────────────────────────
+
+  describe('setModel', () => {
+    it('updates the model id when the caller is the owner', async () => {
+      const conv = await svc.create({ userId: 'u1', modelId: 'm1', userMessage: 'hi' });
+
+      const updated = await svc.setModel(conv.id, 'u1', 'm2');
+
+      expect(conversationRepo.update).toHaveBeenCalledWith(conv.id, { modelId: 'm2' });
+      expect(updated).not.toBeNull();
+    });
+
+    it('throws ForbiddenException when caller is not the owner', async () => {
+      const conv = await svc.create({ userId: 'u1', modelId: 'm1', userMessage: 'hi' });
+
+      await expect(svc.setModel(conv.id, 'someone-else', 'm2')).rejects.toBeInstanceOf(ForbiddenException);
+      expect(conversationRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('returns null when the conversation does not exist', async () => {
+      const result = await svc.setModel('c-missing', 'u1', 'm2');
+      expect(result).toBeNull();
+      expect(conversationRepo.update).not.toHaveBeenCalled();
+    });
+  });
+
   // ─── delete ────────────────────────────────────────────────────────────
 
   describe('delete', () => {

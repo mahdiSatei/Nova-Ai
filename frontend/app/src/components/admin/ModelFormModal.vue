@@ -8,7 +8,15 @@ import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
 import { createModel, updateModel } from '@/api/admin'
-import type { ModelAdmin } from '@/types/api'
+import type { ModelAdmin, ModelVisibility } from '@/types/api'
+
+// فاز ۳: سطح دسترسی مدل. «عمومی» برای همه، «تجاری» فقط کاربران با سطح دسترسی
+// تجاری، «خصوصی» تنها برای مدیران.
+const VISIBILITY_OPTIONS: Array<{ value: ModelVisibility; label: string; hint: string }> = [
+  { value: 'public', label: 'عمومی', hint: 'در دسترس همه کاربران' },
+  { value: 'commercial', label: 'تجاری', hint: 'فقط کاربران با سطح دسترسی تجاری' },
+  { value: 'private', label: 'خصوصی', hint: 'فقط برای مدیران' },
+]
 
 const props = defineProps<{ open: boolean; model: ModelAdmin | null }>()
 const emit = defineEmits<{
@@ -16,7 +24,12 @@ const emit = defineEmits<{
   saved: [model: ModelAdmin]
 }>()
 
-const form = reactive({ displayName: '', actualName: '', enabled: true })
+const form = reactive<{
+  displayName: string
+  actualName: string
+  visibility: ModelVisibility
+  enabled: boolean
+}>({ displayName: '', actualName: '', visibility: 'public', enabled: true })
 const fieldErrors = reactive<{ displayName: string | null; actualName: string | null }>({
   displayName: null,
   actualName: null,
@@ -33,6 +46,7 @@ watch(
     isEdit.value = Boolean(props.model)
     form.displayName = props.model?.displayName ?? ''
     form.actualName = props.model?.actualName ?? ''
+    form.visibility = props.model?.visibility ?? 'public'
     form.enabled = props.model?.enabled ?? true
     fieldErrors.displayName = null
     fieldErrors.actualName = null
@@ -67,12 +81,14 @@ async function onSubmit(): Promise<void> {
       saved = await updateModel(props.model.id, {
         displayName: form.displayName.trim(),
         actualName: form.actualName.trim(),
+        visibility: form.visibility,
         enabled: form.enabled,
       })
     } else {
       saved = await createModel({
         displayName: form.displayName.trim(),
         actualName: form.actualName.trim(),
+        visibility: form.visibility,
         enabled: form.enabled,
       })
     }
@@ -87,6 +103,10 @@ async function onSubmit(): Promise<void> {
         if (!fieldErrors.displayName && !fieldErrors.actualName) {
           submitError.value = { message: apiErrorMessage(err), code: err.code, requestId: err.requestId }
         }
+      } else if (err.status === 409 && err.code === 'model_is_default') {
+        // فاز ۳: مدل پیش‌فرض سیستم باید عمومی بماند؛ پیش از محدودکردن، مدل
+        // پیش‌فرض دیگری انتخاب کنید.
+        submitError.value = { message: apiErrorMessage(err), code: err.code, requestId: err.requestId }
       } else if (err.status === 409) {
         fieldErrors.displayName = 'این نام نمایشی قبلاً استفاده شده است.'
       } else {
@@ -151,6 +171,18 @@ function onCancel(): void {
               :error="fieldErrors.actualName"
               @blur="fieldErrors.actualName = validateActual(form.actualName)"
             />
+
+            <label class="flex flex-col gap-2 text-sm text-ink">
+              <span class="text-xs font-medium text-ink-muted">سطح دسترسی</span>
+              <select
+                v-model="form.visibility"
+                class="w-full appearance-none rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-ink transition-colors focus:border-primary"
+              >
+                <option v-for="opt in VISIBILITY_OPTIONS" :key="opt.value" :value="opt.value">
+                  {{ opt.label }} — {{ opt.hint }}
+                </option>
+              </select>
+            </label>
 
             <label class="flex cursor-pointer items-center gap-2 text-sm text-ink">
               <input

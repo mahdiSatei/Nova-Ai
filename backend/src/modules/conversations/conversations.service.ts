@@ -139,6 +139,38 @@ export class ConversationsService {
   }
 
   /**
+   * Switch a conversation's model. The caller MUST be the owner.
+   * Returns the updated conversation or null if not found. Throws
+   * ForbiddenException for non-owners.
+   *
+   * The model availability check (existence + `enabled`) lives in the
+   * controller where ModelsService is already injected, keeping
+   * ConversationsService free of cross-module deps for this method.
+   */
+  async setModel(
+    id: string,
+    userId: string,
+    modelId: string,
+  ): Promise<Conversation | null> {
+    const conversation = await this.conversationRepo.findOne({
+      where: { id },
+      select: ['id', 'userId'],
+    });
+
+    if (!conversation) return null;
+    if (conversation.userId !== userId) {
+      throw new ForbiddenException({
+        code: 'forbidden',
+        message: 'You do not own this conversation.',
+      });
+    }
+
+    this.logger.log(`setModel: conversationId=${id} userId=${userId} newModelId=${modelId}`);
+    await this.conversationRepo.update(id, { modelId });
+    return this.conversationRepo.findOne({ where: { id } });
+  }
+
+  /**
    * Delete a conversation by id. Returns true if it existed, false
    * otherwise. Messages are cascade-deleted by the DB.
    */

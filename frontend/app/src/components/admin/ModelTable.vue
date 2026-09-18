@@ -3,7 +3,20 @@
 // عملیات: ویرایش، toggle enabled (با تأیید برای غیرفعال‌سازی مدل پیش‌فرض)، حذف (با تأیید).
 import { PhPencilSimple, PhStar, PhStarFour, PhToggleLeft } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
-import type { ModelAdmin } from '@/types/api'
+import type { ModelAdmin, ModelVisibility } from '@/types/api'
+
+// فاز ۳: برچسب سطح دسترسی برای هر مدل.
+const VISIBILITY_LABELS: Record<ModelVisibility, string> = {
+  public: 'عمومی',
+  commercial: 'تجاری',
+  private: 'خصوصی',
+}
+
+const VISIBILITY_CLASSES: Record<ModelVisibility, string> = {
+  public: 'bg-success/15 text-success',
+  commercial: 'bg-primary/15 text-primary',
+  private: 'bg-warning/15 text-warning',
+}
 
 defineProps<{ models: ModelAdmin[]; defaultModelId: string | null }>()
 const emit = defineEmits<{ edit: [m: ModelAdmin]; toggle: [m: ModelAdmin]; remove: [m: ModelAdmin] }>()
@@ -16,6 +29,7 @@ const emit = defineEmits<{ edit: [m: ModelAdmin]; toggle: [m: ModelAdmin]; remov
         <tr class="border-b border-line bg-elevated/40 text-xs uppercase tracking-wide text-ink-muted">
           <th class="px-4 py-2.5 text-start font-medium">نام نمایشی</th>
           <th class="px-4 py-2.5 text-start font-medium">نام ارائه‌دهنده</th>
+          <th class="px-4 py-2.5 text-start font-medium">سطح دسترسی</th>
           <th class="px-4 py-2.5 text-start font-medium">وضعیت</th>
           <th class="px-4 py-2.5 text-start font-medium">پیش‌فرض</th>
           <th class="px-4 py-2.5 text-end font-medium">عملیات</th>
@@ -29,6 +43,14 @@ const emit = defineEmits<{ edit: [m: ModelAdmin]; toggle: [m: ModelAdmin]; remov
         >
           <td class="px-4 py-3 font-medium text-ink">{{ m.displayName }}</td>
           <td class="px-4 py-3 font-mono text-xs text-ink-muted">{{ m.actualName }}</td>
+          <td class="px-4 py-3">
+            <span
+              class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs"
+              :class="VISIBILITY_CLASSES[m.visibility]"
+            >
+              {{ VISIBILITY_LABELS[m.visibility] }}
+            </span>
+          </td>
           <td class="px-4 py-3">
             <button
               type="button"

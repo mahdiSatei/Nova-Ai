@@ -1,21 +1,30 @@
 import { request } from '@/api/http'
 import type {
+  AdminUser,
+  AdminUserList,
   AppConfigPublic,
   AppConfigUpdateRequest,
-  CentralProviderPublic,
-  CentralProviderUpdateRequest,
+  UserAccessTier,
+  ProviderAdmin,
+  ProviderList,
+  ProviderUpdateRequest,
   ModelAdmin,
   ModelList,
   ModelUpsertRequest,
   PaginatedQuery,
 } from '@/types/api'
 
-export function getProvider(): Promise<CentralProviderPublic> {
-  return request<CentralProviderPublic>('/v1/admin/provider')
+export function listProviders(): Promise<ProviderList> {
+  return request<ProviderList>('/v1/admin/providers')
 }
 
-export function updateProvider(body: CentralProviderUpdateRequest): Promise<CentralProviderPublic> {
-  return request<CentralProviderPublic>('/v1/admin/provider', { method: 'PUT', body })
+export function getProvider(id?: string): Promise<ProviderAdmin> {
+  const providerId = id ?? 'central'
+  return request<ProviderAdmin>(`/v1/admin/providers/${providerId}`)
+}
+
+export function updateProvider(id: string, body: ProviderUpdateRequest): Promise<ProviderAdmin> {
+  return request<ProviderAdmin>(`/v1/admin/providers/${id}`, { method: 'PATCH', body })
 }
 
 export function listAdminModels(query: PaginatedQuery = {}): Promise<ModelList<ModelAdmin>> {
@@ -46,6 +55,21 @@ export function deleteModel(
   return request<DeleteModelMigrationResult | undefined>(`/v1/admin/models/${id}`, {
     method: 'DELETE',
     query: migrateTo ? { migrateTo } : undefined,
+  })
+}
+
+// ── فاز ۳: سطح دسترسی کاربران ─────────────────────────────────────────────
+
+export function listAdminUsers(
+  query: { query?: string; limit?: number; offset?: number } = {},
+): Promise<AdminUserList> {
+  return request<AdminUserList>('/v1/admin/users', { query: { ...query } })
+}
+
+export function setUserAccessTier(id: string, accessTier: UserAccessTier): Promise<AdminUser> {
+  return request<AdminUser>(`/v1/admin/users/${id}/access-tier`, {
+    method: 'PATCH',
+    body: { accessTier },
   })
 }
 

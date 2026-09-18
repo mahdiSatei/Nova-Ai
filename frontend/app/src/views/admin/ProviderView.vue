@@ -6,9 +6,9 @@ import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import { getProvider } from '@/api/admin'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
-import type { CentralProviderPublic } from '@/types/api'
+import type { ProviderAdmin } from '@/types/api'
 
-const provider = ref<CentralProviderPublic | null>(null)
+const provider = ref<ProviderAdmin | null>(null)
 const loading = ref(true)
 const loadError = ref<ApiError | null>(null)
 
@@ -16,7 +16,7 @@ async function load(): Promise<void> {
   loading.value = true
   loadError.value = null
   try {
-    provider.value = await getProvider()
+    provider.value = await getProvider('central')
   } catch (err) {
     if (err instanceof ApiError) loadError.value = err
   } finally {
@@ -26,7 +26,7 @@ async function load(): Promise<void> {
 
 onMounted(load)
 
-function onSaved(next: CentralProviderPublic): void {
+function onSaved(next: ProviderAdmin): void {
   provider.value = next
 }
 </script>
@@ -56,8 +56,8 @@ function onSaved(next: CentralProviderPublic): void {
       @saved="onSaved"
     />
 
-    <p v-if="provider?.isConfigured" class="mt-4 text-xs text-ink-muted/70">
-      کلید API به‌صورت رمزگذاری‌شده ذخیره می‌شود. در بازخوانی‌های بعدی فقط شکل ماسک‌شده نمایش داده می‌شود.
+    <p v-if="provider?.hasApiKey" class="mt-4 text-xs text-ink-muted/70">
+      کلید API به‌صورت رمزگذاری‌شده ذخیره می‌شود.
     </p>
   </section>
 </template>

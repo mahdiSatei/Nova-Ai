@@ -23,6 +23,9 @@ const MESSAGES: Record<string, string> = {
 
   // Models / chat
   model_unavailable: 'این مدل در دسترس نیست.',
+  model_forbidden: 'این مدل برای حساب شما در دسترس نیست.',
+  model_is_default: 'این مدل پیش‌فرض سیستم است؛ ابتدا مدل پیش‌فرض دیگری انتخاب کنید.',
+  user_not_found: 'کاربر یافت نشد.',
   model_in_use: 'این مدل در حال استفاده است و قابل حذف نیست.',
   replacement_not_available: 'مدل جایگزین معتبر نیست؛ باید یک مدل فعالِ متفاوت باشد.',
   no_default_model: 'مدل پیش‌فرضی انتخاب نشده است.',

@@ -35,18 +35,14 @@ export class AddProviderModelFk1700000005000 implements MigrationInterface {
     // 5. Remove the column default so future inserts must provide a value
     await queryRunner.query(`ALTER TABLE models ALTER COLUMN provider_id DROP DEFAULT;`);
 
-    // 6. Add FK constraint (cross-DB: TypeORM createForeignKey handles driver differences)
-    // Use raw SQL to avoid TypeORM 0.3 TableColumn typing issues in addColumn/createIndex,
-    // but use createForeignKey because TypeORM generates the correct FK DDL per driver.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await queryRunner.createForeignKey('models', {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      name: 'fk_models_provider',
-      columnNames: ['provider_id'],
-      referencedTableName: 'providers',
-      referencedColumnNames: ['id'],
-      onDelete: 'RESTRICT',
-    } as any);
+    // 6. Add FK constraint (TypeORM createForeignKey has a bug with
+    // string table names on PostgreSQL 0.3.x, so use raw SQL instead).
+    await queryRunner.query(`
+      ALTER TABLE models
+        ADD CONSTRAINT fk_models_provider
+        FOREIGN KEY (provider_id) REFERENCES providers(id)
+        ON DELETE RESTRICT
+    `);
 
     // 7. Add index on provider_id
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_models_provider_id ON models (provider_id);`);

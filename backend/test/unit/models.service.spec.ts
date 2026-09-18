@@ -3,10 +3,18 @@ import { ConflictException, UnprocessableEntityException } from '@nestjs/common'
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ModelsService } from '../../src/modules/models/models.service';
 import { Model } from '../../src/modules/models/entities/model.entity';
+import { ModelAccessService } from '../../src/modules/models/model-access.service';
 
 describe('ModelsService', () => {
   let svc: ModelsService;
   let repo: any;
+  let access: {
+    loadViewer: jest.Mock;
+    canAccess: jest.Mock;
+    canAccessUser: jest.Mock;
+    filterAccessible: jest.Mock;
+    assertCanUseModel: jest.Mock;
+  };
 
   // Helper: build a minimal QueryBuilder-compatible mock around a list.
   function makeRepo(initial: Model[]) {
@@ -76,11 +84,19 @@ describe('ModelsService', () => {
 
   beforeEach(async () => {
     repo = makeRepo([]);
+    access = {
+      loadViewer: jest.fn(),
+      canAccess: jest.fn().mockReturnValue(true),
+      canAccessUser: jest.fn().mockResolvedValue(true),
+      filterAccessible: jest.fn(async (_userId: string, models: any[]) => models),
+      assertCanUseModel: jest.fn().mockResolvedValue(undefined),
+    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         ModelsService,
         { provide: getRepositoryToken(Model), useValue: repo },
+        { provide: ModelAccessService, useValue: access },
       ],
     }).compile();
 
@@ -254,6 +270,58 @@ describe('ModelsService', () => {
 
       await expect(svc.delete('m1', 'm2')).rejects.toBeInstanceOf(ConflictException);
       expect(repo.__em.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listAccessibleFor()', () => {
+    it('returns only the enabled models the caller is entitled to, name-ordered', async () => {
+      repo.__setRows([
+        { id: 'com', displayName: 'Zeta', visibility: 'commercial', enabled: true },
+        { id: 'pub', displayName: 'Alpha', visibility: 'public', enabled: true },
+        { id: 'off', displayName: 'Beta', visibility: 'public', enabled: false },
+      ] as any);
+      access.filterAccessible.mockImplementation(async (_userId: string, models: any[]) =>
+        models.filter((m) => m.visibility !== 'commercial'),
+      );
+
+      const result = await svc.listAccessibleFor('u-1');
+
+      expect(result.map((m) => m.id)).toEqual(['pub']);
+      expect(access.filterAccessible).toHaveBeenCalledWith('u-1', expect.any(Array));
+    });
+  });
+
+  describe('create() visibility', () => {
+    it('defaults to public and stores an explicit visibility', async () => {
+      const created = await svc.create({
+        displayName: 'Internal',
+        actualName: 'internal-1',
+        providerId: 'p1',
+        visibility: 'private',
+      });
+      expect(created.visibility).toBe('private');
+    });
+  });
+
+  describe('update() visibility', () => {
+    it('refuses to demote the system default away from public', async () => {
+      repo.__setRows([
+        { id: 'm-default', displayName: 'Default', actualName: 'd', providerId: 'p1', visibility: 'public', enabled: true, isDefault: true },
+      ] as any);
+
+      const err = await svc.update('m-default', { visibility: 'commercial' }).catch((e) => e);
+
+      expect(err.getStatus()).toBe(409);
+      expect(err.getResponse()).toMatchObject({ code: 'model_is_default' });
+    });
+
+    it('allows demoting a non-default model', async () => {
+      repo.__setRows([
+        { id: 'm-plain', displayName: 'Plain', actualName: 'p', providerId: 'p1', visibility: 'public', enabled: true, isDefault: false },
+      ] as any);
+
+      const updated = await svc.update('m-plain', { visibility: 'private' });
+      expect(updated.visibility).toBe('private');
     });
   });
 });

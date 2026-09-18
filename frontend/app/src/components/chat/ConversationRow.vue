@@ -29,7 +29,13 @@ defineEmits<{
       @click="$emit('open', conversation.id)"
     >
       <PhChatsCircle class="size-4 shrink-0" aria-hidden="true" />
-      <span class="min-w-0 flex-1 truncate">{{ conversation.title?.trim() || 'بدون عنوان' }}</span>
+      <span class="flex min-w-0 flex-1 flex-col">
+        <span class="truncate">{{ conversation.title?.trim() || 'بدون عنوان' }}</span>
+        <span
+          v-if="conversation.modelDisplayName"
+          class="truncate text-[11px] text-ink-muted/80"
+        >{{ conversation.modelDisplayName }}</span>
+      </span>
     </button>
     <div class="flex shrink-0 items-center">
       <button

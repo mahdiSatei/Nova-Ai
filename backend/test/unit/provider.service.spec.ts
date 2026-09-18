@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConflictException, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ProviderService, PROVIDER_ADAPTERS } from '../../src/modules/provider/provider.service';
 import { Provider } from '../../src/modules/provider/entities/provider.entity';
 import { encrypt, decrypt } from '../../src/common/crypto/credential-cipher';
@@ -28,7 +29,19 @@ describe('ProviderService', () => {
         return [paged, rows.length];
       }),
       findOne: jest.fn(async ({ where }: any) => rows.find((r) => r.id === where.id) ?? null),
-      create: jest.fn((dto: any) => ({ ...dto })),
+      createQueryBuilder: jest.fn(() => {
+        let params: { name: string; id?: string };
+        return {
+          where: jest.fn(function (this: unknown, _sql: string, values: typeof params) {
+            params = values;
+            return this;
+          }),
+          getOne: jest.fn(async () => rows.find((row) =>
+            row.name.toLowerCase() === params.name.toLowerCase() && row.id !== params.id,
+          ) ?? null),
+        };
+      }),
+      create: jest.fn((dto: any) => ({ ...dto, createdAt: new Date(), updatedAt: new Date() })),
       save: jest.fn(async (entity: any) => {
         if (!entity.id) entity.id = `provider-${Date.now()}`;
         const idx = rows.findIndex((r) => r.id === entity.id);
@@ -55,6 +68,12 @@ describe('ProviderService', () => {
         ProviderService,
         { provide: getRepositoryToken(Provider), useValue: repo },
         { provide: PROVIDER_ADAPTERS, useValue: [] },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string) => (key === 'nodeEnv' ? 'development' : undefined)),
+          },
+        },
       ],
     }).compile();
 
@@ -113,7 +132,12 @@ describe('ProviderService', () => {
       });
       expect(result.id).toBe('new-provider');
       expect(result.name).toBe('New Provider');
-      expect(result.apiKeyMasked).toBe('***1234');
+      expect(result.hasApiKey).toBe(true);
+      expect(result).not.toHaveProperty('apiKeyMasked');
+      expect(result).not.toHaveProperty('apiKeyEncrypted');
+      const stored = await repo.findOne({ where: { id: result.id } });
+      expect(stored.apiKeyEncrypted).not.toContain('sk-new-key-1234');
+      expect(decrypt(stored.apiKeyEncrypted)).toBe('sk-new-key-1234');
     });
 
     it('rejects duplicate names', async () => {
