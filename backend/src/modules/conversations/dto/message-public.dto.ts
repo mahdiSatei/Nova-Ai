@@ -1,3 +1,5 @@
+import { MessageStatus } from '../conversations.types';
+
 /**
  * Public message shape returned in conversation detail.
  *
@@ -8,4 +10,5 @@ export class MessagePublicDto {
   role!: 'user' | 'assistant';
   content!: string;
   createdAt!: string;
+  status!: MessageStatus;
 }

@@ -1,5 +1,6 @@
 export type Role = 'user' | 'admin'
 export type MessageRole = 'user' | 'assistant'
+export type MessageStatus = 'pending' | 'streaming' | 'completed' | 'failed' | 'cancelled'
 
 export interface UserPublic {
   id: string
@@ -99,6 +100,7 @@ export interface MessagePublic {
   role: MessageRole
   content: string
   createdAt: string
+  status: MessageStatus
 }
 
 export interface ConversationDetail extends ConversationSummary {

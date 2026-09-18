@@ -36,10 +36,10 @@ export class Conversation {
   @Column({ type: 'text', nullable: true })
   title!: string | null;
 
-  @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamp' })
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 
   @Column({ default: false })
