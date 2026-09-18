@@ -38,7 +38,7 @@ export interface ChatStreamHandle {
   setModel: (id: string | null) => void
   loadConversation: (id: string) => Promise<void>
   resetConversation: () => void
-  send: (text: string, opts?: { fileId?: string | null }) => Promise<void>
+  send: (text: string, opts?: { fileId?: string | null; file?: MessagePublic['file'] }) => Promise<void>
   abort: () => void
 }
 
@@ -109,7 +109,7 @@ export function useChatStream(): ChatStreamHandle {
     }
   }
 
-  function send(text: string, opts?: { fileId?: string | null }): Promise<void> {
+  function send(text: string, opts?: { fileId?: string | null; file?: MessagePublic['file'] }): Promise<void> {
     const trimmed = text.trim()
     if (!trimmed || phase.value === 'streaming') return Promise.resolve()
     const fileId = opts?.fileId?.trim() || null
@@ -120,6 +120,7 @@ export function useChatStream(): ChatStreamHandle {
       role: 'user',
       content: trimmed,
       createdAt: new Date().toISOString(),
+      file: opts?.file ?? null, // ✨ اضافه شد
     }
     pendingUser.value = userMsg
 

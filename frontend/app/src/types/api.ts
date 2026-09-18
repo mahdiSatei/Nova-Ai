@@ -99,6 +99,14 @@ export interface MessagePublic {
   role: MessageRole
   content: string
   createdAt: string
+  // ✨ اضافه شد:
+  file?: {
+    id: string
+    originalName: string
+    mimeType: string
+    size: number
+    url?: string
+  } | null
 }
 
 export interface ConversationDetail extends ConversationSummary {

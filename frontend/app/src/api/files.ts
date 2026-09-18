@@ -1,8 +1,7 @@
 import { buildUrl, newRequestId, tokenStore, refreshTokens } from './http'
 
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
+const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024
 
-/** پسوندها و MIMEهای مجاز — هماهنگ با اعتبارسنجی سمت سرور. */
 const ALLOWED_EXTENSIONS = ['.pdf', '.xlsx', '.xls', '.png', '.jpg', '.jpeg'] as const
 
 export interface UploadedFile {
@@ -23,7 +22,21 @@ export class FileValidationError extends Error {
   }
 }
 
-/** اعتبارسنجی سمت کاربر: اندازه ≤ 10MB و پسوند مجاز. */
+/** تبدیل خودکار کاراکترهای به‌هم‌ریخته (Mojibake مثل Ú¯Ø²Ø§Ø±Ø´) به فارسی سالم */
+export function fixPersianMojibake(str: string): string {
+  if (!str) return ''
+  try {
+    // اگر کاراکترهای خراب لاتین در رشته بود، آن را به UTF-8 واقعی تبدیل کن
+    if (/[\u00C0-\u00FF]/.test(str)) {
+      const bytes = Uint8Array.from(str, (c) => c.charCodeAt(0))
+      return new TextDecoder('utf-8').decode(bytes)
+    }
+    return str
+  } catch {
+    return str
+  }
+}
+
 export function validateLocalFile(file: File): void {
   const dot = file.name.lastIndexOf('.')
   const ext = dot > 0 ? file.name.slice(dot).toLowerCase() : ''
@@ -35,7 +48,6 @@ export function validateLocalFile(file: File): void {
   }
 }
 
-/** فرمت خوانا برای اندازه فایل (کیلوبایت/مگابایت). */
 export function formatFileSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} مگابایت`
   return `${Math.max(1, Math.round(bytes / 1024))} کیلوبایت`
@@ -50,11 +62,6 @@ async function readError(res: Response): Promise<{ code: string; message: string
   }
 }
 
-/**
- * POST /v1/files/upload — multipart/form-data.
- * Unlike the shared JSON `request()` helper, FormData must NOT get an
- * explicit Content-Type header (the browser sets the multipart boundary).
- */
 export async function uploadFile(file: File): Promise<UploadedFile> {
   const form = new FormData()
   form.append('file', file)
@@ -90,5 +97,11 @@ export async function uploadFile(file: File): Promise<UploadedFile> {
     err.code = code
     throw err
   }
-  return (await res.json()) as UploadedFile
+
+  const data = (await res.json()) as UploadedFile
+  
+  // ✨ تضمین نام فارسی سالم: استفاده از نام اصلی مرورگر یا رمزگشایی متن دریافتی
+  data.originalName = file.name ? file.name : fixPersianMojibake(data.originalName)
+
+  return data
 }

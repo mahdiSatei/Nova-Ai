@@ -145,7 +145,7 @@ function onDrop(e: DragEvent): void {
       <PhFile class="size-3.5 shrink-0 text-primary" aria-hidden="true" />
       <span v-if="uploading" class="truncate text-ink-muted">در حال آپلود فایل…</span>
       <template v-else-if="attachment">
-        <span class="truncate font-medium text-ink">{{ attachment.originalName }}</span>
+        <bdi dir="auto" class="truncate font-medium text-ink">{{ attachment.originalName }}</bdi>
         <span class="shrink-0 text-ink-muted/70">{{ formatFileSize(attachment.size) }}</span>
       </template>
       <button

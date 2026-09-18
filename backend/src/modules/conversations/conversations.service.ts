@@ -9,13 +9,6 @@ import { Repository } from 'typeorm';
 import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
 
-/**
- * Persistent ConversationsService backed by TypeORM.
- *
- * Replaces the in-memory stub from T005. The method signatures are
- * intentionally the same so ChatService (T005) and the controller
- * (T006) can consume this without changes.
- */
 @Injectable()
 export class ConversationsService {
   private readonly logger = new Logger(ConversationsService.name);
@@ -27,14 +20,11 @@ export class ConversationsService {
     private readonly messageRepo: Repository<Message>,
   ) {}
 
-  /**
-   * Create a new conversation with the initial user message.
-   * The title defaults to the first user message truncated to 80 chars.
-   */
   async create(input: {
     userId: string;
     modelId: string;
     userMessage: string;
+    fileId?: string | null;
   }): Promise<Conversation> {
     const conversation = this.conversationRepo.create({
       userId: input.userId,
@@ -44,27 +34,38 @@ export class ConversationsService {
 
     const saved = await this.conversationRepo.save(conversation);
 
-    // Persist the first user message.
+    // ذخیره پیام اول کاربر همراه با شناسه فایل پیوست
     await this.messageRepo.save(
       this.messageRepo.create({
         conversationId: saved.id,
         role: 'user',
         content: input.userMessage,
+        fileId: input.fileId ?? null,
       }),
     );
 
-    // Reload with messages for the caller.
     return this.conversationRepo.findOne({
       where: { id: saved.id },
-      relations: ['messages'],
+      relations: ['messages', 'messages.file'],
     }) as Promise<Conversation>;
   }
 
-  /**
-   * Append the assistant's response to an existing conversation.
-   * Returns the created message, or undefined if the conversation
-   * does not exist (caller should treat this as a no-op).
-   */
+  async appendUserMessage(
+    conversationId: string,
+    content: string,
+    fileId?: string | null,
+  ): Promise<Message> {
+    const message = this.messageRepo.create({
+      conversationId,
+      role: 'user',
+      content,
+      fileId: fileId ?? null,
+    });
+    const saved = await this.messageRepo.save(message);
+    await this.conversationRepo.update(conversationId, { updatedAt: new Date() });
+    return saved;
+  }
+
   async appendMessage(conversationId: string, content: string): Promise<Message | undefined> {
     const conversation = await this.conversationRepo.findOne({
       where: { id: conversationId },
@@ -77,30 +78,18 @@ export class ConversationsService {
       content,
     });
     const saved = await this.messageRepo.save(message);
-
-    // Bump the conversation's updatedAt.
     await this.conversationRepo.update(conversationId, { updatedAt: new Date() });
-
     return saved;
   }
 
-  /**
-   * Find a conversation by id with its messages ordered by createdAt asc.
-   * Returns null if not found.
-   */
   async findById(id: string): Promise<Conversation | null> {
     return this.conversationRepo.findOne({
       where: { id },
-      relations: ['messages'],
+      relations: ['messages', 'messages.file'],
       order: { messages: { createdAt: 'ASC' } },
     });
   }
 
-  /**
-   * List conversations for a user, pinned first and otherwise ordered
-   * by most recent activity (updatedAt desc). Supports limit/offset
-   * for pagination.
-   */
   async findByUser(userId: string, limit = 20, offset = 0): Promise<Conversation[]> {
     return this.conversationRepo.find({
       where: { userId },
@@ -110,11 +99,6 @@ export class ConversationsService {
     });
   }
 
-  /**
-   * Pin or unpin a conversation. Returns the updated conversation, or
-   * null if it does not exist. Throws ForbiddenException when the
-   * requester is not the owner.
-   */
   async setPinned(
     id: string,
     requesterId: string,
@@ -137,10 +121,6 @@ export class ConversationsService {
     return { ...conversation, pinned };
   }
 
-  /**
-   * Delete a conversation by id. Returns true if it existed, false
-   * otherwise. Messages are cascade-deleted by the DB.
-   */
   async delete(id: string, requesterId: string): Promise<boolean> {
     const conversation = await this.conversationRepo.findOne({
       where: { id },
@@ -158,8 +138,6 @@ export class ConversationsService {
     await this.conversationRepo.delete(id);
     return true;
   }
-
-  // ─────────────────────────── helpers ────────────────────────────────────
 
   private truncate(s: string, max: number): string {
     return s.length > max ? s.slice(0, max) : s;

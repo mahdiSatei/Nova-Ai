@@ -1,6 +1,4 @@
 <script setup lang="ts">
-// لیست ترنسکریپت: پیام‌های قطعی + پیام کاربر pending + بافر در حال استریم.
-// هر ردیف با ChatMessage رندر می‌شود (Markdown برای دستیار، حباب برای کاربر).
 import { computed } from 'vue'
 import ChatMessage from '@/components/chat/ChatMessage.vue'
 import type { MessagePublic } from '@/types/api'
@@ -19,6 +17,7 @@ interface Row {
   createdAt: string | null
   streaming: boolean
   pending: boolean
+  file?: MessagePublic['file']
 }
 
 const rows = computed<Row[]>(() => {
@@ -29,6 +28,7 @@ const rows = computed<Row[]>(() => {
     createdAt: m.createdAt,
     streaming: false,
     pending: false,
+    file: m.file, // ✨
   }))
   if (props.pendingUser) {
     out.push({
@@ -38,6 +38,7 @@ const rows = computed<Row[]>(() => {
       createdAt: props.pendingUser.createdAt,
       streaming: false,
       pending: Boolean(props.isStreaming),
+      file: props.pendingUser.file, // ✨
     })
   }
   if (props.streamingText || props.isStreaming) {
@@ -64,6 +65,7 @@ const rows = computed<Row[]>(() => {
       :created-at="row.createdAt"
       :streaming="row.streaming"
       :pending="row.pending"
+      :file="row.file"
     />
   </ol>
 </template>

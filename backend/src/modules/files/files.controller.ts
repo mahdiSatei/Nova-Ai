@@ -76,6 +76,10 @@ export class FilesController {
         message: 'File exceeds the 10MB size limit.',
       });
     }
+
+    // ✨ رفع باگ کاراکترهای فارسی و تبدیل Latin1 به UTF-8
+    file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
+
     const record = await this.files.create(file, user.id);
     return FilesController.toPublic(record);
   }

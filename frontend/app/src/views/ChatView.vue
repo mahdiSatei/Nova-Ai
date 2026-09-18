@@ -124,11 +124,17 @@ async function onSubmit(): Promise<void> {
   const text = inputText.value
   if (!text.trim() || inputDisabled.value) return
   if (!resolvedId()) justStartedConversation.value = true
-  const fileId = attachedFile.value?.id ?? null
+  
+  // نگه‌داشتن فایل قبل از پاک شدن ورودی
+  const fileToAttach = attachedFile.value
+  const fileId = fileToAttach?.id ?? null
+  
   inputText.value = ''
   attachedFile.value = null
   pinnedToBottom.value = true
-  await chat.send(text, { fileId })
+
+  // ✨ ارسال fileId به همراه مشخصات فایل
+  await chat.send(text, { fileId, file: fileToAttach })
 }
 
 function onStop(): void {

@@ -9,6 +9,7 @@ import { Model } from '../modules/models/entities/model.entity';
 import { AppConfig } from '../modules/app-config/entities/app-config.entity';
 import { Conversation } from '../modules/conversations/entities/conversation.entity';
 import { Message } from '../modules/conversations/entities/message.entity';
+import { FileRecord } from '../modules/files/entities/file.entity'; // ✨ اضافه شد
 
 // Load .env if present so CLI scripts (migration:run etc.) see the same
 // environment variables as the running app.
@@ -17,7 +18,6 @@ loadDotenv({ path: join(process.cwd(), '.env') });
 const driver = (process.env.DB_DRIVER ?? 'sqlite') as 'sqlite' | 'postgres';
 
 function buildPostgresUrl(): string {
-  // Prefer individual connection vars; fall back to POSTGRES_URL if provided.
   if (process.env.POSTGRES_URL) {
     return process.env.POSTGRES_URL;
   }
@@ -34,7 +34,7 @@ export const dataSourceOptions: DataSourceOptions =
     ? {
         type: 'postgres',
         url: buildPostgresUrl(),
-        entities: [User, RefreshToken, CentralProvider, Model, AppConfig, Conversation, Message],
+        entities: [User, RefreshToken, CentralProvider, Model, AppConfig, Conversation, Message, FileRecord], // ✨ اضافه شد
         migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
         synchronize: false,
         logging: process.env.NODE_ENV === 'development',
@@ -42,7 +42,7 @@ export const dataSourceOptions: DataSourceOptions =
     : {
         type: 'sqlite',
         database: process.env.SQLITE_FILE ?? './data/app.sqlite',
-        entities: [User, RefreshToken, CentralProvider, Model, AppConfig, Conversation, Message],
+        entities: [User, RefreshToken, CentralProvider, Model, AppConfig, Conversation, Message, FileRecord], // ✨ اضافه شد
         migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
         synchronize: false,
         logging: process.env.NODE_ENV === 'development',

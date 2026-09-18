@@ -1,18 +1,15 @@
 <script setup lang="ts">
-// یک ردیف پیام:
-// - کاربر: حباب متمایز در ابتدای سطر (در RTL: سمت راست) با avatar کوچک.
-// - دستیار: avatar روی ستون مقابل + متن Markdown تقریباً تمام‌عرض که با
-//   پس‌زمینه ترکیب می‌شود (سبک Claude/ChatGPT).
-// - pending (در حال ارسال) و streaming (caret + نقطه‌های پران) همین‌جا.
 import { computed, ref } from 'vue'
-import { PhRobot, PhCopy, PhCheck, PhHourglassMedium } from '@phosphor-icons/vue'
+import { PhRobot, PhCopy, PhCheck, PhHourglassMedium, PhFile, PhFilePdf, PhFileXls, PhImage } from '@phosphor-icons/vue'
 import MarkdownRenderer from '@/components/chat/MarkdownRenderer.vue'
 import TypingIndicator from '@/components/chat/TypingIndicator.vue'
 import UserAvatar from '@/components/user/UserAvatar.vue'
 import { copyText } from '@/utils/clipboard'
 import { formatDateTime } from '@/utils/time'
 import { avatarValueFor } from '@/utils/avatar'
+import { formatFileSize } from '@/api/files'
 import { useAuthStore } from '@/stores/auth'
+import type { MessagePublic } from '@/types/api'
 
 const props = withDefaults(
   defineProps<{
@@ -21,8 +18,9 @@ const props = withDefaults(
     createdAt?: string | null
     streaming?: boolean
     pending?: boolean
+    file?: MessagePublic['file']
   }>(),
-  { createdAt: null, streaming: false, pending: false },
+  { createdAt: null, streaming: false, pending: false, file: null },
 )
 
 const isUser = props.role === 'user'
@@ -64,19 +62,39 @@ function onCopy(): void {
       class="flex min-w-0 flex-col gap-1"
       :class="isUser ? 'items-start max-w-[min(42rem,85%)]' : 'w-0 flex-1 items-stretch'"
     >
-      <!-- بدنه -->
+      <!-- بدنه پیام کاربر -->
       <div
         v-if="isUser"
-        class="rounded-2xl rounded-ss-md bg-elevated px-4 py-2.5 text-sm leading-relaxed text-ink shadow-sm"
+        class="flex flex-col gap-2 rounded-2xl rounded-ss-md bg-elevated px-4 py-2.5 text-sm leading-relaxed text-ink shadow-sm"
       >
+        <!-- ✨ کارت فایل پیوست شده بالای متن پیام -->
+        <div
+          v-if="file"
+          class="flex items-center gap-2.5 rounded-xl border border-line bg-surface/80 px-3 py-2 text-xs shadow-xs"
+        >
+          <span class="text-primary shrink-0">
+            <PhFilePdf v-if="file.mimeType?.includes('pdf')" class="size-5" />
+            <PhFileXls v-else-if="file.mimeType?.includes('sheet') || file.mimeType?.includes('excel')" class="size-5" />
+            <PhImage v-else-if="file.mimeType?.includes('image')" class="size-5" />
+            <PhFile v-else class="size-5" />
+          </span>
+          <div class="min-w-0 flex-1">
+            <!-- تگ bdi مانع از جابه‌جا شدن پسوند فایل در نام‌های فارسی می‌شود -->
+            <bdi dir="auto" class="block truncate font-medium text-ink">{{ file.originalName }}</bdi>
+            <span class="text-[11px] text-ink-muted/80">{{ formatFileSize(file.size) }}</span>
+          </div>
+        </div>
+
         <span class="whitespace-pre-wrap">{{ content }}</span>
       </div>
+
+      <!-- بدنه پیام هوش مصنوعی -->
       <div v-else class="min-w-0 py-0.5 text-ink">
         <MarkdownRenderer :source="content" :streaming="streaming" />
         <TypingIndicator v-if="streaming && !content" />
       </div>
 
-      <!-- فوتر: زمان / وضعیت / کپی -->
+      <!-- فوتر -->
       <footer
         class="flex items-center gap-2 px-1 text-[11px] text-ink-muted/70"
         :class="{ 'flex-row-reverse': !isUser }"

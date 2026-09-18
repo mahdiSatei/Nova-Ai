@@ -63,42 +63,7 @@ export class ConversationsController {
   /**
    * Get a single conversation with its full message transcript.
    */
-  @Get(':id')
-  async get(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
-  ): Promise<{ id: string; modelId: string; title: string | null; pinned: boolean; createdAt: string; updatedAt: string; messages: Array<{ id: string; role: string; content: string; createdAt: string }> }> {
-    const conversation = await this.conversations.findById(id);
-
-    if (!conversation) {
-      throw new NotFoundException({
-        code: 'conversation_not_found',
-        message: 'Conversation not found.',
-      });
-    }
-
-    if (conversation.userId !== user.id) {
-      throw new ForbiddenException({
-        code: 'forbidden',
-        message: 'You do not have access to this conversation.',
-      });
-    }
-
-    return {
-      id: conversation.id,
-      modelId: conversation.modelId,
-      title: conversation.title,
-      pinned: conversation.pinned,
-      createdAt: conversation.createdAt.toISOString(),
-      updatedAt: conversation.updatedAt.toISOString(),
-      messages: conversation.messages.map((m) => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        createdAt: m.createdAt.toISOString(),
-      })),
-    };
-  }
+  
 
   /**
    * Pin or unpin a conversation. Idempotent full-state replacement.
