@@ -1,6 +1,9 @@
 import {
   BadRequestException,
   Controller,
+  Get,
+  NotFoundException,
+  Param,
   PayloadTooLargeException,
   Post,
   UploadedFile,
@@ -77,11 +80,41 @@ export class FilesController {
       });
     }
 
-    // ✨ رفع باگ کاراکترهای فارسی و تبدیل Latin1 به UTF-8
-    file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    // رفع باگ کاراکترهای فارسی در نام فایل
+    try {
+      file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    } catch {
+      /* ignore */
+    }
 
     const record = await this.files.create(file, user.id);
     return FilesController.toPublic(record);
+  }
+
+  @Get(':id/status')
+  async getStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<{
+    id: string;
+    originalName: string;
+    status: string;
+    errorMessage: string | null;
+  }> {
+    const record = await this.files.findOwned(id, user.id);
+    if (!record) {
+      throw new NotFoundException({
+        code: 'file_not_found',
+        message: 'File was not found.',
+      });
+    }
+
+    return {
+      id: record.id,
+      originalName: record.originalName,
+      status: record.status,
+      errorMessage: record.errorMessage ?? null,
+    };
   }
 
   static toPublic(record: FileRecord): {
