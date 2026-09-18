@@ -19,6 +19,8 @@ import type { MessageStatus } from '@/types/api'
 const props = withDefaults(
   defineProps<{
     role: 'user' | 'assistant'
+    /** Real message id, used to target retry on the correct failed row. */
+    messageId?: string
     content: string
     createdAt?: string | null
     streaming?: boolean
@@ -144,7 +146,7 @@ function onCopy(): void {
               v-if="onRetry"
               type="button"
               class="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-xs text-primary hover:bg-primary-soft"
-              @click="onRetry(content)"
+              @click="onRetry(messageId ?? content)"
             >
               <PhArrowsClockwise class="size-3" aria-hidden="true" />
               <span>تلاش مجدد</span>
@@ -160,7 +162,7 @@ function onCopy(): void {
               v-if="onRetry"
               type="button"
               class="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-xs text-primary hover:bg-primary-soft"
-              @click="onRetry(content)"
+              @click="onRetry(messageId ?? content)"
             >
               <PhArrowsClockwise class="size-3" aria-hidden="true" />
               <span>تلاش مجدد</span>

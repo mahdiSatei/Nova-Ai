@@ -204,7 +204,12 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathId'
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: Conversation with messages
@@ -228,7 +233,12 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathId'
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '204':
           description: Deleted
@@ -249,19 +259,22 @@ paths:
         JSON object. The stream terminates with a final `event: done`
         on success or `event: error` on failure.
 
+        The first event is always `event: start` carrying the real
+        `conversationId` and `assistantMessageId`, so clients can route
+        cancellation, retries, and transcript sync before the first token.
+
         **Active model resolution**: explicit `modelId` -> caller's sticky
         choice -> admin's default model. If no model is resolvable, the
         server returns 422 with `code = "no_model_available"`.
 
         **Disconnect resilience**: if the client disconnects mid-stream
         (browser closed, network dropped, navigation away, page refresh),
-        the backend keeps generating the assistant response in memory and
-        persists the FULL response as a `role: "assistant"` message on the
-        conversation only when the stream completes. Reconnecting clients
-        can tap into the live in-progress stream via
-        `POST /v1/chat/{conversationId}/resume` and receive all accumulated
-        content plus any new tokens. No per-chunk database writes occur
-        during streaming.
+        the server keeps generating the assistant response to completion
+        and persists the FULL response as a `role: "assistant"` message
+        on the conversation. No `event: done` is delivered to the
+        disconnected client (its socket is gone), but the server-side
+        work runs to the end. The user can read the persisted message
+        via `GET /v1/conversations/:id` after generation completes.
       security:
         - bearerAuth: []
       requestBody:
@@ -278,6 +291,9 @@ paths:
               schema:
                 type: string
                 example: |
+                  event: start
+                  data: {"conversationId":"c0a8...","assistantMessageId":"m1f2..."}
+
                   data: {"delta":"Hello"}
 
                   data: {"delta":" there"}
@@ -305,43 +321,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /v1/chat/{conversationId}/resume:
-    post:
-      tags: [user]
-      summary: Resume an in-progress streaming generation
-      description: |
-        Subscribe to the active provider stream held in memory for a
-        conversation. The client receives all accumulated content as a
-        single delta event, followed by any new tokens as they arrive.
-        Returns `404` with `code = "no_active_stream"` if the generation
-        has already completed, been cancelled, or failed.
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: '#/components/parameters/PathConversationId'
-      responses:
-        '200':
-          description: SSE stream — accumulated + live tokens
-          content:
-            text/event-stream:
-              schema:
-                type: string
-                example: |
-                  data: {"delta":"Full accumulated text so far..."}
-
-                  data: {"delta":" next token"}
-
-                  event: done
-                  data: {}
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          description: No active stream for this conversation
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
   /v1/chat/{conversationId}/cancel:
     post:
       tags: [user]
@@ -349,11 +328,19 @@ paths:
       description: |
         Stops an in-progress streaming generation. The backend sets the
         streaming assistant message status to `cancelled` and preserves
-        whatever content was accumulated. Returns the cancelled message id.
+        whatever content was accumulated, aborts the upstream provider
+        request, and emits a terminal `event: error` with
+        `code = "generation_cancelled"` on the SSE stream. Returns the
+        cancelled message id.
       security:
         - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathConversationId'
+        - in: path
+          name: conversationId
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: Generation cancelled
@@ -383,16 +370,26 @@ paths:
   /v1/chat/{conversationId}/retry:
     post:
       tags: [user]
-      summary: Retry a failed or cancelled generation
+      summary: Retry a failed or cancelled generation as a live SSE stream
       description: |
-        Creates a new assistant message with `status: streaming` and
-        begins a fresh generation. The previous failed/cancelled message
-        is retained in history. Requires the `failedMessageId` of the
-        message to retry.
+        Re-runs the generation pipeline for a failed/cancelled assistant
+        message. Creates a new assistant message with `status: streaming`
+        and streams it live as `text/event-stream` — the same event
+        sequence as `/v1/chat/stream`: a first `event: start` carrying
+        the real `conversationId` and new `assistantMessageId`, then
+        `data: {"delta":...}` chunks, then `event: done` on success or
+        `event: error` on failure. The previous failed/cancelled message
+        is retained in history (and excluded from model context).
+        Requires the `failedMessageId` of the message to retry.
       security:
         - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathConversationId'
+        - in: path
+          name: conversationId
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -401,25 +398,31 @@ paths:
               $ref: '#/components/schemas/RetryRequest'
       responses:
         '200':
-          description: New generation started
+          description: SSE stream of the retried generation
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  event: start
+                  data: {"conversationId":"c0a8...","assistantMessageId":"m7d9..."}
+
+                  data: {"delta":"Sure"}
+
+                  data: {"delta":" — here you go"}
+
+                  event: done
+                  data: {}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Conversation or failed message not found
           content:
             application/json:
               schema:
-                type: object
-                required: [messageId, status]
-                properties:
-                  messageId:
-                    type: string
-                    format: uuid
-                  status:
-                    type: string
-                    example: streaming
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          description: Conversation not found
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: A generation is already in progress for this conversation
           content:
             application/json:
               schema:
@@ -589,7 +592,12 @@ paths:
       security:
         - bearerAdminAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathId'
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -617,7 +625,12 @@ paths:
       security:
         - bearerAdminAuth: []
       parameters:
-        - $ref: '#/components/parameters/PathId'
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '204':
           description: Deleted
@@ -688,8 +701,7 @@ paths:
 
 components:
   securitySchemes:
-    bearerAuth:
-      type: http
+    bearer:
       scheme: bearer
       bearerFormat: JWT
     bearerAdminAuth:

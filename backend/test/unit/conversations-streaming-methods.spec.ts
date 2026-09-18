@@ -223,44 +223,8 @@ describe('ConversationsService — streaming methods', () => {
     });
   });
 
-  // ─── retryGeneration ──────────────────────────────────────────────────
-
-  describe('retryGeneration', () => {
-    it('creates a new streaming assistant message when requester is the owner', async () => {
-      const conv = await svc.create({ userId: 'u1', modelId: 'm1', userMessage: 'hi' });
-      const failedMsg = messageRepo.create({
-        conversationId: conv.id,
-        role: 'assistant',
-        content: 'error response',
-        status: 'failed',
-      });
-      await messageRepo.save(failedMsg);
-
-      const result = await svc.retryGeneration(conv.id, failedMsg.id, 'u1');
-      expect(result).not.toBeNull();
-      expect(result?.status).toBe('streaming');
-      expect(result?.content).toBe('');
-      expect(result?.role).toBe('assistant');
-      // Should be a different message (new id).
-      expect(result?.id).not.toBe(failedMsg.id);
-    });
-
-    it('returns null when the conversation does not exist', async () => {
-      const result = await svc.retryGeneration('nonexistent', 'fake-msg-id', 'u1');
-      expect(result).toBeNull();
-    });
-
-    it('throws ForbiddenException when requester is not the owner', async () => {
-      const conv = await svc.create({ userId: 'u1', modelId: 'm1', userMessage: 'hi' });
-      const failedMsg = messageRepo.create({
-        conversationId: conv.id,
-        role: 'assistant',
-        content: 'error response',
-        status: 'failed',
-      });
-      await messageRepo.save(failedMsg);
-
-      expect(svc.retryGeneration(conv.id, failedMsg.id, 'u2')).rejects.toBeInstanceOf(ForbiddenException);
-    });
-  });
+  // NOTE: the old retryGeneration (which created a zombie 'streaming' row
+  // without ever starting a generation) was removed. Retry now lives in
+  // ChatService.retryGenerationStream — an SSE endpoint that runs the real
+  // generation pipeline (see chat.service.spec.ts).
 });

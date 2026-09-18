@@ -1,6 +1,11 @@
-import { API_BASE, buildUrl, newRequestId, request, tokenStore } from '@/api/http'
+import { API_BASE, buildUrl, newRequestId, request, tokenStore, withStreamAuthRetry } from '@/api/http'
 import { streamErrorMessage } from '@/utils/errors'
 import type { ChatRequest, SseDelta, SseError } from '@/types/api'
+
+export interface StreamStartInfo {
+  conversationId: string
+  assistantMessageId: string
+}
 
 export interface StreamHandlers {
   /** text is the delta; isFirst is true only for the first event (accumulated text on resume) */
@@ -8,6 +13,8 @@ export interface StreamHandlers {
   onDone: () => void
   /** Stream-level error event, HTTP-level error, or network failure */
   onError: (err: { code: string; message: string }) => void
+  /** Server assigns the real conversation + assistant message ids (new streams) */
+  onStart?: (info: StreamStartInfo) => void
 }
 
 /**
@@ -17,21 +24,24 @@ export interface StreamHandlers {
  */
 export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortController {
   const controller = new AbortController()
-  const tokens = tokenStore.load()
 
   void (async () => {
     try {
-      const res = await fetch(buildUrl('/v1/chat/stream'), {
-        method: 'POST',
-        headers: {
+      const res = await withStreamAuthRetry(async (accessToken) => {
+        const headers: Record<string, string> = {
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
           'X-Request-ID': newRequestId(),
-          ...(tokens ? { Authorization: `Bearer ${tokens.accessToken}` } : {}),
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
+        }
+        if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+        return fetch(buildUrl('/v1/chat/stream'), {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        })
       })
+      if (!res) return
 
       if (!res.ok) {
         let code = 'unknown_error'
@@ -95,6 +105,21 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
             })
             return
           }
+          if (eventName === 'start') {
+            let startInfo: Partial<StreamStartInfo> = {}
+            try {
+              startInfo = JSON.parse(payload) as Partial<StreamStartInfo>
+            } catch {
+              /* malformed payload */
+            }
+            if (startInfo.conversationId && startInfo.assistantMessageId) {
+              handlers.onStart?.({
+                conversationId: startInfo.conversationId,
+                assistantMessageId: startInfo.assistantMessageId,
+              })
+            }
+            continue
+          }
           if (payload) {
             try {
               const parsed = JSON.parse(payload) as SseDelta
@@ -131,17 +156,135 @@ export async function cancelGeneration(conversationId: string): Promise<{ messag
 }
 
 /**
- * POST /v1/chat/:conversationId/retry — retry a failed/cancelled generation.
- * Body: { failedMessageId: string }
+ * POST /v1/chat/:conversationId/retry — retry a failed/cancelled
+ * generation as a live SSE stream. Same event protocol as streamChat:
+ * start (ids), deltas, done/error. Returns an AbortController.
  */
-export async function retryGeneration(
+export function retryStream(
   conversationId: string,
   failedMessageId: string,
-): Promise<{ messageId: string; status: string }> {
-  return request<{ messageId: string; status: string }>(`/v1/chat/${conversationId}/retry`, {
-    method: 'POST',
-    body: { failedMessageId },
-  })
+  handlers: StreamHandlers,
+): AbortController {
+  const controller = new AbortController()
+
+  void (async () => {
+    try {
+      const res = await withStreamAuthRetry(async (accessToken) => {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+          'X-Request-ID': newRequestId(),
+        }
+        if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+        return fetch(buildUrl(`/v1/chat/${conversationId}/retry`), {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ failedMessageId }),
+          signal: controller.signal,
+        })
+      })
+      if (!res) return
+
+      if (!res.ok) {
+        let code = 'unknown_error'
+        let serverMessage = `Request failed with status ${res.status}`
+        try {
+          const errBody = await res.json()
+          code = errBody.code ?? code
+          serverMessage = errBody.message ?? serverMessage
+        } catch {
+          /* non-JSON error body */
+        }
+        handlers.onError({ code, message: streamErrorMessage(code, serverMessage) })
+        return
+      }
+      if (!res.body) {
+        handlers.onError({
+          code: 'no_stream',
+          message: streamErrorMessage('no_stream'),
+        })
+        return
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { value, done: eof } = await reader.read()
+        if (eof) break
+        buffer += decoder.decode(value, { stream: true })
+
+        let sep: number
+        while ((sep = buffer.indexOf('\n\n')) !== -1) {
+          const rawEvent = buffer.slice(0, sep)
+          buffer = buffer.slice(sep + 2)
+
+          let eventName = 'message'
+          const dataLines: string[] = []
+          for (const line of rawEvent.split('\n')) {
+            if (line.startsWith('event:')) eventName = line.slice(6).trim()
+            else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
+          }
+          const payload = dataLines.join('\n')
+
+          if (eventName === 'done') {
+            handlers.onDone()
+            return
+          }
+          if (eventName === 'error') {
+            let parsed: Partial<SseError> = {}
+            try {
+              parsed = JSON.parse(payload) as SseError
+            } catch {
+              /* malformed payload */
+            }
+            const code = parsed.code ?? 'stream_error'
+            handlers.onError({
+              code,
+              message: streamErrorMessage(code, parsed.message),
+            })
+            return
+          }
+          if (eventName === 'start') {
+            let startInfo: Partial<StreamStartInfo> = {}
+            try {
+              startInfo = JSON.parse(payload) as Partial<StreamStartInfo>
+            } catch {
+              /* malformed payload */
+            }
+            if (startInfo.conversationId && startInfo.assistantMessageId) {
+              handlers.onStart?.({
+                conversationId: startInfo.conversationId,
+                assistantMessageId: startInfo.assistantMessageId,
+              })
+            }
+            continue
+          }
+          if (payload) {
+            try {
+              const parsed = JSON.parse(payload) as SseDelta
+              if (typeof parsed.delta === 'string') handlers.onDelta(parsed.delta, false)
+            } catch {
+              /* ignore malformed data frame */
+            }
+          }
+        }
+      }
+      // Stream closed without an explicit done/error event.
+      handlers.onDone()
+    } catch (err) {
+      if (controller.signal.aborted) return
+      const fallback =
+        err instanceof Error && err.message ? err.message : undefined
+      handlers.onError({
+        code: 'network_error',
+        message: streamErrorMessage('network_error', fallback),
+      })
+    }
+  })()
+
+  return controller
 }
 
 /**
@@ -154,20 +297,23 @@ export function resumeStream(
   handlers: StreamHandlers,
 ): AbortController {
   const controller = new AbortController()
-  const tokens = tokenStore.load()
 
   void (async () => {
     try {
-      const res = await fetch(buildUrl(`/v1/chat/${conversationId}/resume`), {
-        method: 'POST',
-        headers: {
+      const res = await withStreamAuthRetry(async (accessToken) => {
+        const headers: Record<string, string> = {
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
           'X-Request-ID': newRequestId(),
-          ...(tokens ? { Authorization: `Bearer ${tokens.accessToken}` } : {}),
-        },
-        signal: controller.signal,
+        }
+        if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+        return fetch(buildUrl(`/v1/chat/${conversationId}/resume`), {
+          method: 'POST',
+          headers,
+          signal: controller.signal,
+        })
       })
+      if (!res) return
 
       if (!res.ok) {
         let code = 'unknown_error'
