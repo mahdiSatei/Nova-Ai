@@ -8,6 +8,7 @@ import type {
   ModelList,
   ModelUpsertRequest,
   PaginatedQuery,
+  UserPublic,
 } from '@/types/api'
 
 export function getProvider(): Promise<CentralProviderPublic> {
@@ -70,6 +71,12 @@ export interface AdminFileRecord {
 
 export async function listAdminFiles(limit = 50, offset = 0): Promise<AdminFileRecord[]> {
   return request<AdminFileRecord[]>(`/v1/admin/files`, {
+    query: { limit: String(limit), offset: String(offset) }
+  })
+}
+
+export async function listAdminUsers(limit = 20, offset = 0): Promise<UserPublic[]> {
+  return request<UserPublic[]>(`/v1/admin/users`, {
     query: { limit: String(limit), offset: String(offset) }
   })
 }

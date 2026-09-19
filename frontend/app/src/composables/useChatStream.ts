@@ -72,7 +72,6 @@ export function useChatStream(): ChatStreamHandle {
   const selectedModelId = ref<string | null>(loadSavedModelId())
 
   let controller: AbortController | null = null
-  let currentStreamConversationId: string | null = null
   let retryTimer: ReturnType<typeof setInterval> | null = null
   let retryCount = 0
   const MAX_RETRIES = 5
@@ -191,7 +190,6 @@ export function useChatStream(): ChatStreamHandle {
       const detail = await getConversation(convId)
       transcript.value = detail.messages
       conversationId.value = detail.id
-      currentStreamConversationId = detail.id
       saveConversationId(detail.id)
 
       const streamingMsg = detail.messages.find(
@@ -323,7 +321,6 @@ export function useChatStream(): ChatStreamHandle {
 
     const handlers: StreamHandlers = {
       onStart: (info) => {
-        currentStreamConversationId = info.conversationId
         saveConversationId(info.conversationId)
         if (generation.value) {
           generation.value = {
@@ -454,7 +451,7 @@ export function useChatStream(): ChatStreamHandle {
         }
         generationState.value = 'streaming'
         saveConversationId(detail.id)
-        await startResumeStream(detail.id, streamingMsg.id, streamingMsg.content)
+        await startResumeStream(detail.id)
       } else {
         const finalMsg = detail.messages.at(-1)
         if (finalMsg?.role === 'assistant') {
@@ -478,11 +475,7 @@ export function useChatStream(): ChatStreamHandle {
     }
   }
 
-  async function startResumeStream(
-    convId: string,
-    assistantMsgId: string,
-    existingContent: string,
-  ): Promise<void> {
+  async function startResumeStream(convId: string): Promise<void> {
     controller = resumeStream(
       convId,
       {
@@ -560,7 +553,6 @@ export function useChatStream(): ChatStreamHandle {
       const detail = await getConversation(id)
       transcript.value = detail.messages
       conversationId.value = detail.id
-      currentStreamConversationId = detail.id
       saveConversationId(detail.id)
 
       const streamingMsg = detail.messages.find(
@@ -575,7 +567,7 @@ export function useChatStream(): ChatStreamHandle {
           content: streamingMsg.content,
         }
         generationState.value = 'streaming'
-        await startResumeStream(detail.id, streamingMsg.id, streamingMsg.content)
+        await startResumeStream(detail.id)
       } else {
         generation.value = null
         generationState.value = 'idle'
@@ -602,7 +594,6 @@ export function useChatStream(): ChatStreamHandle {
     abort()
     transcript.value = []
     conversationId.value = null
-    currentStreamConversationId = null
     clearSavedConversationId()
     generation.value = null
     generationState.value = 'idle'
@@ -638,13 +629,11 @@ export function useChatStream(): ChatStreamHandle {
     connectionError.value = null
 
     const targetConversationId = conversationId.value
-    currentStreamConversationId = targetConversationId
     if (targetConversationId) saveConversationId(targetConversationId)
 
     const handlers: StreamHandlers = {
       onStart: (info) => {
         conversationId.value = info.conversationId
-        currentStreamConversationId = info.conversationId
         saveConversationId(info.conversationId)
         if (generation.value && generation.value.assistantMessageId !== info.assistantMessageId) {
           const oldId = generation.value.assistantMessageId
@@ -749,8 +738,8 @@ export function useChatStream(): ChatStreamHandle {
 
     controller = streamChat(
       {
-        conversationId: targetConversationId,
-        modelId,
+        conversationId: targetConversationId ?? undefined,
+        modelId: modelId ?? undefined,
         message: trimmed,
         fileId,
       },

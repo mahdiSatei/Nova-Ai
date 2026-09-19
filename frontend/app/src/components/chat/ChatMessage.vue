@@ -4,7 +4,6 @@ import {
   PhRobot,
   PhCopy,
   PhCheck,
-  PhHourglassMedium,
   PhFile,
   PhFilePdf,
   PhFileXls,
@@ -34,7 +33,7 @@ const props = withDefaults(
     file?: MessagePublic['file'] | null
     status?: MessageStatus
     showRecovery?: boolean
-    recoveryStatus?: MessageStatus
+    recoveryStatus?: MessageStatus | null
     onRetry?: (failedMessageId: string) => void
     onReconnect?: () => void
     onCancel?: () => void

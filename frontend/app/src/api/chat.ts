@@ -1,4 +1,4 @@
-import { API_BASE, buildUrl, newRequestId, request, tokenStore, withStreamAuthRetry } from '@/api/http'
+import { API_BASE, buildUrl, newRequestId, request, withStreamAuthRetry } from '@/api/http'
 import { streamErrorMessage } from '@/utils/errors'
 import type { ChatRequest, SseDelta, SseError } from '@/types/api'
 

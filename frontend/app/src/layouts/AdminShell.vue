@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { RouterLink, RouterView, useRouter } from 'vue-router'
-import { PhGear, PhListBullets, PhPlugsConnected, PhSignOut, PhStar, PhMoon, PhSun, PhChatCircleText, PhUserGear, PhFileText } from '@phosphor-icons/vue'
-import BaseButton from '@/components/ui/BaseButton.vue'
+import { PhGear, PhListBullets, PhPlugsConnected, PhSignOut, PhStar, PhMoon, PhSun, PhChatCircleText, PhFileText, PhUsers } from '@phosphor-icons/vue'
 import { useAuthStore } from '@/stores/auth'
 import { useTheme } from '@/composables/useTheme'
 import UserAvatar from '@/components/user/UserAvatar.vue'
@@ -17,6 +16,7 @@ const nav = [
   { to: { name: 'admin-models' }, label: 'کاتالوگ مدل‌ها', icon: PhListBullets },
   { to: { name: 'admin-default-model' }, label: 'مدل پیش‌فرض', icon: PhStar },
   { to: { name: 'admin-files' }, label: 'مدیریت فایل‌ها', icon: PhFileText },
+  { to: { name: 'admin-users' }, label: 'کاربران', icon: PhUsers },
 ]
 
 const userMenuOpen = ref(false)
