@@ -79,6 +79,39 @@ export class EnvironmentVariables {
   @IsString()
   PROVIDER_ENCRYPTION_KEY = '';
 
+  /** MinIO / S3-compatible object storage. */
+  @IsString()
+  @IsOptional()
+  STORAGE_ENDPOINT = 'localhost';
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @IsOptional()
+  STORAGE_PORT = 9000;
+
+  @IsString()
+  @IsOptional()
+  STORAGE_USE_SSL = 'false';
+
+  @IsString()
+  @IsOptional()
+  STORAGE_ACCESS_KEY = 'minioadmin';
+
+  @IsString()
+  @IsOptional()
+  STORAGE_SECRET_KEY = 'minioadminpassword';
+
+  @IsString()
+  @IsOptional()
+  STORAGE_BUCKET = 'chat-files';
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @IsOptional()
+  STORAGE_PRESIGN_EXPIRY_SEC = 604800;
+
   /** Optional; only required for the admin seed script. */
   @IsString()
   @IsOptional()
@@ -87,6 +120,16 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   SEED_ADMIN_PASSWORD?: string;
+
+  @IsString()
+  @IsOptional()
+  REDIS_HOST = 'localhost';
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @IsOptional()
+  REDIS_PORT = 6379;
 }
 
 /**

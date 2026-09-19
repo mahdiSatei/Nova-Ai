@@ -8,6 +8,7 @@ import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import ModelPicker from '@/components/chat/ModelPicker.vue'
 import MessageList from '@/components/chat/MessageList.vue'
 import MessageInput from '@/components/chat/MessageInput.vue'
+import type { UploadedFile } from '@/api/files'
 import { useChatStream } from '@/composables/useChatStream'
 import { useNewChatSignal } from '@/composables/useNewChatSignal'
 import { useTheme } from '@/composables/useTheme'
@@ -25,6 +26,8 @@ const chat = useChatStream()
 const theme = useTheme()
 
 const inputText = ref('')
+// فایل پیوست‌شده‌ی آماده برای پیام بعدی (شناسه‌اش همراه متن ارسال می‌شود).
+const attachedFile = ref<UploadedFile | null>(null)
 const justStartedConversation = ref(false)
 const scrollRoot = useTemplateRef<HTMLDivElement>('scrollRoot')
 
@@ -160,9 +163,17 @@ async function onSubmit(): Promise<void> {
   const text = inputText.value
   if (!text.trim() || chat.inputDisabled.value) return
   if (!resolvedId()) justStartedConversation.value = true
+  
+  // نگه‌داشتن فایل قبل از پاک شدن ورودی
+  const fileToAttach = attachedFile.value
+  const fileId = fileToAttach?.id ?? null
+  
   inputText.value = ''
+  attachedFile.value = null
   pinnedToBottom.value = true
-  await chat.send(text)
+
+  // ✨ ارسال fileId به همراه مشخصات فایل
+  await chat.send(text, { fileId, file: fileToAttach })
 }
 
 async function onStop(): Promise<void> {
@@ -378,6 +389,7 @@ const suggestedPrompts = [
       <div class="mx-auto w-full max-w-3xl">
         <MessageInput
           v-model="inputText"
+          v-model:attachment="attachedFile"
           :placeholder="noModels ? 'مدلی برای گفتگو موجود نیست.' : 'پیام خود را بنویسید…'"
           :disabled="chat.inputDisabled.value"
           :busy="chat.generationState.value === 'streaming'"

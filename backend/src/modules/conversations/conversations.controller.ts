@@ -40,7 +40,16 @@ export class ConversationsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
-  ): Promise<{ items: Array<{ id: string; modelId: string; title: string | null; pinned: boolean; createdAt: string; updatedAt: string }> }> {
+  ): Promise<{
+    items: Array<{
+      id: string;
+      modelId: string;
+      title: string | null;
+      pinned: boolean;
+      createdAt: string;
+      updatedAt: string;
+    }>;
+  }> {
     const parsedLimit = limit ? Math.min(parseInt(limit, 10), 100) : 20;
     const parsedOffset = offset ? parseInt(offset, 10) : 0;
 
@@ -69,9 +78,31 @@ export class ConversationsController {
   async get(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-  ): Promise<{ id: string; modelId: string; title: string | null; pinned: boolean; createdAt: string; updatedAt: string; messages: Array<{ id: string; role: string; content: string; createdAt: string; status: string }> }> {
+  ): Promise<{
+    id: string;
+    modelId: string;
+    title: string | null;
+    pinned: boolean;
+    createdAt: string;
+    updatedAt: string;
+    messages: Array<{
+      id: string;
+      role: string;
+      content: string;
+      createdAt: string;
+      status: string;
+      file?: {
+        id: string;
+        originalName: string;
+        mimeType: string;
+        size: number;
+        url?: string;
+      } | null;
+    }>;
+  }> {
     const conv = await this.conversations.findById(id);
     this.logger.debug(`ConversationsController.get: userId=${user.id}, conversationId=${id}, found=${!!conv}, messageCount=${conv?.messages.length ?? 0}`);
+    
     if (!conv) {
       throw new NotFoundException({
         code: 'conversation_not_found',
@@ -99,6 +130,15 @@ export class ConversationsController {
         content: m.content,
         createdAt: m.createdAt.toISOString(),
         status: m.status,
+        file: m.file
+          ? {
+              id: m.file.id,
+              originalName: m.file.originalName,
+              mimeType: m.file.mimeType,
+              size: m.file.size,
+              url: m.file.url,
+            }
+          : null,
       })),
     };
   }

@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 
 /**
  * Request body for POST /v1/chat/stream.
@@ -20,4 +20,13 @@ export class ChatRequestDto {
   @IsOptional()
   @IsString()
   modelId?: string;
+
+  /**
+   * Optional: attach an uploaded file to this turn. The file must belong
+   * to the caller; its extracted content is injected into this turn's
+   * prompt only (never persisted into message history).
+   */
+  @IsOptional()
+  @IsUUID('4', { message: 'fileId must be a valid uuid' })
+  fileId?: string;
 }
