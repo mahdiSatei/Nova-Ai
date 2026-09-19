@@ -6,6 +6,7 @@ import { User } from '../modules/users/entities/user.entity';
 import { RefreshToken } from '../modules/auth/entities/refresh-token.entity';
 import { CentralProvider } from '../modules/provider/entities/central-provider.entity';
 import { Provider } from '../modules/provider/entities/provider.entity';
+import { ProviderApiKey } from '../modules/provider/entities/provider-api-key.entity';
 import { Model } from '../modules/models/entities/model.entity';
 import { AppConfig } from '../modules/app-config/entities/app-config.entity';
 import { Conversation } from '../modules/conversations/entities/conversation.entity';
@@ -33,7 +34,7 @@ function buildPostgresUrl(): string {
 export const dataSourceOptions: DataSourceOptions = {
   type: 'postgres',
   url: buildPostgresUrl(),
-  entities: [User, RefreshToken, CentralProvider, Provider, Model, AppConfig, Conversation, Message, Quota, QuotaRule],
+  entities: [User, RefreshToken, CentralProvider, Provider, ProviderApiKey, Model, AppConfig, Conversation, Message, Quota, QuotaRule],
   migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
   synchronize: false,
   logging: process.env.NODE_ENV === 'development',

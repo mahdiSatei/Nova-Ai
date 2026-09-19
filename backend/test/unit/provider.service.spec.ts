@@ -4,6 +4,7 @@ import { ConflictException, NotFoundException, UnprocessableEntityException } fr
 import { ConfigService } from '@nestjs/config';
 import { ProviderService, PROVIDER_ADAPTERS } from '../../src/modules/provider/provider.service';
 import { Provider } from '../../src/modules/provider/entities/provider.entity';
+import { ProviderApiKey } from '../../src/modules/provider/entities/provider-api-key.entity';
 import { encrypt, decrypt } from '../../src/common/crypto/credential-cipher';
 
 const TEST_KEY = Buffer.alloc(32, 0x42).toString('base64');
@@ -63,10 +64,19 @@ describe('ProviderService', () => {
       },
     };
 
+    const apiKeyRepo = {
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn((dto: any) => dto),
+      save: jest.fn(async (entity: any) => entity),
+      delete: jest.fn(),
+    };
+
     const moduleRef = await Test.createTestingModule({
       providers: [
         ProviderService,
         { provide: getRepositoryToken(Provider), useValue: repo },
+        { provide: getRepositoryToken(ProviderApiKey), useValue: apiKeyRepo },
         { provide: PROVIDER_ADAPTERS, useValue: [] },
         {
           provide: ConfigService,

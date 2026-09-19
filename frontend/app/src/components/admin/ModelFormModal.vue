@@ -7,11 +7,12 @@ import BaseInput from '@/components/ui/BaseInput.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
-import { createModel, updateModel, discoverModelReasoning } from '@/api/admin'
+import { createModel, updateModel, discoverModelReasoning, listProviders } from '@/api/admin'
 import { formatDateTime } from '@/utils/time'
 import type {
   ModelAdmin,
   ModelVisibility,
+  ProviderAdmin,
   ReasoningCapabilitySource,
   ReasoningConfigMode,
   ReasoningOutput,
@@ -49,6 +50,7 @@ const emit = defineEmits<{
 const form = reactive<{
   displayName: string
   actualName: string
+  providerId: string
   visibility: ModelVisibility
   enabled: boolean
   reasoningMode: ReasoningConfigMode
@@ -58,6 +60,7 @@ const form = reactive<{
 }>({
   displayName: '',
   actualName: '',
+  providerId: '',
   visibility: 'public',
   enabled: true,
   reasoningMode: 'automatic',
@@ -65,10 +68,12 @@ const form = reactive<{
   reasoningOutput: 'unknown',
   reasoningStreaming: false,
 })
-const fieldErrors = reactive<{ displayName: string | null; actualName: string | null }>({
+const fieldErrors = reactive<{ displayName: string | null; actualName: string | null; providerId: string | null }>({
   displayName: null,
   actualName: null,
+  providerId: null,
 })
+const providers = ref<ProviderAdmin[]>([])
 const submitError = ref<{ message: string; code?: string; requestId?: string } | null>(null)
 const submitting = ref(false)
 
@@ -79,11 +84,12 @@ const discovering = ref(false)
 
 watch(
   () => props.open,
-  (open) => {
+  async (open) => {
     if (!open) return
     isEdit.value = Boolean(props.model)
     form.displayName = props.model?.displayName ?? ''
     form.actualName = props.model?.actualName ?? ''
+    form.providerId = props.model?.providerId ?? ''
     form.visibility = props.model?.visibility ?? 'public'
     form.enabled = props.model?.enabled ?? true
     // Only manual values are editable here; "automatic" keeps trusting the
@@ -97,7 +103,16 @@ watch(
     discoveredInfo.value = props.model?.reasoning ?? null
     fieldErrors.displayName = null
     fieldErrors.actualName = null
+    fieldErrors.providerId = null
     submitError.value = null
+
+    // Load providers for dropdown
+    try {
+      const { items } = await listProviders()
+      providers.value = items
+    } catch {
+      // Silently fail - providers list is best-effort
+    }
   },
 )
 
@@ -112,6 +127,11 @@ function validateActual(value: string): string | null {
   const v = value.trim()
   if (!v) return 'نام سمت ارائه‌دهنده الزامی است.'
   if (v.length < 1 || v.length > 200) return 'نام سمت ارائه‌دهنده باید ۱ تا ۲۰۰ کاراکتر باشد.'
+  return null
+}
+
+function validateProviderId(value: string): string | null {
+  if (!value) return 'ارائه‌دهنده الزامی است.'
   return null
 }
 
@@ -160,8 +180,9 @@ function reasoningPatch(): {
 async function onSubmit(): Promise<void> {
   fieldErrors.displayName = validateDisplay(form.displayName)
   fieldErrors.actualName = validateActual(form.actualName)
+  fieldErrors.providerId = validateProviderId(form.providerId)
   submitError.value = null
-  if (fieldErrors.displayName || fieldErrors.actualName) return
+  if (fieldErrors.displayName || fieldErrors.actualName || fieldErrors.providerId) return
 
   submitting.value = true
   try {
@@ -170,6 +191,7 @@ async function onSubmit(): Promise<void> {
       saved = await updateModel(props.model.id, {
         displayName: form.displayName.trim(),
         actualName: form.actualName.trim(),
+        providerId: form.providerId,
         visibility: form.visibility,
         enabled: form.enabled,
         reasoning: reasoningPatch(),
@@ -178,6 +200,7 @@ async function onSubmit(): Promise<void> {
       saved = await createModel({
         displayName: form.displayName.trim(),
         actualName: form.actualName.trim(),
+        providerId: form.providerId,
         visibility: form.visibility,
         enabled: form.enabled,
         reasoning: reasoningPatch(),
@@ -262,6 +285,23 @@ function onCancel(): void {
               :error="fieldErrors.actualName"
               @blur="fieldErrors.actualName = validateActual(form.actualName)"
             />
+
+            <label class="flex flex-col gap-1.5 text-sm text-ink">
+              <span class="text-xs font-medium text-ink-muted">ارائه‌دهنده</span>
+              <select
+                v-model="form.providerId"
+                class="w-full appearance-none rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-ink transition-colors focus:border-primary"
+                :class="fieldErrors.providerId ? 'border-danger' : ''"
+              >
+                <option value="" disabled>انتخاب ارائه‌دهنده</option>
+                <option v-for="p in providers" :key="p.id" :value="p.id">
+                  {{ p.name }}
+                </option>
+              </select>
+              <p v-if="fieldErrors.providerId" class="text-sm text-danger" role="alert">
+                {{ fieldErrors.providerId }}
+              </p>
+            </label>
 
             <label class="flex flex-col gap-2 text-sm text-ink">
               <span class="text-xs font-medium text-ink-muted">سطح دسترسی</span>

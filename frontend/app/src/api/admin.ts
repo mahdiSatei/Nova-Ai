@@ -38,6 +38,59 @@ export function createProvider(body: {
   return request<ProviderAdmin>('/v1/admin/providers', { method: 'POST', body })
 }
 
+// ── API Key Management ──────────────────────────────────────────────────────
+
+export interface ApiKeyAdmin {
+  id: string
+  label: string
+  isActive: boolean
+  lastValidatedAt: string | null
+  failureCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export function listApiKeys(providerId: string): Promise<ApiKeyAdmin[]> {
+  return request<ApiKeyAdmin[]>(`/v1/admin/providers/${providerId}/api-keys`)
+}
+
+export function addApiKey(
+  providerId: string,
+  body: { label: string; apiKey: string; isActive?: boolean },
+): Promise<ApiKeyAdmin> {
+  return request<ApiKeyAdmin>(`/v1/admin/providers/${providerId}/api-keys`, {
+    method: 'POST',
+    body,
+  })
+}
+
+export function updateApiKey(
+  providerId: string,
+  keyId: string,
+  body: { label?: string; apiKey?: string; isActive?: boolean },
+): Promise<ApiKeyAdmin> {
+  return request<ApiKeyAdmin>(`/v1/admin/providers/${providerId}/api-keys/${keyId}`, {
+    method: 'PATCH',
+    body,
+  })
+}
+
+export function deleteApiKey(providerId: string, keyId: string): Promise<void> {
+  return request<void>(`/v1/admin/providers/${providerId}/api-keys/${keyId}`, {
+    method: 'DELETE',
+  })
+}
+
+export function validateApiKey(
+  providerId: string,
+  keyId: string,
+): Promise<ApiKeyAdmin> {
+  return request<ApiKeyAdmin>(
+    `/v1/admin/providers/${providerId}/api-keys/${keyId}/validate`,
+    { method: 'POST' },
+  )
+}
+
 export function listAdminModels(query: PaginatedQuery = {}): Promise<ModelList<ModelAdmin>> {
   return request<ModelList<ModelAdmin>>('/v1/admin/models', { query: { ...query } })
 }

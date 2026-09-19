@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { AppConfig } from '../../config/configuration';
 import { Provider, ProviderType } from './entities/provider.entity';
+import { ProviderApiKey } from './entities/provider-api-key.entity';
 import { encrypt, decrypt } from '../../common/crypto/credential-cipher';
 import { ProviderAdapter } from './adapters/provider-adapter.interface';
 import { NormalizedProviderError } from './errors/normalized-provider.error';
@@ -29,9 +30,20 @@ export interface ProviderPublic {
   lastValidatedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  apiKeys?: ApiKeyPublic[];
 }
 
 export type ProviderAdmin = ProviderPublic;
+
+export interface ApiKeyPublic {
+  id: string;
+  label: string;
+  isActive: boolean;
+  lastValidatedAt: string | null;
+  failureCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface ProviderCreateInput {
   id: string;
@@ -49,6 +61,18 @@ export interface ProviderUpdateInput {
   isActive?: boolean;
 }
 
+export interface ApiKeyCreateInput {
+  label: string;
+  apiKey: string;
+  isActive?: boolean;
+}
+
+export interface ApiKeyUpdateInput {
+  label?: string;
+  apiKey?: string;
+  isActive?: boolean;
+}
+
 @Injectable()
 export class ProviderService {
   private readonly logger = new Logger(ProviderService.name);
@@ -57,6 +81,8 @@ export class ProviderService {
   constructor(
     @InjectRepository(Provider)
     private readonly repo: Repository<Provider>,
+    @InjectRepository(ProviderApiKey)
+    private readonly apiKeyRepo: Repository<ProviderApiKey>,
     @Inject(PROVIDER_ADAPTERS) adapters: ProviderAdapter[],
     private readonly config: ConfigService<AppConfig, true>,
   ) {
@@ -73,7 +99,10 @@ export class ProviderService {
   }
 
   async read(id: string): Promise<ProviderAdmin> {
-    const provider = await this.repo.findOne({ where: { id } });
+    const provider = await this.repo.findOne({
+      where: { id },
+      relations: ['apiKeys'],
+    });
     if (!provider) throw new NotFoundException({ code: 'provider_not_found', message: 'Provider not found.' });
     return this.toAdmin(provider);
   }
@@ -236,6 +265,175 @@ export class ProviderService {
   }
 
   private toAdmin(provider: Provider): ProviderAdmin {
-    return this.toPublic(provider);
+    const publicProvider = this.toPublic(provider);
+    if (provider.apiKeys && Array.isArray(provider.apiKeys)) {
+      publicProvider.apiKeys = provider.apiKeys.map((k) => this.toApiKeyPublic(k));
+    }
+    return publicProvider;
+  }
+
+  // ── API Key Management ──────────────────────────────────────────────
+
+  async listApiKeys(providerId: string): Promise<ApiKeyPublic[]> {
+    const provider = await this.repo.findOne({ where: { id: providerId } });
+    if (!provider) throw new NotFoundException({ code: 'provider_not_found', message: 'Provider not found.' });
+
+    const keys = await this.apiKeyRepo.find({
+      where: { providerId },
+      order: { createdAt: 'ASC' },
+    });
+    return keys.map((k) => this.toApiKeyPublic(k));
+  }
+
+  async addApiKey(providerId: string, input: ApiKeyCreateInput): Promise<ApiKeyPublic> {
+    const provider = await this.repo.findOne({ where: { id: providerId } });
+    if (!provider) throw new NotFoundException({ code: 'provider_not_found', message: 'Provider not found.' });
+
+    // Check for duplicate label
+    const existing = await this.apiKeyRepo.findOne({ where: { providerId, label: input.label } });
+    if (existing) {
+      throw new ConflictException({ code: 'api_key_label_taken', message: 'An API key with that label already exists.' });
+    }
+
+    const encrypted = encrypt(input.apiKey);
+    const key = this.apiKeyRepo.create({
+      providerId,
+      label: input.label,
+      apiKeyEncrypted: encrypted,
+      isActive: input.isActive ?? true,
+    });
+    const saved = await this.apiKeyRepo.save(key);
+    return this.toApiKeyPublic(saved);
+  }
+
+  async updateApiKey(providerId: string, keyId: string, input: ApiKeyUpdateInput): Promise<ApiKeyPublic> {
+    const key = await this.apiKeyRepo.findOne({ where: { id: keyId, providerId } });
+    if (!key) throw new NotFoundException({ code: 'api_key_not_found', message: 'API key not found.' });
+
+    if (input.label !== undefined && input.label !== key.label) {
+      const existing = await this.apiKeyRepo.findOne({ where: { providerId, label: input.label } });
+      if (existing) {
+        throw new ConflictException({ code: 'api_key_label_taken', message: 'An API key with that label already exists.' });
+      }
+      key.label = input.label;
+    }
+
+    if (input.apiKey !== undefined) {
+      key.apiKeyEncrypted = encrypt(input.apiKey);
+    }
+
+    if (input.isActive !== undefined) {
+      key.isActive = input.isActive;
+    }
+
+    const saved = await this.apiKeyRepo.save(key);
+    return this.toApiKeyPublic(saved);
+  }
+
+  async deleteApiKey(providerId: string, keyId: string): Promise<void> {
+    const key = await this.apiKeyRepo.findOne({ where: { id: keyId, providerId } });
+    if (!key) throw new NotFoundException({ code: 'api_key_not_found', message: 'API key not found.' });
+    await this.apiKeyRepo.delete(keyId);
+  }
+
+  async getDecryptedApiKey(providerId: string, keyId: string): Promise<string> {
+    const key = await this.apiKeyRepo.findOne({ where: { id: keyId, providerId } });
+    if (!key) throw new NotFoundException({ code: 'api_key_not_found', message: 'API key not found.' });
+    try {
+      return decrypt(key.apiKeyEncrypted);
+    } catch {
+      throw new UnprocessableEntityException({
+        code: 'api_key_corrupt',
+        message: 'Stored API key cannot be decrypted. Re-enter the key.',
+      });
+    }
+  }
+
+  /**
+   * Get a random active API key for a provider.
+   * Falls back to the legacy apiKeyEncrypted if no keys in provider_api_keys.
+   */
+  async getRandomActiveApiKey(providerId: string): Promise<string> {
+    const activeKeys = await this.apiKeyRepo.find({
+      where: { providerId, isActive: true },
+    });
+
+    if (activeKeys.length > 0) {
+      // Random selection for basic load balancing
+      const randomIndex = Math.floor(Math.random() * activeKeys.length);
+      const selectedKey = activeKeys[randomIndex];
+      try {
+        return decrypt(selectedKey.apiKeyEncrypted);
+      } catch {
+        throw new UnprocessableEntityException({
+          code: 'api_key_corrupt',
+          message: 'Stored API key cannot be decrypted.',
+        });
+      }
+    }
+
+    // Fallback to legacy key
+    const provider = await this.repo.findOne({ where: { id: providerId } });
+    if (!provider) throw new NotFoundException({ code: 'provider_not_found', message: 'Provider not found.' });
+    try {
+      return decrypt(provider.apiKeyEncrypted);
+    } catch {
+      throw new UnprocessableEntityException({
+        code: 'provider_credential_corrupt',
+        message: 'Stored provider credential cannot be decrypted. Re-enter the API key.',
+      });
+    }
+  }
+
+  /**
+   * Validate a specific API key by probing the provider with that key.
+   * Updates lastValidatedAt on success, increments failureCount on failure.
+   */
+  async validateApiKey(providerId: string, keyId: string): Promise<ApiKeyPublic> {
+    const provider = await this.repo.findOne({ where: { id: providerId } });
+    if (!provider) throw new NotFoundException({ code: 'provider_not_found', message: 'Provider not found.' });
+
+    const key = await this.apiKeyRepo.findOne({ where: { id: keyId, providerId } });
+    if (!key) throw new NotFoundException({ code: 'api_key_not_found', message: 'API key not found.' });
+
+    // Create a temporary provider-like object with this key's credentials for validation
+    const tempProvider = {
+      ...provider,
+      apiKeyEncrypted: key.apiKeyEncrypted,
+    } as Provider;
+
+    const adapter = this.adapters.find(
+      (a) =>
+        (a as { supports?: (type: string) => boolean }).supports?.(provider.type) ?? true,
+    );
+    if (!adapter) {
+      throw new UnprocessableEntityException({
+        code: 'provider_type_unsupported',
+        message: `No adapter for provider type: ${provider.type}`,
+      });
+    }
+
+    try {
+      await adapter.validate(tempProvider);
+      key.lastValidatedAt = new Date();
+      key.failureCount = 0;
+    } catch {
+      key.failureCount = (key.failureCount || 0) + 1;
+    }
+
+    const saved = await this.apiKeyRepo.save(key);
+    return this.toApiKeyPublic(saved);
+  }
+
+  private toApiKeyPublic(key: ProviderApiKey): ApiKeyPublic {
+    return {
+      id: key.id,
+      label: key.label,
+      isActive: key.isActive,
+      lastValidatedAt: key.lastValidatedAt?.toISOString() ?? null,
+      failureCount: key.failureCount,
+      createdAt: key.createdAt.toISOString(),
+      updatedAt: key.updatedAt.toISOString(),
+    };
   }
 }

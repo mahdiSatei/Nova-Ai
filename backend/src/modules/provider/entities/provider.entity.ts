@@ -2,9 +2,11 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  OneToMany,
   PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { ProviderApiKey } from './provider-api-key.entity';
 
 export type ProviderType = 'openai-compatible';
 
@@ -22,7 +24,10 @@ export class Provider {
   @Column({ name: 'base_url', type: 'text' })
   baseUrl!: string;
 
-  /** AES-256-GCM ciphertext JSON: { ciphertext, iv, authTag }. */
+  /**
+   * Legacy: primary API key. Kept for backward compatibility.
+   * New installations should use the provider_api_keys table.
+   */
   @Column({ name: 'api_key_encrypted', type: 'text' })
   apiKeyEncrypted!: string;
 
@@ -31,6 +36,10 @@ export class Provider {
 
   @Column({ name: 'last_validated_at', type: 'timestamp', nullable: true })
   lastValidatedAt!: Date | null;
+
+  /** Multiple API keys for this provider. */
+  @OneToMany(() => ProviderApiKey, (k) => k.provider)
+  apiKeys!: ProviderApiKey[];
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
   createdAt!: Date;

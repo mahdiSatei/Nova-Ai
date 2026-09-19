@@ -155,6 +155,7 @@ export interface ProviderAdmin {
   lastValidatedAt?: string | null
   createdAt: string
   updatedAt: string
+  apiKeys?: ApiKeyAdmin[]
 }
 
 export interface ProviderUpdateRequest {
@@ -165,6 +166,17 @@ export interface ProviderUpdateRequest {
 export interface ProviderList {
   items: ProviderAdmin[]
   total: number
+}
+
+/** فاز ۸+ — کلید API چندگانه برای یک ارائه‌دهنده. */
+export interface ApiKeyAdmin {
+  id: string
+  label: string
+  isActive: boolean
+  lastValidatedAt: string | null
+  failureCount: number
+  createdAt: string
+  updatedAt: string
 }
 
 export interface AppConfigPublic {

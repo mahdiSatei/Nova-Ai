@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { ProviderRuntimeService } from '../../src/modules/provider/provider-runtime.service';
-import { PROVIDER_ADAPTERS } from '../../src/modules/provider/provider.service';
+import { PROVIDER_ADAPTERS, ProviderService } from '../../src/modules/provider/provider.service';
 import { ModelsService } from '../../src/modules/models/models.service';
 import { ProviderAdapter } from '../../src/modules/provider/adapters/provider-adapter.interface';
 import { Provider } from '../../src/modules/provider/entities/provider.entity';
@@ -25,12 +25,17 @@ describe('ProviderRuntimeService.assertReady', () => {
       findById: jest.fn(),
     } as unknown as jest.Mocked<ModelsService>;
 
+    const mockProviderService = {
+      getRandomActiveApiKey: jest.fn().mockResolvedValue('sk-test-key'),
+    };
+
     const module = await Test.createTestingModule({
       providers: [
         ProviderRuntimeService,
         { provide: ModelsService, useValue: models },
         { provide: getRepositoryToken(Provider), useValue: { findOne: jest.fn() } as unknown as Repository<Provider> },
         { provide: PROVIDER_ADAPTERS, useValue: [adapter] },
+        { provide: ProviderService, useValue: mockProviderService },
       ],
     }).compile();
 

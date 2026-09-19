@@ -29,7 +29,19 @@ describe('provider validation deadline', () => {
       }),
       save: jest.fn(),
     };
-    const service = new ProviderService(repo as unknown as Repository<Provider>, [new OpenAICompatibleAdapter()], { get: () => 'development' } as any);
+    const apiKeyRepo = {
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn(),
+      save: jest.fn(),
+      delete: jest.fn(),
+    };
+    const service = new ProviderService(
+      repo as unknown as Repository<Provider>,
+      apiKeyRepo as any,
+      [new OpenAICompatibleAdapter()],
+      { get: () => 'development' } as any,
+    );
     const outcome = service.validateProvider('test-provider').catch((error: unknown) => error);
 
     await jest.advanceTimersByTimeAsync(5000);

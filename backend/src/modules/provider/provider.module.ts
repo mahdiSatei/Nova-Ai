@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Provider } from './entities/provider.entity';
+import { ProviderApiKey } from './entities/provider-api-key.entity';
 import { ProviderService } from './provider.service';
 import { ProviderController } from './provider.controller';
 import { ProviderAdaptersModule } from './adapters/provider-adapters.module';
@@ -11,7 +12,7 @@ import { ProviderAdminController } from './provider.admin.controller';
 import { ModelsModule } from '../models/models.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Provider]), ModelsModule, ProviderAdaptersModule],
+  imports: [TypeOrmModule.forFeature([Provider, ProviderApiKey]), ModelsModule, ProviderAdaptersModule],
   controllers: [ProviderController, ProviderAdminController],
   providers: [
     ProviderService,
