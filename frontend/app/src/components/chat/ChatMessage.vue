@@ -14,7 +14,6 @@ import {
   PhStop,
 } from '@phosphor-icons/vue'
 import MarkdownRenderer from '@/components/chat/MarkdownRenderer.vue'
-import TypingIndicator from '@/components/chat/TypingIndicator.vue'
 import UserAvatar from '@/components/user/UserAvatar.vue'
 import { copyText } from '@/utils/clipboard'
 import { formatDateTime } from '@/utils/time'
@@ -117,7 +116,6 @@ function onCopy(): void {
       <!-- بدنه پیام هوش مصنوعی -->
       <div v-else class="min-w-0 py-0.5 text-ink">
         <MarkdownRenderer :source="content" :streaming="streaming" />
-        <TypingIndicator v-if="streaming && !content" />
       </div>
 
       <!-- فوتر: زمان / وضعیت / کپی / اقدامات بازیابی -->
@@ -126,8 +124,6 @@ function onCopy(): void {
         :class="{ 'flex-row-reverse': !isUser }"
       >
         <template v-if="pending">
-          <PhHourglassMedium class="size-3 animate-pulse" aria-hidden="true" />
-          <span>در حال ارسال…</span>
         </template>
         <template v-else-if="streaming">
           <span class="flex items-end gap-1" aria-hidden="true">
