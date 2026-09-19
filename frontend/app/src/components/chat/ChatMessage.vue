@@ -111,7 +111,7 @@ function onCopy(): void {
           </div>
         </div>
 
-        <span class="whitespace-pre-wrap">{{ content }}</span>
+        <span dir="auto" class="whitespace-pre-wrap">{{ content }}</span>
       </div>
 
       <!-- بدنه پیام هوش مصنوعی -->
