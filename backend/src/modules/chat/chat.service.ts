@@ -414,6 +414,8 @@ export class ChatService {
             if (delta) {
               fullResponse += delta;
               state.fullResponse += delta;
+              // Persist partial content to database for recovery
+              await this.conversations.updateAssistantMessageContent(conversationId, assistantMessageId, fullResponse);
               // Emit to all current subscribers (original + any reconnects).
               for (const sub of state.subscribers) {
                 sub({ data: { delta } });

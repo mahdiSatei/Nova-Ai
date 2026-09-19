@@ -25,6 +25,7 @@ describe('ChatService', () => {
     completeIfStreaming: jest.Mock;
     findMessageById: jest.Mock;
     cancelGeneration: jest.Mock;
+    updateAssistantMessageContent: jest.Mock;
   };
   let userRepo: {
     update: jest.Mock;
@@ -46,6 +47,7 @@ describe('ChatService', () => {
     completeIfStreaming: jest.fn().mockResolvedValue(true),
     findMessageById: jest.fn(),
       cancelGeneration: jest.fn(),
+      updateAssistantMessageContent: jest.fn().mockResolvedValue(undefined),
     };
     userRepo = { update: jest.fn() };
 
@@ -167,6 +169,12 @@ describe('ChatService', () => {
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith(expect.any(String), 'streaming');
       expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'Hello there!');
 
+      // updateAssistantMessageContent called for each delta
+      expect(conversations.updateAssistantMessageContent).toHaveBeenCalledTimes(3);
+      expect(conversations.updateAssistantMessageContent).toHaveBeenNthCalledWith(1, 'conv-1', 'msg-1', 'Hello');
+      expect(conversations.updateAssistantMessageContent).toHaveBeenNthCalledWith(2, 'conv-1', 'msg-1', 'Hello there');
+      expect(conversations.updateAssistantMessageContent).toHaveBeenNthCalledWith(3, 'conv-1', 'msg-1', 'Hello there!');
+
       // First event is the start event with real ids.
       expect(events[0]).toEqual({
         type: 'start',
@@ -234,6 +242,10 @@ describe('ChatService', () => {
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith(expect.any(String), 'streaming');
       expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'New answer');
 
+      // updateAssistantMessageContent called for the single delta
+      expect(conversations.updateAssistantMessageContent).toHaveBeenCalledTimes(1);
+      expect(conversations.updateAssistantMessageContent).toHaveBeenNthCalledWith(1, 'conv-2', 'msg-1', 'New answer');
+
       // The turn's user message is persisted so it survives reloads.
       expect(conversations.appendUserMessage).toHaveBeenCalledWith('conv-2', 'Follow-up');
     });
@@ -291,6 +303,13 @@ describe('ChatService', () => {
 
       // Wait long enough for the consume loop to finish all three chunks.
       await new Promise((r) => setTimeout(r, 200));
+
+      // Assert: updateAssistantMessageContent was called for each delta received before disconnect.
+// Note: The consume loop continues regardless of subscriber state, so all three chunks are processed.
+      expect(conversations.updateAssistantMessageContent).toHaveBeenCalledTimes(3);
+      expect(conversations.updateAssistantMessageContent).toHaveBeenNthCalledWith(1, 'conv-1', 'msg-1', 'Hello');
+      expect(conversations.updateAssistantMessageContent).toHaveBeenNthCalledWith(2, 'conv-1', 'msg-1', 'Hello ');
+      expect(conversations.updateAssistantMessageContent).toHaveBeenNthCalledWith(3, 'conv-1', 'msg-1', 'Hello world');
 
       // Assert: the FULL response was persisted via the atomic completion write.
       expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'Hello world');
@@ -358,7 +377,11 @@ describe('ChatService', () => {
       sub.unsubscribe();
       await new Promise((r) => setTimeout(r, 200));
 
-      // Assert: the partial content observed before the error was persisted.
+      // Assert: updateAssistantMessageContent was called for the delta received before the error.
+      expect(conversations.updateAssistantMessageContent).toHaveBeenCalledTimes(1);
+      expect(conversations.updateAssistantMessageContent).toHaveBeenNthCalledWith(1, 'conv-3', 'msg-3', 'partial');
+
+      // Assert: the error handling updated the message status to failed with the partial content.
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-3', 'failed', 'partial');
     });
   });
