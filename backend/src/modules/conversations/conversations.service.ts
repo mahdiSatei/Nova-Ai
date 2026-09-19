@@ -62,6 +62,31 @@ export class ConversationsService {
   }
 
   /**
+   * Append a user message to an existing conversation.
+   * Used for turns after the first (the first user message is persisted
+   * by `create`). Returns the created message, or undefined if the
+   * conversation does not exist (caller should treat this as a no-op).
+   */
+  async appendUserMessage(conversationId: string, content: string): Promise<Message | undefined> {
+    const conversation = await this.conversationRepo.findOne({
+      where: { id: conversationId },
+    });
+    if (!conversation) return undefined;
+
+    const message = this.messageRepo.create({
+      conversationId,
+      role: 'user',
+      content,
+    });
+    const saved = await this.messageRepo.save(message);
+
+    // Bump the conversation's updatedAt.
+    await this.conversationRepo.update(conversationId, { updatedAt: new Date() });
+
+    return saved;
+  }
+
+  /**
    * Append the assistant's response to an existing conversation.
    * Returns the created message, or undefined if the conversation
    * does not exist (caller should treat this as a no-op).
@@ -206,6 +231,21 @@ export class ConversationsService {
   }
 
   /**
+   * Atomically mark a streaming message as completed with its full
+   * content. The update only applies while the row is still
+   * 'streaming', so a concurrent cancel can never be overwritten:
+   * returns false when the row was not in 'streaming' state (nothing
+   * was written).
+   */
+  async completeIfStreaming(messageId: string, content: string): Promise<boolean> {
+    const result = await this.messageRepo.update(
+      { id: messageId, status: 'streaming' as MessageStatus },
+      { status: 'completed' as MessageStatus, content },
+    );
+    return (result.affected ?? 0) > 0;
+  }
+
+  /**
    * Update a message's status, and optionally its content.
    * Returns the updated message or null if not found.
    */
@@ -262,51 +302,6 @@ export class ConversationsService {
 
     await this.messageRepo.update(messageId, { status: 'cancelled' as MessageStatus });
     return this.messageRepo.findOne({ where: { id: messageId } });
-  }
-
-  /**
-   * Retry a failed/cancelled generation by creating a new streaming assistant message.
-   * The old message is retained for history/debugging.
-   * Validates: the conversation exists, the requester owns it, and the target message belongs to it.
-   */
-  async retryGeneration(
-    conversationId: string,
-    failedMessageId: string,
-    requesterId: string,
-  ): Promise<Message | null> {
-    const conversation = await this.conversationRepo.findOne({
-      where: { id: conversationId },
-      select: ['id', 'userId'],
-    });
-    if (!conversation) return null;
-    if (conversation.userId !== requesterId) {
-      throw new ForbiddenException({
-        code: 'forbidden',
-        message: 'You do not own this conversation.',
-      });
-    }
-
-    const targetMsg = await this.messageRepo.findOne({
-      where: { id: failedMessageId, conversationId },
-    });
-    if (!targetMsg) {
-      throw new ConflictException({
-        code: 'message_not_found',
-        message: 'The specified message does not belong to this conversation.',
-      });
-    }
-
-    const newMessage = this.messageRepo.create({
-      conversationId,
-      role: 'assistant',
-      content: '',
-      status: 'streaming' as MessageStatus,
-    });
-    const saved = await this.messageRepo.save(newMessage);
-
-    await this.conversationRepo.update(conversationId, { updatedAt: new Date() });
-
-    return saved;
   }
 
   // ─────────────────────────── helpers ────────────────────────────────────

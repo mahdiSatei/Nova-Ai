@@ -52,6 +52,13 @@ const MESSAGES: Record<string, string> = {
   stream_error: 'پاسخ استریمی قطع شد.',
   generation_in_progress: 'در حال حاضر یک پاسخ در حال تولید است. لطفاً صبر کنید یا آن را متوقف کنید.',
   no_active_generation: 'هیچ تولید فعالی برای متوقف کردن وجود ندارد.',
+
+  // Retry
+  message_not_found: 'پیام قابل تلاش مجدد پیدا نشد.',
+  message_not_retryable: 'فقط پاسخ‌های ناموفق یا لغوشده قابل تلاش مجدد هستند.',
+
+  // Stale conversation
+  conversation_not_found: 'این گفتگو دیگر وجود ندارد (حذف شده است). می‌توانید گفتگوی جدیدی شروع کنید.',
 }
 
 const FALLBACK = 'خطایی رخ داد. لطفاً دوباره تلاش کنید.'

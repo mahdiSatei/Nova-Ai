@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { cancelGeneration, retryGeneration } from '@/api/chat'
+import { cancelGeneration, retryStream } from '@/api/chat'
 
 // Mock the request function from http module for cancel/retry tests
 const mockRequest = vi.fn()
@@ -8,7 +8,11 @@ vi.mock('@/api/http', () => ({
   request: (...args: any[]) => mockRequest(...args),
   API_BASE: '',
   buildUrl: (path: string) => path,
+  newRequestId: () => 'req-test',
   tokenStore: { load: () => null },
+  // Stream auth retry: just pass through to the fetchFn directly
+  // since tests don't have token persistence.
+  withStreamAuthRetry: async (fetchFn: (token: string | null) => Promise<Response>) => fetchFn(null),
 }))
 
 describe('cancelGeneration', () => {
@@ -28,21 +32,71 @@ describe('cancelGeneration', () => {
   })
 })
 
-describe('retryGeneration', () => {
+describe('retryStream', () => {
+  const sseResponse = (chunks: string[]) =>
+    ({
+      ok: true,
+      body: {
+        getReader: () => {
+          let i = 0
+          return {
+            read: async () => (i < chunks.length ? { value: new TextEncoder().encode(chunks[i++]), done: false } : { value: undefined, done: true }),
+          }
+        },
+      },
+    }) as unknown as Response
+
   beforeEach(() => {
     mockRequest.mockClear()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        expect(init?.method).toBe('POST')
+        expect(String(init?.body)).toBe(JSON.stringify({ failedMessageId: 'm-failed' }))
+        return sseResponse([
+          'event: start\ndata: {"conversationId":"conv-1","assistantMessageId":"m-new"}\n\n',
+          'data: {"delta":"retry"}\n\ndata: {"delta":" answer"}\n\n',
+          'event: done\ndata: {}\n\n',
+        ])
+      }),
+    )
   })
 
-  it('calls POST /v1/chat/:id/retry with failedMessageId in body', async () => {
-    mockRequest.mockResolvedValue({ messageId: 'm-new', status: 'streaming' })
-
-    const result = await retryGeneration('conv-1', 'm-failed')
-
-    expect(mockRequest).toHaveBeenCalledWith('/v1/chat/conv-1/retry', {
-      method: 'POST',
-      body: { failedMessageId: 'm-failed' },
+  it('POSTs the failedMessageId and routes start/delta/done to handlers', async () => {
+    const events: string[] = []
+    retryStream('conv-1', 'm-failed', {
+      onStart: (info) => events.push(`start:${info.conversationId}:${info.assistantMessageId}`),
+      onDelta: (text) => events.push(`delta:${text}`),
+      onDone: () => events.push('done'),
+      onError: () => events.push('error'),
     })
-    expect(result).toEqual({ messageId: 'm-new', status: 'streaming' })
+
+    await vi.waitFor(() => {
+      expect(events.join('|')).toBe('start:conv-1:m-new|delta:retry|delta: answer|done')
+    })
+    expect(mockRequest).not.toHaveBeenCalled()
+  })
+
+  it('routes an HTTP error response to onError with the server code', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        ({ ok: false, json: async () => ({ code: 'message_not_retryable', message: 'nope' }) }) as unknown as Response,
+      ),
+    )
+    const errors: { code: string; message: string }[] = []
+    retryStream('conv-1', 'm-failed', {
+      onDelta: () => {},
+      onDone: () => {},
+      onError: (err) => errors.push(err),
+    })
+
+    await vi.waitFor(() => {
+      // Known codes are localized by streamErrorMessage.
+      expect(errors).toEqual([
+        { code: 'message_not_retryable', message: 'فقط پاسخ‌های ناموفق یا لغوشده قابل تلاش مجدد هستند.' },
+      ])
+    })
   })
 })
 

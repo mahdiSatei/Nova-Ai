@@ -21,6 +21,8 @@ const props = defineProps<{
 
 interface Row {
   key: string
+  /** Real message id when the row comes from the transcript (undefined for synthetic rows). */
+  messageId?: string
   role: 'user' | 'assistant'
   content: string
   createdAt: string | null
@@ -43,6 +45,7 @@ const rows = computed<Row[]>(() => {
     const streamNeedsRecovery = isActiveStreaming && props.generation?.status !== 'streaming'
     out.push({
       key: m.id,
+      messageId: m.id,
       role: m.role,
       content: m.content,
       createdAt: m.createdAt,
@@ -57,6 +60,7 @@ const rows = computed<Row[]>(() => {
   if (props.pendingUser) {
     out.push({
       key: props.pendingUser.id,
+      messageId: props.pendingUser.id,
       role: 'user',
       content: props.pendingUser.content,
       createdAt: props.pendingUser.createdAt,
@@ -76,6 +80,7 @@ const rows = computed<Row[]>(() => {
   ) {
     out.push({
       key: props.generation.assistantMessageId || 'streaming',
+      messageId: props.generation.assistantMessageId || undefined,
       role: 'assistant',
       content: props.generation.content,
       createdAt: null,
@@ -96,6 +101,7 @@ const rows = computed<Row[]>(() => {
     <ChatMessage
       v-for="row in rows"
       :key="row.key"
+      :message-id="row.messageId"
       :role="row.role"
       :content="row.content"
       :created-at="row.createdAt"

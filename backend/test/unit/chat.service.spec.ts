@@ -29,11 +29,12 @@ describe('ChatService', () => {
     create: jest.Mock;
     findById: jest.Mock;
     appendMessage: jest.Mock;
+    appendUserMessage: jest.Mock;
     findStreamingMessage: jest.Mock;
     updateMessageStatus: jest.Mock;
+    completeIfStreaming: jest.Mock;
     findMessageById: jest.Mock;
     cancelGeneration: jest.Mock;
-    retryGeneration: jest.Mock;
   };
   let userRepo: {
     update: jest.Mock;
@@ -90,11 +91,12 @@ describe('ChatService', () => {
       create: jest.fn(),
       findById: jest.fn(),
       appendMessage: jest.fn(),
+      appendUserMessage: jest.fn().mockResolvedValue({ id: 'um-1' }),
       findStreamingMessage: jest.fn().mockResolvedValue(null),
       updateMessageStatus: jest.fn().mockResolvedValue({ id: 'msg-1', status: 'streaming' }),
+      completeIfStreaming: jest.fn().mockResolvedValue(true),
       findMessageById: jest.fn(),
       cancelGeneration: jest.fn(),
-      retryGeneration: jest.fn(),
     };
     userRepo = { update: jest.fn() };
     access = {
@@ -155,7 +157,7 @@ describe('ChatService', () => {
 
       expect(events.length).toBe(1);
       expect(events[0]).toEqual({
-        event: 'error',
+        type: 'error',
         data: { code: 'no_model_available', message: expect.any(String) },
       });
     });
@@ -295,7 +297,7 @@ describe('ChatService', () => {
       });
 
       expect(events[0]).toEqual({
-        event: 'error',
+        type: 'error',
         data: { code: 'invalid_message', message: expect.any(String) },
       });
     });
@@ -350,14 +352,21 @@ describe('ChatService', () => {
       // appendMessage called with empty content (placeholder for streaming)
       expect(conversations.appendMessage).toHaveBeenCalledWith('conv-1', '');
 
-      // updateMessageStatus called once for 'streaming' (no content), once for 'completed' (full content)
+      // updateMessageStatus called once for 'streaming' (no content);
+      // completion goes through the atomic completeIfStreaming write.
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith(expect.any(String), 'streaming');
-      expect(conversations.updateMessageStatus).toHaveBeenCalledWith(expect.any(String), 'completed', 'Hello there!');
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'Hello there!');
+
+      // First event is the start event with real ids.
+      expect(events[0]).toEqual({
+        type: 'start',
+        data: { conversationId: 'conv-1', assistantMessageId: 'msg-1' },
+      });
 
       // Token events + done event
-      const deltaEvents = events.filter((e) => 'data' in e && !('event' in e));
+      const deltaEvents = events.filter((e) => 'data' in e && !('type' in e));
       expect(deltaEvents.map((e: any) => e.data.delta).join('')).toBe('Hello there!');
-      expect(events[events.length - 1]).toEqual({ event: 'done', data: {} });
+      expect(events[events.length - 1]).toEqual({ type: 'done', data: {} });
 
       // userRepo.update called to persist sticky choice
       expect(userRepo.update).toHaveBeenCalledWith({ id: 'user-1' }, { lastSelectedModelId: 'm1' });
@@ -398,27 +407,28 @@ describe('ChatService', () => {
         });
       });
 
-      // provider stream called with (connection, { model, messages })
-      expect(runtime.stream).toHaveBeenCalledWith(
-        expect.objectContaining({ provider: expect.any(Object), adapter: expect.any(Object) }),
-        {
-          model: 'gpt-4o',
-          messages: [
-            { role: 'user', content: 'Previous question' },
-            { role: 'assistant', content: 'Previous answer' },
-            { role: 'user', content: 'Follow-up' },
-          ],
-        },
-      );
+      // provider stream got prior turns + new message, plus the abort
+      // signal used for user-initiated cancellation.
+      expect(runtime.stream).toHaveBeenCalledWith({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'user', content: 'Previous question' },
+          { role: 'assistant', content: 'Previous answer' },
+          { role: 'user', content: 'Follow-up' },
+        ],
+      });
 
-      // Status tracking: append with empty content, then update to completed
+      // Status tracking: append with empty content, then complete atomically.
       expect(conversations.appendMessage).toHaveBeenCalledWith('conv-2', '');
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith(expect.any(String), 'streaming');
-      expect(conversations.updateMessageStatus).toHaveBeenCalledWith(expect.any(String), 'completed', 'New answer');
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'New answer');
+
+      // The turn's user message is persisted so it survives reloads.
+      expect(conversations.appendUserMessage).toHaveBeenCalledWith('conv-2', 'Follow-up');
     });
   });
 
-  // ─── client-disconnect resilience ─────────────────────────────────────
+  // ─── client-disconnect resilience ──────────────────────────────────────
 
   describe('client disconnect mid-stream', () => {
     /**
@@ -463,7 +473,7 @@ describe('ChatService', () => {
 
       // Wait until at least one delta has been received.
       await new Promise((r) => setTimeout(r, 45));
-      expect(events.some((e: any) => 'data' in e && !('event' in e))).toBe(true);
+      expect(events.some((e: any) => 'data' in e && !('type' in e))).toBe(true);
 
       // Simulate client disconnect.
       sub.unsubscribe();
@@ -471,8 +481,8 @@ describe('ChatService', () => {
       // Wait long enough for the consume loop to finish all three chunks.
       await new Promise((r) => setTimeout(r, 200));
 
-      // Assert: the FULL response was persisted via progressive updates.
-      expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'completed', 'Hello world');
+      // Assert: the FULL response was persisted via the atomic completion write.
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'Hello world');
     });
 
     it('emits no SSE events to the observer after the client has unsubscribed', async () => {
@@ -504,8 +514,8 @@ describe('ChatService', () => {
       // Assert: no further events were emitted after unsubscribe.
       expect(events.length).toBe(eventsBeforeDisconnect);
 
-      // Persistence still happened via progressive status updates.
-      expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-2', 'completed', 'abcd');
+      // Persistence still happened via the atomic completion write.
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-2', 'abcd');
     });
 
     it('persists the partial response if the provider errors mid-stream after the client disconnected', async () => {
@@ -542,7 +552,7 @@ describe('ChatService', () => {
     });
   });
 
-  // ─── streaming status tracking ──────────────────────────────────────────
+  // ─── streaming status tracking ────────────────────────────────────────
 
   describe('streaming status tracking', () => {
     it('returns 409 when an active generation already exists', async () => {
@@ -564,7 +574,7 @@ describe('ChatService', () => {
       });
 
       expect(events[0]).toEqual({
-        event: 'error',
+        type: 'error',
         data: { code: 'generation_in_progress', message: expect.any(String) },
       });
     });
@@ -591,11 +601,11 @@ describe('ChatService', () => {
         obs.subscribe({ next: () => {}, complete: () => resolve() });
       });
 
-      // appendMessage called with empty content, then updateMessageStatus
-      // called with streaming (no content), then completed (full content).
+      // appendMessage called with empty content, updateMessageStatus with
+      // streaming (no content), then the atomic completion write.
       expect(conversations.appendMessage).toHaveBeenCalledWith('conv-1', '');
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'streaming');
-      expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'completed', 'hi');
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'hi');
     });
 
     // Phase 6: a failure while opening the stream is now an establishment
@@ -621,9 +631,15 @@ describe('ChatService', () => {
         obs.subscribe({ next: (e) => events.push(e), complete: () => resolve() });
       });
 
+      // start is emitted before the provider stream is opened, then the
+      // provider rejection surfaces as an error event.
       expect(events[0]).toEqual({
-        event: 'error',
-        data: { code: 'all_providers_unavailable', message: expect.any(String) },
+        type: 'start',
+        data: { conversationId: 'conv-1', assistantMessageId: 'msg-1' },
+      });
+      expect(events[1]).toEqual({
+        type: 'error',
+        data: { code: 'provider_error', message: expect.any(String) },
       });
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'failed', '');
     });
@@ -673,6 +689,205 @@ describe('ChatService', () => {
       expect(events.some((e: any) => e?.event === 'error' && e.data.code === 'model_forbidden')).toBe(
         false,
       );
+    });
+  });
+
+  // ─── cancellation ──────────────────────────────────────────────────────
+
+  describe('cancellation', () => {
+    const setupActiveStream = () => {
+      models.resolveActiveModel.mockResolvedValue({
+        id: 'm1', actualName: 'gpt-4o', enabled: true, isDefault: true,
+      } as any);
+      conversations.findById.mockReturnValue({ id: 'conv-1', messages: [] });
+      // runStream's generation_in_progress check must pass (no streaming
+      // row yet); cancelGeneration's lookup happens later and needs one.
+      conversations.findStreamingMessage
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue({ id: 'msg-1', status: 'streaming' });
+      conversations.cancelGeneration.mockResolvedValue({ id: 'msg-1', status: 'cancelled' });
+      conversations.appendMessage.mockResolvedValue({ id: 'msg-1', status: 'streaming' });
+      runtime.stream.mockResolvedValue(
+        (async function* () {
+          for (const c of ['Hello', ' ', 'world']) {
+            yield { choices: [{ delta: { content: c } }] } as any;
+            await new Promise((r) => setTimeout(r, 20));
+          }
+        })(),
+      );
+    };
+
+    it('broadcasts generation_cancelled to subscribers when cancelled mid-stream', async () => {
+      setupActiveStream();
+
+      const obs = svc.streamChat('user-1', { message: 'hi', conversationId: 'conv-1' });
+      const events: any[] = [];
+      obs.subscribe({ next: (e) => events.push(e) });
+
+      // Wait until at least one delta has been emitted.
+      await new Promise((r) => setTimeout(r, 50));
+      expect(events.some((e: any) => 'data' in e && !('type' in e))).toBe(true);
+
+      await svc.cancelGeneration('conv-1', 'user-1');
+
+      const cancelEvents = events.filter(
+        (e: any) => e.type === 'error' && e.data?.code === 'generation_cancelled',
+      );
+      expect(cancelEvents.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('never resurrects a cancelled message to completed', async () => {
+      setupActiveStream();
+      // The DB row is 'cancelled', so the conditional completion write
+      // affects zero rows and returns false.
+      conversations.completeIfStreaming.mockResolvedValue(false);
+
+      const obs = svc.streamChat('user-1', { message: 'hi', conversationId: 'conv-1' });
+      const events: any[] = [];
+      obs.subscribe({ next: (e) => events.push(e) });
+
+      await new Promise((r) => setTimeout(r, 50));
+      await svc.cancelGeneration('conv-1', 'user-1');
+
+      // Give the consume loop time to finish (the mock stream ignores
+      // the abort signal, mimicking a slow provider teardown).
+      await new Promise((r) => setTimeout(r, 150));
+
+      expect(conversations.updateMessageStatus).not.toHaveBeenCalledWith(
+        'msg-1',
+        'completed',
+        expect.anything(),
+      );
+      expect(
+        events.some((e: any) => e.type === 'done'),
+      ).toBe(false);
+    });
+
+    it('aborts a stream cancelled before it was registered (pre-first-token window)', async () => {
+      setupActiveStream();
+
+      // Cancel lands BEFORE the stream starts: the cancel's own lookup
+      // must find the streaming row, while runStream's in-progress check
+      // (later) must not — reverse the sequence used above.
+      conversations.findStreamingMessage
+        .mockReset()
+        .mockResolvedValueOnce({ id: 'msg-1', status: 'streaming' })
+        .mockResolvedValue(null);
+
+      // activeStreams is empty, so the cancel is parked in pendingCancels
+      // keyed by the message id.
+      await svc.cancelGeneration('conv-1', 'user-1');
+      expect(conversations.cancelGeneration).toHaveBeenCalledWith(
+        'conv-1', 'msg-1', 'user-1',
+      );
+
+      const obs = svc.streamChat('user-1', { message: 'hi', conversationId: 'conv-1' });
+      const events: any[] = [];
+      await new Promise<void>((resolve) => {
+        obs.subscribe({ next: (e) => events.push(e), complete: () => resolve() });
+      });
+
+      // The start event goes out, then the parked cancel aborts the
+      // stream — no deltas ever reach the subscriber.
+      expect(events.some((e: any) => e.type === 'start')).toBe(true);
+      expect(events.some((e: any) => 'data' in e && !('type' in e))).toBe(false);
+      expect(
+        events.some(
+          (e: any) => e.type === 'error' && e.data?.code === 'generation_cancelled',
+        ),
+      ).toBe(true);
+      expect(conversations.updateMessageStatus).not.toHaveBeenCalledWith(
+        'msg-1',
+        'completed',
+        expect.anything(),
+      );
+    });
+  });
+
+  // ─── retry pipeline (SSE) ──────────────────────────────────────────────
+
+  describe('retryGenerationStream', () => {
+    const setupRetry = () => {
+      models.resolveActiveModel.mockResolvedValue({
+        id: 'm1', actualName: 'gpt-4o', enabled: true, isDefault: true,
+      } as any);
+      conversations.findById.mockReturnValue({
+        id: 'conv-1',
+        userId: 'user-1',
+        messages: [
+          { id: 'u1', role: 'user', content: 'hi', status: 'completed' },
+          { id: 'm-failed', role: 'assistant', content: '', status: 'failed' },
+        ],
+      });
+      conversations.findStreamingMessage.mockResolvedValue(null);
+      conversations.appendMessage.mockResolvedValue({ id: 'msg-new', status: 'streaming' });
+      runtime.stream.mockResolvedValue(
+        (async function* () {
+          yield { choices: [{ delta: { content: 'retry' } }] } as any;
+          yield { choices: [{ delta: { content: ' works' } }] } as any;
+        })(),
+      );
+    };
+
+    const collect = async (obs: ReturnType<ChatService['retryGenerationStream']>) => {
+      const events: any[] = [];
+      await new Promise<void>((resolve) => {
+        obs.subscribe({ next: (e) => events.push(e), complete: () => resolve() });
+      });
+      return events;
+    };
+
+    it('starts a REAL generation for the failed message and streams it', async () => {
+      setupRetry();
+
+      const events = await collect(svc.retryGenerationStream('user-1', 'conv-1', 'm-failed'));
+
+      // start event with the NEW assistant message id, then deltas + done.
+      expect(events[0]).toEqual({
+        type: 'start',
+        data: { conversationId: 'conv-1', assistantMessageId: 'msg-new' },
+      });
+      const deltas = events.filter((e) => 'data' in e && !('type' in e));
+      expect(deltas.map((e: any) => e.data.delta).join('')).toBe('retry works');
+      expect(events[events.length - 1]).toEqual({ type: 'done', data: {} });
+
+      // The retried message is excluded from context; prior good turns stay.
+      expect(runtime.stream).toHaveBeenCalledWith({
+        model: 'gpt-4o',
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+      // Completion goes through the atomic write.
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-new', 'retry works');
+    });
+
+    it('rejects retrying a message that is not failed/cancelled', async () => {
+      setupRetry();
+      conversations.findById.mockReturnValue({
+        id: 'conv-1',
+        userId: 'user-1',
+        messages: [
+          { id: 'm-ok', role: 'assistant', content: 'fine', status: 'completed' },
+        ],
+      });
+
+      const events = await collect(svc.retryGenerationStream('user-1', 'conv-1', 'm-ok'));
+
+      expect(events).toEqual([
+        { type: 'error', data: { code: 'message_not_retryable', message: expect.any(String) } },
+      ]);
+      expect(runtime.stream).not.toHaveBeenCalled();
+      expect(conversations.appendMessage).not.toHaveBeenCalled();
+    });
+
+    it('refuses to retry while another generation is in progress', async () => {
+      setupRetry();
+      conversations.findStreamingMessage.mockResolvedValue({ id: 'busy', status: 'streaming' });
+
+      const events = await collect(svc.retryGenerationStream('user-1', 'conv-1', 'm-failed'));
+
+      expect(events[0].type).toBe('error');
+      expect(events[0].data.code).toBe('generation_in_progress');
+      expect(conversations.appendMessage).not.toHaveBeenCalled();
     });
   });
 });

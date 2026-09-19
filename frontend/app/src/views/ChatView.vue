@@ -25,16 +25,6 @@ const models = useModelsStore()
 const chat = useChatStream()
 const theme = useTheme()
 
-const STORED_CONVERSATION_KEY = 'mmcb.lastConversationId'
-
-function loadStoredConversationId(): string | null {
-  try {
-    return localStorage.getItem(STORED_CONVERSATION_KEY)
-  } catch {
-    return null
-  }
-}
-
 const inputText = ref('')
 const justStartedConversation = ref(false)
 
@@ -90,7 +80,7 @@ watch(
 
 onMounted(async () => {
   console.debug('[ChatView] onMounted start', { routeName: route.name, resolvedId: resolvedId(), propsId: props.id })
-  await models.load()
+  await models.load(true)
   if (!chat.selectedModelId.value) {
     const fallback = models.defaultModelId ?? models.items[0]?.id ?? null
     if (fallback) chat.setModel(fallback)
@@ -104,8 +94,13 @@ onMounted(async () => {
 
   if (id) {
     await chat.loadConversation(id)
+    // The conversation was deleted (404): loadConversation already reset
+    // state and set the banner — just move the URL back to new-chat.
+    if (chat.connectionError.value?.code === 'conversation_not_found') {
+      void router.replace({ name: 'chat' })
+    }
   } else {
-    const stored = loadStoredConversationId()
+    const stored = chat.loadSavedConversationId()
     if (stored) {
       void router.replace({ name: 'chat-conversation', params: { id: stored } })
     } else {
@@ -124,8 +119,25 @@ watch(
   () => resolvedId(),
   async (id) => {
     console.debug('[ChatView] route watch resolvedId', { id })
-    if (id) await chat.loadConversation(id)
-    else chat.resetConversation()
+    if (id) {
+      // If we're already streaming this conversation (the id was just
+      // adopted via the SSE start event), only sync the URL — reloading
+      // would tear down and re-subscribe the live stream.
+      if (chat.generationState.value === 'streaming' && chat.generation.value?.conversationId === id) {
+        return
+      }
+      await chat.loadConversation(id)
+      if (chat.connectionError.value?.code === 'conversation_not_found') {
+        void router.replace({ name: 'chat' })
+      }
+    }
+    else {
+      // Returning to /chat right after a stale-conversation 404: the
+      // banner was just set — don't wipe it with a full reset.
+      if (chat.connectionError.value?.code !== 'conversation_not_found') {
+        chat.resetConversation()
+      }
+    }
     pinnedToBottom.value = true
     await nextTick()
     scrollToBottom(false)
@@ -166,15 +178,11 @@ async function onStop(): Promise<void> {
 }
 
 function onRetry(failedMessageId: string): void {
-  void chat.retry()
+  void chat.retry(failedMessageId)
 }
 
 function onReconnect(): void {
   void chat.reconnect()
-}
-
-async function onRefreshModels(): Promise<void> {
-  await models.load(true)
 }
 
 function useSuggestedPrompt(text: string): void {
@@ -260,16 +268,6 @@ const suggestedPrompts = [
       </div>
 
       <div class="ms-auto flex items-center gap-1">
-        <button
-          type="button"
-          class="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink focus-visible:text-ink"
-          :class="{ 'animate-spin': models.loading }"
-          :disabled="models.loading"
-          aria-label="به‌روزرسانی مدل‌ها"
-          @click="onRefreshModels"
-        >
-          <PhArrowsClockwise class="size-4" aria-hidden="true" />
-        </button>
         <button
           type="button"
           class="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink focus-visible:text-ink"

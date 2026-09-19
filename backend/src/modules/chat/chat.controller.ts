@@ -25,10 +25,8 @@ import { map } from 'rxjs/operators';
  *   - `event: done`            — stream completed successfully
  *   - `event: error`           — provider or internal error
  *
- * Nest's SSE writer emits the event name from `message.type`, while the
- * service's event objects use `event`. The map below bridges the two so the
- * wire format actually carries `event: done` / `event: error` /
- * `event: status` frames.
+ * Note: Nest's SseStream serializes the event name from the `type`
+ * property of each emitted object (`event` is dropped).
  */
 function toSseMessage(e: ChatStreamEvent): Record<string, unknown> {
   const source = e as unknown as { event?: string } & Record<string, unknown>;
@@ -62,17 +60,17 @@ export class ChatController {
    */
   @Post(':conversationId/resume')
   @Sse('text/event-stream')
-  resume(@CurrentUser() user: AuthenticatedUser, @Param('conversationId') conversationId: string): Observable<ChatStreamEvent> {
+  resume(@CurrentUser() user: AuthenticatedUser, @Param('conversationId') conversationId: string): Observable<Record<string, unknown>> {
     return new Observable<ChatStreamEvent>((observer) => {
       const subscribed = this.chat.subscribeToActiveStream(conversationId, observer);
       if (!subscribed) {
         observer.next({
-          event: 'error',
+          type: 'error',
           data: { code: 'no_active_stream', message: 'No active generation found for this conversation.' },
         });
         observer.complete();
       }
-    });
+    }).pipe(map((e) => toSseMessage(e)));
   }
 
   /**
@@ -94,21 +92,17 @@ export class ChatController {
   }
 
   /**
-   * Retry a failed or cancelled generation.
+   * Retry a failed or cancelled generation as a live SSE stream.
+   * Runs the same pipeline as /stream: start event, deltas, done/error.
    */
   @Post(':conversationId/retry')
-  async retry(
+  @Sse('text/event-stream')
+  retry(
     @CurrentUser() user: AuthenticatedUser,
     @Param('conversationId') conversationId: string,
     @Body() dto: { failedMessageId: string },
-  ): Promise<{ messageId: string; status: string }> {
-    const result = await this.chat.retryGeneration(conversationId, dto.failedMessageId, user.id);
-    if (!result) {
-      throw new NotFoundException({
-        code: 'conversation_not_found',
-        message: 'Conversation not found.',
-      });
-    }
-    return { messageId: result.id, status: 'streaming' };
+  ): Observable<Record<string, unknown>> {
+    return this.chat.retryGenerationStream(user.id, conversationId, dto.failedMessageId)
+      .pipe(map((e) => toSseMessage(e)));
   }
 }

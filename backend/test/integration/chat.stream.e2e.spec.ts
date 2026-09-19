@@ -121,7 +121,7 @@ describe('Chat stream — e2e', () => {
       await appConfigRepo.save(cfg);
     }
 
-    const reg = await request(app.getHttpServer())
+const reg = await request(app.getHttpServer())
       .post('/v1/auth/register')
       .send({
         username: `chat_${RUN}`,
@@ -190,6 +190,7 @@ describe('Chat stream — e2e', () => {
 
     let firstDeltaResolve!: () => void;
     let firstDeltaReject!: (err: Error) => void;
+    let firstWireChunk = '';
     const firstDelta = new Promise<void>((resolve, reject) => {
       firstDeltaResolve = resolve;
       firstDeltaReject = reject;
@@ -210,7 +211,11 @@ describe('Chat stream — e2e', () => {
       },
       (res) => {
         res.on('data', (buf: Buffer) => {
-          if (buf.toString('utf8').includes('"delta":"Hello"')) {
+          const chunk = buf.toString('utf8');
+          // Skip SseStream's leading blank line when picking the first
+          // meaningful frame.
+          if (!firstWireChunk && chunk.trim().length > 0) firstWireChunk = chunk;
+          if (chunk.includes('"delta":"Hello"')) {
             firstDeltaResolve();
           }
         });
