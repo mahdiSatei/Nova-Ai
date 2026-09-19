@@ -4,11 +4,13 @@
 // BR-005: تمام خطاهای ورود با یک پیام واحد عمومی؛ کد و requestId نشان داده نمی‌شود.
 import { reactive, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { PhMoon, PhSun } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
+import { useTheme } from '@/composables/useTheme'
 import { homeFor } from '@/router'
 import { validateIdentifier, validatePassword } from '@/utils/validation'
 import { apiErrorMessage } from '@/utils/errors'
@@ -16,6 +18,7 @@ import { apiErrorMessage } from '@/utils/errors'
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
+const { theme, toggleTheme } = useTheme()
 
 const form = reactive({ identifier: '', password: '' })
 const fieldErrors = reactive<{ identifier: string | null; password: string | null }>({
@@ -55,7 +58,21 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <template>
-  <main class="flex min-h-screen items-center justify-center px-4 py-10">
+  <main class="relative flex min-h-screen items-center justify-center px-4 py-10">
+    <!-- ✨ دکمه تغییر تم در گوشه بالای صفحه -->
+    <div class="absolute top-4 end-4 sm:top-6 sm:end-6">
+      <button
+        type="button"
+        class="inline-flex size-9 cursor-pointer items-center justify-center rounded-xl border border-line bg-surface text-ink-muted shadow-2xs transition-colors hover:bg-hover hover:text-ink focus-visible:text-ink"
+        :aria-label="theme === 'light' ? 'حالت تاریک' : 'حالت روشن'"
+        :title="theme === 'light' ? 'تاریک' : 'روشن'"
+        @click="toggleTheme"
+      >
+        <PhMoon v-if="theme === 'light'" class="size-4" aria-hidden="true" />
+        <PhSun v-else class="size-4" aria-hidden="true" />
+      </button>
+    </div>
+
     <div class="w-full max-w-sm">
       <header class="mb-8 text-center">
         <div class="mx-auto mb-4 flex size-12 items-center justify-center rounded-xl bg-primary/15">

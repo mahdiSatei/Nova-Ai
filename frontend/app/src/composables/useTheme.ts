@@ -26,16 +26,27 @@ function apply(mode: ThemeMode): void {
 const theme = ref<ThemeMode>(document.documentElement.classList.contains('light') ? 'light' : readStored())
 apply(theme.value)
 
-
 export function useTheme() {
   function setTheme(mode: ThemeMode): void {
-    theme.value = mode
-    try {
-      localStorage.setItem(STORAGE_KEY, mode)
-    } catch {
-      /* ignore */
+    const updateTheme = () => {
+      theme.value = mode
+      try {
+        localStorage.setItem(STORAGE_KEY, mode)
+      } catch {
+        /* ignore */
+      }
+      apply(mode)
     }
-    apply(mode)
+
+    // استفاده از View Transitions API برای انیمیشن نرم تغییر تم
+    if (typeof document !== 'undefined' && 'startViewTransition' in document) {
+      // @ts-ignore
+      document.startViewTransition(() => {
+        updateTheme()
+      })
+    } else {
+      updateTheme()
+    }
   }
 
   function toggleTheme(): void {

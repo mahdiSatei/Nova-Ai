@@ -1,17 +1,15 @@
 <script setup lang="ts">
-// ConversationView: فقط خواندنی — ترنسکریپت کامل + ادامه گفتگو + حذف.
+// ConversationView: فقط خواندنی — ترنسکریپت کامل + ادامه گفتگو.
 // «ادامه گفتگو» کاربر را به /chat/c/:id می‌برد تا بتواند پیام بعدی را بفرستد.
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { PhArrowRight, PhTrash, PhWarningCircle } from '@phosphor-icons/vue'
+import { PhArrowRight, PhWarningCircle } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
-import ConfirmModal from '@/components/ConfirmModal.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import MessageList from '@/components/chat/MessageList.vue'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
-import { getConversation, deleteConversation } from '@/api/conversations'
-import { useChatStream } from '@/composables/useChatStream'
+import { getConversation } from '@/api/conversations'
 import { useModelsStore } from '@/stores/models'
 import { formatDateTime } from '@/utils/time'
 import type { ConversationDetail } from '@/types/api'
@@ -20,14 +18,10 @@ const props = defineProps<{ id: string }>()
 
 const router = useRouter()
 const models = useModelsStore()
-// Only for the localStorage id helpers — no stream state is touched here.
-const chat = useChatStream()
 
 const conversation = ref<ConversationDetail | null>(null)
 const loading = ref(true)
 const error = ref<ApiError | null>(null)
-const deleting = ref(false)
-const confirmOpen = ref(false)
 
 const modelAvailable = computed(() => {
   if (!conversation.value) return false
@@ -47,22 +41,6 @@ onMounted(async () => {
     loading.value = false
   }
 })
-
-async function onConfirmDelete(): Promise<void> {
-  deleting.value = true
-  try {
-    await deleteConversation(props.id)
-    // Keep the persisted last-conversation id from pointing at a deleted
-    // row — otherwise the next reload 404-loops on it.
-    if (chat.loadSavedConversationId() === props.id) chat.clearSavedConversationId()
-    await router.push({ name: 'chat' })
-  } catch (err) {
-    if (err instanceof ApiError) error.value = err
-  } finally {
-    deleting.value = false
-    confirmOpen.value = false
-  }
-}
 
 function onContinue(): void {
   void router.push({ name: 'chat-conversation', params: { id: props.id } })
@@ -102,10 +80,6 @@ function onContinue(): void {
             <span>به‌روزرسانی: {{ formatDateTime(conversation.updatedAt) }}</span>
           </p>
         </div>
-        <BaseButton variant="danger" size="sm" @click="confirmOpen = true">
-          <PhTrash class="size-4" aria-hidden="true" />
-          <span>حذف گفتگو</span>
-        </BaseButton>
       </header>
 
       <div
@@ -131,15 +105,5 @@ function onContinue(): void {
         </div>
       </div>
     </template>
-
-    <ConfirmModal
-      :open="confirmOpen"
-      title="حذف گفتگو"
-      description="این گفتگو و تمام پیام‌های آن برای همیشه حذف می‌شوند. این عملیات قابل بازگشت نیست."
-      confirm-label="حذف"
-      :busy="deleting"
-      @update:open="(v: boolean) => (confirmOpen = v)"
-      @confirm="onConfirmDelete"
-    />
   </section>
 </template>
