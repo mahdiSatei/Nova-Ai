@@ -164,6 +164,14 @@ describe('AuthService', () => {
     expect(jwt.signAsync).not.toHaveBeenCalled();
   });
 
+  it('login throws UnauthorizedException for an admin account (even with valid password)', async () => {
+    users.findByIdentifier.mockResolvedValue({ ...validUser(), role: 'admin' });
+    await expect(
+      svc.login('admin@example.com', 'correct-horse-battery-staple'),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(jwt.signAsync).not.toHaveBeenCalled();
+  });
+
   it('loginAsAdmin issues a token pair when the account is an admin', async () => {
     users.findByIdentifier.mockResolvedValue({ ...validUser(), role: 'admin' });
     const r = await svc.loginAsAdmin('admin@example.com', 'correct-horse-battery-staple');
