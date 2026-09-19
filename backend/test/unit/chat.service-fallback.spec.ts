@@ -35,10 +35,12 @@ function emptyStream() {
 function build() {
   const conversations = {
     create: jest.fn().mockResolvedValue({ id: 'conv-1' }),
-    findById: jest.fn().mockResolvedValue({ id: 'conv-1', messages: [] }),
+    findById: jest.fn().mockResolvedValue({ id: 'conv-1', userId: 'user-1', messages: [] }),
     appendMessage: jest.fn().mockResolvedValue({ id: 'msg-1' }),
+    appendUserMessage: jest.fn().mockResolvedValue({ id: 'um-1' }),
     updateMessageStatus: jest.fn().mockResolvedValue(undefined),
     findStreamingMessage: jest.fn().mockResolvedValue(null),
+    completeIfStreaming: jest.fn().mockResolvedValue(true),
   };
   const usage = {
     create: jest.fn().mockResolvedValue({ id: 'usage-1' }),
@@ -51,7 +53,19 @@ function build() {
     finalize: jest.fn().mockResolvedValue(undefined),
     refund: jest.fn().mockResolvedValue(undefined),
   };
-  const failover = { establish: jest.fn() };
+  const runtime = { assertReady: jest.fn().mockResolvedValue({ provider: { id: 'openai' }, adapter: {} }), stream: jest.fn() };
+  // Establishment picks the serving model and reports how many attempts it
+  // took. The stream that is actually consumed is the one ChatService opens
+  // itself via `runtime.stream`, so tests drive content through that mock.
+  const failover = {
+    establish: jest.fn().mockResolvedValue({
+      model: MODEL,
+      connection: {},
+      stream: emptyStream(),
+      attempts: 1,
+      failures: [],
+    }),
+  };
   const models = {
     findById: jest.fn().mockResolvedValue(MODEL),
     resolveActiveModel: jest.fn().mockResolvedValue(MODEL),
@@ -62,7 +76,7 @@ function build() {
   const service = new ChatService(
     models as never,
     access as never,
-    { assertReady: jest.fn(), stream: jest.fn() } as never,
+    runtime as never,
     conversations as never,
     userRepo as never,
     usage as never,
@@ -71,7 +85,7 @@ function build() {
     { isConfigured: () => true, search: jest.fn().mockResolvedValue({ query: '', sources: [], creditsUsed: 0, empty: true }) } as never,
   );
 
-  return { service, conversations, usage, quotas, failover, models, access };
+  return { service, conversations, usage, quotas, failover, models, access, runtime };
 }
 
 /** Drain an Observable of chat events into an array. */
@@ -88,22 +102,18 @@ function collect(service: ChatService, userId: string, dto: unknown): Promise<un
 
 describe('ChatService fallback (spec 006)', () => {
   it('streams normally through the primary on first-attempt success', async () => {
-    const { service, failover, usage } = build();
-    failover.establish.mockResolvedValue({
-      model: MODEL,
-      connection: {},
-      stream: (async function* () {
+    const { service, runtime, usage } = build();
+    runtime.stream.mockResolvedValue(
+      (async function* () {
         yield chunk('hello ');
         yield chunk('world', { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 });
       })(),
-      attempts: 1,
-      failures: [],
-    });
+    );
 
     const events = await collect(service, 'user-1', { message: 'hi', modelId: 'model-1' });
 
     expect(events).toContainEqual({ data: { delta: 'hello ' } });
-    expect(events).toContainEqual({ event: 'done', data: {} });
+    expect(events).toContainEqual({ type: 'done', data: {} });
     expect(usage.create).toHaveBeenCalledWith(
       expect.objectContaining({ modelId: 'model-1', providerId: 'openai', attempts: 1 }),
     );
@@ -114,16 +124,19 @@ describe('ChatService fallback (spec 006)', () => {
   });
 
   it('records the effective model and attempt count when a fallback served the request', async () => {
-    const { service, failover, usage } = build();
+    const { service, failover, runtime, usage } = build();
     failover.establish.mockResolvedValue({
       model: FALLBACK_MODEL,
       connection: {},
-      stream: (async function* () {
-        yield chunk('from backup', { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 });
-      })(),
+      stream: emptyStream(),
       attempts: 3,
       failures: [],
     });
+    runtime.stream.mockResolvedValue(
+      (async function* () {
+        yield chunk('from backup', { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 });
+      })(),
+    );
 
     await collect(service, 'user-1', { message: 'hi', modelId: 'model-1' });
 
@@ -138,42 +151,53 @@ describe('ChatService fallback (spec 006)', () => {
   });
 
   it('creates exactly one assistant message even when three attempts were made', async () => {
-    const { service, failover, conversations } = build();
+    const { service, failover, runtime, conversations } = build();
     failover.establish.mockResolvedValue({
       model: FALLBACK_MODEL,
       connection: {},
-      stream: (async function* () {
-        yield chunk('ok');
-      })(),
+      stream: emptyStream(),
       attempts: 3,
       failures: [],
     });
+    runtime.stream.mockResolvedValue(
+      (async function* () {
+        yield chunk('ok');
+      })(),
+    );
 
     await collect(service, 'user-1', { message: 'hi', modelId: 'model-1' });
 
+    // One assistant row, completed exactly once through the atomic write.
     expect(conversations.appendMessage).toHaveBeenCalledTimes(1);
-    expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'completed', 'ok');
+    expect(conversations.completeIfStreaming).toHaveBeenCalledTimes(1);
+    expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'ok', [], {
+      enabled: false,
+      summary: null,
+    });
   });
 
   it('emits a retrying status event before each re-attempt', async () => {
-    const { service, failover } = build();
+    const { service, failover, runtime } = build();
     failover.establish.mockImplementation(async (input: { onRetry?: (i: unknown) => void }) => {
       input.onRetry?.({ attempt: 2, maxAttempts: 2 });
       return {
         model: MODEL,
         connection: {},
-        stream: (async function* () {
-          yield chunk('ok');
-        })(),
+        stream: emptyStream(),
         attempts: 2,
         failures: [],
       };
     });
+    runtime.stream.mockResolvedValue(
+      (async function* () {
+        yield chunk('ok');
+      })(),
+    );
 
     const events = await collect(service, 'user-1', { message: 'hi', modelId: 'model-1' });
 
     expect(events).toContainEqual({
-      event: 'status',
+      type: 'status',
       data: { phase: 'retrying', attempt: 2, maxAttempts: 2 },
     });
   });
@@ -207,7 +231,7 @@ describe('ChatService fallback (spec 006)', () => {
     const events = await collect(service, 'user-1', { message: 'hi', modelId: 'model-1' });
 
     expect(events).toContainEqual({
-      event: 'error',
+      type: 'error',
       data: expect.objectContaining({ code: 'all_providers_unavailable' }),
     });
     expect(conversations.appendMessage).toHaveBeenCalledTimes(1);
@@ -244,18 +268,16 @@ describe('ChatService fallback (spec 006)', () => {
     const events = (await collect(service, 'user-1', {
       message: 'hi',
       modelId: 'model-1',
-    })) as Array<{ event?: string; data?: { message?: string } }>;
-    const errorEvent = events.find((e) => e.event === 'error');
+    })) as Array<{ type?: string; data?: { message?: string } }>;
+    const errorEvent = events.find((e) => e.type === 'error');
 
     expect(errorEvent?.data?.message).not.toMatch(/openai|groq|sk-|baseUrl|apiKey/i);
   });
 
   it('does not retry a mid-stream failure, and marks the message failed once', async () => {
-    const { service, failover, conversations } = build();
-    failover.establish.mockResolvedValue({
-      model: MODEL,
-      connection: {},
-      stream: (async function* () {
+    const { service, failover, runtime, conversations } = build();
+    runtime.stream.mockResolvedValue(
+      (async function* () {
         yield chunk('partial');
         throw new NormalizedProviderError({
           code: 'provider_unreachable',
@@ -264,24 +286,24 @@ describe('ChatService fallback (spec 006)', () => {
           originalMessage: 'socket hang up',
         });
       })(),
-      attempts: 1,
-      failures: [],
-    });
+    );
 
     const events = await collect(service, 'user-1', { message: 'hi', modelId: 'model-1' });
 
-    // Establishment happened exactly once — a mid-stream failure is terminal.
+    // Establishment happened exactly once and the stream was opened once: a
+    // mid-stream failure is terminal and is never retried or failed over.
     expect(failover.establish).toHaveBeenCalledTimes(1);
+    expect(runtime.stream).toHaveBeenCalledTimes(1);
     expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'failed', 'partial');
     expect(events).toContainEqual({
-      event: 'error',
+      type: 'error',
       data: expect.objectContaining({ code: 'provider_error' }),
     });
-    expect(events).not.toContainEqual({ event: 'done', data: {} });
+    expect(events).not.toContainEqual({ type: 'done', data: {} });
   });
 
   it('passes the caller entitlement predicate into candidate resolution', async () => {
-    const { service, failover, access } = build();
+    const { service, failover, runtime, access } = build();
     failover.establish.mockImplementation(
       async (input: { isAllowed: (m: unknown) => Promise<boolean> }) => {
         await input.isAllowed(FALLBACK_MODEL);
@@ -294,6 +316,7 @@ describe('ChatService fallback (spec 006)', () => {
         };
       },
     );
+    runtime.stream.mockResolvedValue(emptyStream());
 
     await collect(service, 'user-1', { message: 'hi', modelId: 'model-1' });
 
@@ -301,26 +324,31 @@ describe('ChatService fallback (spec 006)', () => {
   });
 
   it('keeps the assistant message alive when the primary fails over successfully', async () => {
-    const { service, failover, conversations } = build();
+    const { service, failover, runtime, conversations } = build();
     failover.establish.mockResolvedValue({
       model: FALLBACK_MODEL,
       connection: {},
-      stream: (async function* () {
-        yield chunk('done via backup');
-      })(),
+      stream: emptyStream(),
       attempts: 2,
       failures: [],
     });
+    runtime.stream.mockResolvedValue(
+      (async function* () {
+        yield chunk('done via backup');
+      })(),
+    );
 
     await collect(service, 'user-1', { message: 'hi', modelId: 'model-1' });
 
-    expect(conversations.updateMessageStatus).toHaveBeenCalledTimes(2);
-    expect(conversations.updateMessageStatus).toHaveBeenNthCalledWith(1, 'msg-1', 'streaming');
-    expect(conversations.updateMessageStatus).toHaveBeenNthCalledWith(
-      2,
+    // The row is put into streaming once, is never marked failed, and is
+    // completed through the guarded atomic write with the fallback's answer.
+    expect(conversations.updateMessageStatus).toHaveBeenCalledTimes(1);
+    expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'streaming');
+    expect(conversations.completeIfStreaming).toHaveBeenCalledWith(
       'msg-1',
-      'completed',
       'done via backup',
+      [],
+      { enabled: false, summary: null },
     );
   });
 });

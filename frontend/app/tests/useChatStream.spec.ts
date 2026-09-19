@@ -287,7 +287,8 @@ describe('useChatStream', () => {
 
     await chat.retry('m2')
 
-    expect(retryStream).toHaveBeenCalledWith('conv-1', 'm2', expect.anything())
+    // The 4th argument carries the caller's current web-search/reasoning toggles.
+    expect(retryStream).toHaveBeenCalledWith('conv-1', 'm2', expect.anything(), expect.anything())
     expect(chat.generationState.value).toBe('streaming')
     expect(chat.connectionError.value).toBeNull()
 
@@ -332,7 +333,7 @@ describe('useChatStream', () => {
     // Retry only m4 (the second failed message)
     await chat.retry('m4')
 
-    expect(retryStream).toHaveBeenCalledWith('conv-1', 'm4', expect.anything())
+    expect(retryStream).toHaveBeenCalledWith('conv-1', 'm4', expect.anything(), expect.anything())
     expect(chat.generationState.value).toBe('streaming')
 
     // Server opens the retry stream with real ids.

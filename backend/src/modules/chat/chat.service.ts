@@ -25,6 +25,11 @@ import { WEB_SEARCH_LIMITS } from '../web-search/web-search.constants';
 import type { CitationSource, WebSource } from '../web-search/web-search.types';
 import { ToolCallAccumulator } from './tool-call-accumulator';
 import { buildCitations, extractCitationIds } from './citations';
+import { ReasoningStreamNormalizer, ReasoningStreamEvent } from './reasoning-stream';
+import { readStoredReasoningConfig, resolveReasoningConfig } from '../reasoning/reasoning.capability';
+import type { ResolvedReasoningConfig } from '../reasoning/reasoning.types';
+import type { ProviderReasoningRequest } from '../provider/adapters/provider-adapter.interface';
+import type { CompletionReasoning } from '../conversations/conversations.service';
 import {
   buildWebSearchToolOutput,
   WEB_SEARCH_SYSTEM_INSTRUCTION,
@@ -64,6 +69,9 @@ export type ChatStatusPhase =
   | 'search_completed'
   | 'retrieval_started'
   | 'retrieval_completed'
+  | 'reasoning_started'
+  | 'reasoning_completed'
+  | 'answer_started'
   | 'generating';
 
 export interface ChatStatusEvent {
@@ -83,13 +91,24 @@ export interface ChatCitationsEvent {
   data: { sources: CitationSource[] };
 }
 
+/**
+ * One chunk of the provider's user-visible reasoning summary. Answer text keeps
+ * using the untyped `message` frame; this is a separate, typed event so the
+ * frontend can never confuse reasoning output with the answer.
+ */
+export interface ChatReasoningDeltaEvent {
+  type: 'reasoning_delta';
+  data: { delta: string };
+}
+
 export type ChatStreamEvent =
   | ChatDeltaEvent
   | ChatStartEvent
   | ChatDoneEvent
   | ChatErrorEvent
   | ChatStatusEvent
-  | ChatCitationsEvent;
+  | ChatCitationsEvent
+  | ChatReasoningDeltaEvent;
 
 /**
  * Loose message shape used internally.
@@ -104,6 +123,8 @@ interface ChatMessage {
  */
 interface StreamState {
   fullResponse: string;
+  /** Accumulated user-visible reasoning summary, replayed to resuming clients. */
+  reasoningSummary: string;
   subscribers: Set<(event: ChatStreamEvent) => void>;
   providerStream?: AsyncIterable<ProviderStreamChunk>;
   abortController: AbortController;
@@ -183,6 +204,7 @@ export class ChatService {
     conversationId: string,
     failedMessageId: string,
     webSearchEnabled = false,
+    reasoningEnabled = false,
   ): Observable<ChatStreamEvent> {
     return new Observable<ChatStreamEvent>((observer) => {
       let cancelled = false;
@@ -192,6 +214,7 @@ export class ChatService {
         conversationId,
         failedMessageId,
         webSearchEnabled,
+        reasoningEnabled,
         observer,
         () => !cancelled,
       );
@@ -230,6 +253,24 @@ export class ChatService {
     for (const subscriber of state.subscribers) {
       subscriber(event);
     }
+  }
+
+  /**
+   * Map a normalized reasoning event onto the existing SSE protocol: the phase
+   * transitions ride on the `status` family, and summary chunks use the typed
+   * `reasoning_delta` event. Nothing is emitted for providers that expose no
+   * reasoning output, because the normalizer produces no events for them.
+   */
+  private emitReasoningEvent(state: StreamState, event: ReasoningStreamEvent): void {
+    if (event.kind === 'started') {
+      this.broadcast(state, { type: 'status', data: { phase: 'reasoning_started' } });
+      return;
+    }
+    if (event.kind === 'delta') {
+      this.broadcast(state, { type: 'reasoning_delta', data: { delta: event.delta } });
+      return;
+    }
+    this.broadcast(state, { type: 'status', data: { phase: 'reasoning_completed' } });
   }
 
   private async updateUserLastSelectedModel(
@@ -351,6 +392,20 @@ export class ChatService {
             'No model is available for your account. Ask an admin to grant access or set a default model.',
           );
         }
+      }
+
+      // ── reasoning capability gate (Phase 8) ──────────────────
+      // Explicit reasoning on a model that is not configured as reasoning-capable
+      // is rejected, never silently downgraded.
+      const reasoningRequested = dto.reasoning === true;
+
+      if (reasoningRequested && this.reasoningConfigFor(model).supported !== true) {
+        return this.failStream(
+          observer,
+          isActive,
+          'reasoning_unsupported',
+          'Reasoning is not supported by the selected model. Turn reasoning off and try again.',
+        );
       }
 
       // ── provider readiness ─────────────────────────────────────────────
@@ -526,11 +581,18 @@ export class ChatService {
         established = await this.failover.establish({
           model,
           messages: providerMessages,
-          isAllowed: (candidate) =>
-            this.access.canAccessUser(
+          isAllowed: async (candidate) => {
+            const entitled = await this.access.canAccessUser(
               userId,
               candidate,
-            ),
+            );
+            // A fallback must be able to honour the reasoning request, otherwise
+            // the turn would silently lose reasoning.
+            return (
+              entitled &&
+              (!reasoningRequested || this.reasoningConfigFor(candidate).supported === true)
+            );
+          },
           onRetry: ({
             attempt,
             maxAttempts,
@@ -644,6 +706,9 @@ export class ChatService {
         quotaReservedTokens,
         effectiveModel,
         webSearchEnabled: dto.webSearch === true,
+        reasoning: reasoningRequested
+          ? this.reasoningRequestFor(effectiveModel)
+          : { enabled: false, summary: false },
       });
     } catch (err) {
       this.logger.error(
@@ -698,6 +763,7 @@ export class ChatService {
     quotaReservedTokens: number;
     effectiveModel: Model;
     webSearchEnabled: boolean;
+    reasoning: ProviderReasoningRequest;
   }): Promise<void> {
     const {
       conversationId,
@@ -711,6 +777,7 @@ export class ChatService {
       quotaReservedTokens,
       effectiveModel,
       webSearchEnabled,
+      reasoning,
     } = params;
 
     let fullResponse = '';
@@ -720,6 +787,8 @@ export class ChatService {
     const abortController = new AbortController();
     const sourcesByUrl = new Map<string, WebSource>();
     const startedAt = Date.now();
+    const normalizer = new ReasoningStreamNormalizer({ enabled: reasoning.enabled });
+    let answerStarted = false;
 
     try {
       // Get the provider connection for the effective serving model.
@@ -738,6 +807,7 @@ export class ChatService {
 
       const state: StreamState = {
         fullResponse: '',
+        reasoningSummary: '',
         subscribers: new Set([
           observer.next.bind(observer),
         ]),
@@ -788,16 +858,23 @@ export class ChatService {
         ) {
           const stream = await this.runtime.stream(
             connection,
-            tools
+            reasoning.enabled
               ? {
                   model: effectiveModel.actualName,
                   messages,
-                  tools,
+                  ...(tools ? { tools } : {}),
+                  reasoning,
                 }
-              : {
-                  model: effectiveModel.actualName,
-                  messages,
-                },
+              : tools
+                ? {
+                    model: effectiveModel.actualName,
+                    messages,
+                    tools,
+                  }
+                : {
+                    model: effectiveModel.actualName,
+                    messages,
+                  },
           );
 
           state.providerStream = stream;
@@ -813,8 +890,27 @@ export class ChatService {
               accumulator.push(delta.tool_calls);
             }
 
+            for (const event of normalizer.pushReasoning(delta?.reasoning)) {
+              if (event.kind === 'delta') state.reasoningSummary = normalizer.summary;
+              this.emitReasoningEvent(state, event);
+            }
+
             if (!delta?.content) {
               continue;
+            }
+
+            for (const event of normalizer.onAnswerContent()) {
+              this.emitReasoningEvent(state, event);
+            }
+
+            if (!answerStarted) {
+              answerStarted = true;
+              if (reasoning.enabled) {
+                this.broadcast(state, {
+                  type: 'status',
+                  data: { phase: 'answer_started' },
+                });
+              }
             }
 
             fullResponse += delta.content;
@@ -1000,6 +1096,11 @@ export class ChatService {
           });
         }
 
+        // Close an open reasoning block even when the answer produced no text.
+        for (const event of normalizer.finish()) {
+          this.emitReasoningEvent(state, event);
+        }
+
         if (webSearchEnabled) {
           this.broadcast(state, {
             type: 'status',
@@ -1012,12 +1113,20 @@ export class ChatService {
           extractCitationIds(fullResponse),
         );
 
+        const reasoningCompletion: CompletionReasoning = {
+          enabled: reasoning.enabled,
+          // Only a summary the provider actually exposed is persisted; a failed or
+          // cancelled generation never reaches this line.
+          summary: reasoning.enabled ? normalizer.userVisibleSummary : null,
+        };
+
         // Only a still-streaming row may become completed.
         const completed =
           await this.conversations.completeIfStreaming(
             assistantMessageId,
             fullResponse,
             citations,
+            reasoningCompletion,
           );
 
         if (completed) {
@@ -1192,6 +1301,7 @@ export class ChatService {
     conversationId: string,
     failedMessageId: string,
     webSearchEnabled: boolean,
+    reasoningEnabled: boolean,
     observer: {
       next: (event: ChatStreamEvent) => void;
       complete: () => void;
@@ -1213,6 +1323,16 @@ export class ChatService {
           isActive,
           'no_model_available',
           'No model is available. Ask an admin to set a default model or select one explicitly.',
+        );
+      }
+
+      // ── reasoning capability gate (Phase 8) ────────────────────────────
+      if (reasoningEnabled && this.reasoningConfigFor(model).supported !== true) {
+        return this.failStream(
+          observer,
+          isActive,
+          'reasoning_unsupported',
+          'Reasoning is not supported by the selected model. Turn reasoning off and try again.',
         );
       }
 
@@ -1359,6 +1479,9 @@ export class ChatService {
         quotaReservedTokens: 0,
         effectiveModel: model,
         webSearchEnabled,
+        reasoning: reasoningEnabled
+          ? this.reasoningRequestFor(model)
+          : { enabled: false, summary: false },
       });
     } catch (err) {
       this.logger.error(
@@ -1381,6 +1504,20 @@ export class ChatService {
 
       observer.complete();
     }
+  }
+
+  /**
+   * The effective reasoning configuration for a model. Deterministic for any
+   * stored value (see resolveReasoningConfig) and provider-independent.
+   */
+  private reasoningConfigFor(model: Model): ResolvedReasoningConfig {
+    return resolveReasoningConfig(readStoredReasoningConfig(model.reasoningConfig));
+  }
+
+  /** The normalized provider request for a reasoning-enabled turn. */
+  private reasoningRequestFor(model: Model): ProviderReasoningRequest {
+    const config = this.reasoningConfigFor(model);
+    return { enabled: config.supported === true, summary: config.output === 'summary' };
   }
 
   /**
@@ -1441,6 +1578,13 @@ export class ChatService {
 
     if (!state) {
       return false;
+    }
+
+    if (state.reasoningSummary.length > 0) {
+      observer.next({
+        type: 'reasoning_delta',
+        data: { delta: state.reasoningSummary },
+      });
     }
 
     if (state.fullResponse.length > 0) {

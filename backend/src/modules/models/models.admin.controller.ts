@@ -19,7 +19,8 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ModelsService, DeleteModelMigrationResult } from './models.service';
 import { ModelUpsertDto } from './dto/model-upsert.dto';
-import type { ModelVisibility } from './model-visibility';
+import { Model } from './entities/model.entity';
+import { readStoredReasoningConfig, resolveReasoningConfig } from '../reasoning/reasoning.capability';
 
 /**
  * Admin-only CRUD for the model catalog. US7.
@@ -41,20 +42,7 @@ export class ModelsAdminController {
   @Get()
   async list() {
     const all = await this.models.listAll();
-    return {
-      items: all.map((m) => ({
-        id: m.id,
-        displayName: m.displayName,
-        actualName: m.actualName,
-        providerId: m.providerId,
-        visibility: m.visibility,
-        enabled: m.enabled,
-        isDefault: m.isDefault,
-        fallbackModelId: m.fallbackModelId ?? null,
-        createdAt: m.createdAt.toISOString(),
-        updatedAt: m.updatedAt.toISOString(),
-      })),
-    };
+    return { items: all.map((m) => this.toAdminShape(m)) };
   }
 
   @Post()
@@ -67,6 +55,7 @@ export class ModelsAdminController {
       visibility: body.visibility,
       enabled: body.enabled,
       fallbackModelId: body.fallbackModelId,
+      reasoning: body.reasoning,
     });
     return this.toAdminShape(m);
   }
@@ -80,7 +69,16 @@ export class ModelsAdminController {
       visibility: body.visibility,
       enabled: body.enabled,
       fallbackModelId: body.fallbackModelId,
+      reasoning: body.reasoning,
     });
+    return this.toAdminShape(m);
+  }
+
+  /** Re-run automatic capability discovery for a model (Phase 8). */
+  @Post(':id/reasoning/discover')
+  @HttpCode(HttpStatus.OK)
+  async discoverReasoning(@Param('id') id: string) {
+    const m = await this.models.rediscoverReasoning(id);
     return this.toAdminShape(m);
   }
 
@@ -117,18 +115,28 @@ export class ModelsAdminController {
     return result;
   }
 
-  private toAdminShape(m: {
-    id: string;
-    displayName: string;
-    actualName: string;
-    providerId: string;
-    visibility: ModelVisibility;
-    enabled: boolean;
-    isDefault: boolean;
-    fallbackModelId?: string | null;
-    createdAt: Date;
-    updatedAt: Date;
-  }) {
+  /**
+   * Everything the admin UI needs to show and edit reasoning capability: the
+   * effective configuration, the discovery snapshot with its per-capability
+   * source, and the admin's own values.
+   */
+  private toReasoningShape(m: Model) {
+    const stored = readStoredReasoningConfig(m.reasoningConfig);
+    return {
+      mode: stored.mode,
+      effective: resolveReasoningConfig(stored),
+      discovered: {
+        supported: stored.discovered.supported,
+        output: stored.discovered.output,
+        streaming: stored.discovered.streaming,
+        sources: stored.discovered.sources,
+        discoveredAt: stored.discovered.discoveredAt,
+      },
+      manual: stored.manual,
+    };
+  }
+
+  private toAdminShape(m: Model) {
     return {
       id: m.id,
       displayName: m.displayName,
@@ -138,6 +146,7 @@ export class ModelsAdminController {
       enabled: m.enabled,
       isDefault: m.isDefault,
       fallbackModelId: m.fallbackModelId ?? null,
+      reasoning: this.toReasoningShape(m),
       createdAt: m.createdAt.toISOString(),
       updatedAt: m.updatedAt.toISOString(),
     };

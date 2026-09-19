@@ -12,6 +12,7 @@ import {
 import { Conversation } from '../../conversations/entities/conversation.entity';
 import { Provider } from '../../provider/entities/provider.entity';
 import type { ModelVisibility } from '../model-visibility';
+import type { StoredReasoningConfig } from '../../reasoning/reasoning.types';
 
 @Entity({ name: 'models' })
 @Index('uq_models_display_name', ['displayName'], { unique: true })
@@ -52,6 +53,14 @@ export class Model {
 
   @Column({ name: 'is_default', type: 'boolean', default: false })
   isDefault!: boolean;
+
+  /**
+   * Reasoning capability configuration (Phase 8). One JSONB snapshot holds both
+   * the automatically discovered capability and the admin's manual override, so
+   * re-running discovery never destroys what an admin typed.
+   */
+  @Column({ name: 'reasoning_config', type: 'jsonb', default: () => `'{}'::jsonb` })
+  reasoningConfig!: StoredReasoningConfig;
 
   /** Cost per 1,000 input tokens (USD). Zero means free or unpriced. */
   @Column({ name: 'input_price_per_1k', type: 'decimal', precision: 10, scale: 6, default: 0 })

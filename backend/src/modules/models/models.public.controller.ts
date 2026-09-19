@@ -3,6 +3,11 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { ModelsService } from './models.service';
 import { Model } from './entities/model.entity';
+import {
+  readStoredReasoningConfig,
+  resolveReasoningConfig,
+  toPublicReasoning,
+} from '../reasoning/reasoning.capability';
 
 /**
  * Public model-list endpoint for end users.
@@ -28,11 +33,16 @@ export class ModelsPublicController {
     id: string;
     displayName: string;
     isDefault: boolean;
+    reasoning: { supported: boolean; output: 'none' | 'summary'; streaming: boolean };
   } {
     return {
       id: model.id,
       displayName: model.displayName,
       isDefault: model.isDefault,
+      // Effective capability only — never the raw discovered/manual snapshot.
+      reasoning: toPublicReasoning(
+        resolveReasoningConfig(readStoredReasoningConfig(model.reasoningConfig)),
+      ),
     };
   }
 }

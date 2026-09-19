@@ -33,7 +33,29 @@ describe('ModelsPublicController', () => {
   describe('list', () => {
     it('returns enabled models with only public fields', async () => {
       const models = [
-        { id: 'm1', displayName: 'GPT-4o', actualName: 'gpt-4o', enabled: true, isDefault: true },
+        {
+          id: 'm1',
+          displayName: 'GPT-4o',
+          actualName: 'gpt-4o',
+          enabled: true,
+          isDefault: true,
+          // Phase 8: an explicit reasoning capability reported by the provider.
+          reasoningConfig: {
+            mode: 'automatic',
+            discovered: {
+              supported: true,
+              output: 'summary',
+              streaming: true,
+              sources: {
+                supported: 'provider_api',
+                output: 'provider_rules',
+                streaming: 'provider_rules',
+              },
+              discoveredAt: '2026-09-19T00:00:00.000Z',
+            },
+            manual: { supported: null, output: null, streaming: null },
+          },
+        },
         { id: 'm2', displayName: 'GPT-4o mini', actualName: 'gpt-4o-mini', enabled: true, isDefault: false },
       ];
       modelsService.listAccessibleFor.mockResolvedValue(models);
@@ -44,8 +66,19 @@ describe('ModelsPublicController', () => {
       expect(modelsService.listAccessibleFor).toHaveBeenCalledWith('u-1');
       expect(result).toEqual({
         items: [
-          { id: 'm1', displayName: 'GPT-4o', isDefault: true },
-          { id: 'm2', displayName: 'GPT-4o mini', isDefault: false },
+          {
+            id: 'm1',
+            displayName: 'GPT-4o',
+            isDefault: true,
+            reasoning: { supported: true, output: 'summary', streaming: true },
+          },
+          {
+            id: 'm2',
+            displayName: 'GPT-4o mini',
+            isDefault: false,
+            // Unknown capability narrows to "unsupported with no output".
+            reasoning: { supported: false, output: 'none', streaming: false },
+          },
         ],
       });
     });

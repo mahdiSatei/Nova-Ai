@@ -28,6 +28,16 @@ export function updateProvider(id: string, body: ProviderUpdateRequest): Promise
   return request<ProviderAdmin>(`/v1/admin/providers/${id}`, { method: 'PATCH', body })
 }
 
+export function createProvider(body: {
+  id: string
+  name: string
+  type: 'openai-compatible'
+  baseUrl: string
+  apiKey: string
+}): Promise<ProviderAdmin> {
+  return request<ProviderAdmin>('/v1/admin/providers', { method: 'POST', body })
+}
+
 export function listAdminModels(query: PaginatedQuery = {}): Promise<ModelList<ModelAdmin>> {
   return request<ModelList<ModelAdmin>>('/v1/admin/models', { query: { ...query } })
 }
@@ -38,6 +48,11 @@ export function createModel(body: Required<Pick<ModelUpsertRequest, 'displayName
 
 export function updateModel(id: string, body: ModelUpsertRequest): Promise<ModelAdmin> {
   return request<ModelAdmin>(`/v1/admin/models/${id}`, { method: 'PATCH', body })
+}
+
+/** فاز ۸ — اجرای مجدد کشف خودکار توان استدلال مدل. */
+export function discoverModelReasoning(id: string): Promise<ModelAdmin> {
+  return request<ModelAdmin>(`/v1/admin/models/${id}/reasoning/discover`, { method: 'POST' })
 }
 
 export interface DeleteModelMigrationResult {

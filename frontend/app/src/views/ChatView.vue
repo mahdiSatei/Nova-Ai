@@ -33,6 +33,14 @@ const quota = useQuota()
 onMounted(() => {
   void quota.loadQuota()
 })
+// فاز ۸ — کنترل استدلال فقط برای مدل‌هایی که پیکربندی مؤثرشان پشتیبانی را می‌گوید.
+// (سرور مقدار ناشناخته را به «پشتیبانی نمی‌شود» تبدیل می‌کند، پس اینجا فقط
+//  supported===true معنا دارد.)
+const reasoningSupported = computed(
+  () => models.byId(chat.selectedModelId.value)?.reasoning?.supported === true,
+)
+watch(reasoningSupported, (supported) => chat.setReasoningSupport(supported), { immediate: true })
+
 const scrollRoot = useTemplateRef<HTMLDivElement>('scrollRoot')
 
 // scroll هوشمند: فقط وقتی کاربر پایین است خودکار پایین می‌رود.
@@ -285,6 +293,24 @@ const suggestedPrompts = [
           <PhGlobeHemisphereWest class="size-3.5" aria-hidden="true" />
           <span>جستجوی وب</span>
         </button>
+        <!-- فاز ۸ — کلید استدلال (فقط برای مدل‌های پشتیبان) -->
+        <button
+          v-if="reasoningSupported"
+          type="button"
+          class="inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+          :class="
+            chat.reasoningEnabled.value
+              ? 'border-primary/60 bg-primary-soft text-primary'
+              : 'border-line bg-surface/70 text-ink-muted hover:text-ink'
+          "
+          :aria-pressed="chat.reasoningEnabled.value"
+          :disabled="chat.inputDisabled.value"
+          :title="chat.reasoningEnabled.value ? 'استدلال روشن است' : 'استدلال خاموش است'"
+          @click="chat.setReasoning(!chat.reasoningEnabled.value)"
+        >
+          <PhBrain class="size-3.5" aria-hidden="true" />
+          <span>استدلال</span>
+        </button>
         <button
           type="button"
           class="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink focus-visible:text-ink"
@@ -381,6 +407,9 @@ const suggestedPrompts = [
             :messages="chat.transcript.value"
             :generation="chat.generation.value"
             :search-activity="chat.searchActivity.value"
+            :reasoning-active="chat.reasoningActive.value"
+            :reasoning-completed="chat.reasoningCompleted.value"
+            :reasoning-summary="chat.reasoningSummary.value"
             :on-retry="onRetry"
             :on-reconnect="onReconnect"
             :on-cancel="onStop"

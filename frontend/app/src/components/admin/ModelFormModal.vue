@@ -7,8 +7,30 @@ import BaseInput from '@/components/ui/BaseInput.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
-import { createModel, updateModel } from '@/api/admin'
-import type { ModelAdmin, ModelVisibility } from '@/types/api'
+import { createModel, updateModel, discoverModelReasoning } from '@/api/admin'
+import { formatDateTime } from '@/utils/time'
+import type {
+  ModelAdmin,
+  ModelVisibility,
+  ReasoningCapabilitySource,
+  ReasoningConfigMode,
+  ReasoningOutput,
+} from '@/types/api'
+
+// فاز ۸ — نمایش منبع هر توان استدلال به مدیر.
+const SOURCE_LABELS: Record<ReasoningCapabilitySource, string> = {
+  provider_api: 'اعلام‌شده توسط ارائه‌دهنده',
+  provider_rules: 'قواعد مستند ارائه‌دهنده',
+  manual: 'تنظیم دستی',
+  unknown: 'نامشخص',
+}
+
+function reasoningSupportLabelFrom(info: ModelAdmin['reasoning']): string {
+  const supported = info?.effective.supported
+  if (supported === true) return 'پشتیبانی می‌شود'
+  if (supported === false) return 'پشتیبانی نمی‌شود'
+  return 'نامشخص'
+}
 
 // فاز ۳: سطح دسترسی مدل. «عمومی» برای همه، «تجاری» فقط کاربران با سطح دسترسی
 // تجاری، «خصوصی» تنها برای مدیران.
@@ -29,7 +51,20 @@ const form = reactive<{
   actualName: string
   visibility: ModelVisibility
   enabled: boolean
-}>({ displayName: '', actualName: '', visibility: 'public', enabled: true })
+  reasoningMode: ReasoningConfigMode
+  reasoningSupported: 'unknown' | 'supported' | 'unsupported'
+  reasoningOutput: 'unknown' | ReasoningOutput
+  reasoningStreaming: boolean
+}>({
+  displayName: '',
+  actualName: '',
+  visibility: 'public',
+  enabled: true,
+  reasoningMode: 'automatic',
+  reasoningSupported: 'unknown',
+  reasoningOutput: 'unknown',
+  reasoningStreaming: false,
+})
 const fieldErrors = reactive<{ displayName: string | null; actualName: string | null }>({
   displayName: null,
   actualName: null,
@@ -38,6 +73,9 @@ const submitError = ref<{ message: string; code?: string; requestId?: string } |
 const submitting = ref(false)
 
 const isEdit = ref(false)
+/** فاز ۸ — آخرین نتیجهٔ کشف خودکار، برای نمایش منبع و زمان کشف. */
+const discoveredInfo = ref<ModelAdmin['reasoning'] | null>(null)
+const discovering = ref(false)
 
 watch(
   () => props.open,
@@ -48,6 +86,15 @@ watch(
     form.actualName = props.model?.actualName ?? ''
     form.visibility = props.model?.visibility ?? 'public'
     form.enabled = props.model?.enabled ?? true
+    // Only manual values are editable here; "automatic" keeps trusting the
+    // provider, so the admin's unsaved values never leak into it.
+    form.reasoningMode = props.model?.reasoning?.mode ?? 'automatic'
+    const manual = props.model?.reasoning?.manual
+    form.reasoningSupported =
+      manual?.supported === true ? 'supported' : manual?.supported === false ? 'unsupported' : 'unknown'
+    form.reasoningOutput = manual?.output ?? 'unknown'
+    form.reasoningStreaming = manual?.streaming === true
+    discoveredInfo.value = props.model?.reasoning ?? null
     fieldErrors.displayName = null
     fieldErrors.actualName = null
     submitError.value = null
@@ -68,6 +115,48 @@ function validateActual(value: string): string | null {
   return null
 }
 
+/**
+ * Re-run automatic discovery for an existing model. The server keeps whatever
+ * the admin configured manually, so this can never wipe a manual choice.
+ */
+async function onDiscover(): Promise<void> {
+  if (!props.model) return
+  discovering.value = true
+  submitError.value = null
+  try {
+    const updated = await discoverModelReasoning(props.model.id)
+    form.reasoningMode = updated.reasoning?.mode ?? form.reasoningMode
+    discoveredInfo.value = updated.reasoning ?? null
+    emit('saved', updated)
+  } catch (err) {
+    if (err instanceof ApiError) {
+      submitError.value = { message: apiErrorMessage(err), code: err.code, requestId: err.requestId }
+    } else {
+      submitError.value = { message: 'کشف خودکار ناموفق بود.' }
+    }
+  } finally {
+    discovering.value = false
+  }
+}
+
+/** فاز ۸ — پچ استدلال برای ایجاد/ویرایش. */
+function reasoningPatch(): {
+  mode: ReasoningConfigMode
+  supported: boolean | null
+  output: ReasoningOutput | null
+  streaming: boolean | null
+} {
+  return {
+    mode: form.reasoningMode,
+    supported:
+      form.reasoningSupported === 'unknown' ? null : form.reasoningSupported === 'supported',
+    output: form.reasoningOutput === 'unknown' ? null : form.reasoningOutput,
+    // Streaming only means anything for a supported summary, so a stale checkbox
+    // can never describe a contradiction.
+    streaming: form.reasoningSupported === 'supported' ? form.reasoningStreaming : false,
+  }
+}
+
 async function onSubmit(): Promise<void> {
   fieldErrors.displayName = validateDisplay(form.displayName)
   fieldErrors.actualName = validateActual(form.actualName)
@@ -83,6 +172,7 @@ async function onSubmit(): Promise<void> {
         actualName: form.actualName.trim(),
         visibility: form.visibility,
         enabled: form.enabled,
+        reasoning: reasoningPatch(),
       })
     } else {
       saved = await createModel({
@@ -90,6 +180,7 @@ async function onSubmit(): Promise<void> {
         actualName: form.actualName.trim(),
         visibility: form.visibility,
         enabled: form.enabled,
+        reasoning: reasoningPatch(),
       })
     }
     emit('saved', saved)
@@ -192,6 +283,83 @@ function onCancel(): void {
               />
               <span>فعال برای کاربران</span>
             </label>
+
+            <!-- فاز ۸ — پیکربندی استدلال: خودکار (اعتماد به ارائه‌دهنده) یا دستی -->
+            <fieldset class="flex flex-col gap-3 rounded-lg border border-line p-3">
+              <legend class="px-1 text-xs font-medium text-ink-muted">استدلال (Thinking)</legend>
+
+              <label class="flex flex-col gap-1.5 text-xs">
+                <span class="text-ink-muted">
+                  منبع پیکربندی
+                  <span v-if="discoveredInfo?.discovered.discoveredAt" class="text-ink-muted/60">
+                    · آخرین کشف: {{ formatDateTime(discoveredInfo.discovered.discoveredAt) }}
+                  </span>
+                </span>
+                <select
+                  v-model="form.reasoningMode"
+                  class="w-full appearance-none rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-ink transition-colors focus:border-primary"
+                >
+                  <option value="automatic">خودکار — اعتماد به کشف ارائه‌دهنده</option>
+                  <option value="manual">دستی — پیکربندی توسط مدیر</option>
+                </select>
+              </label>
+
+              <p v-if="discoveredInfo" class="text-[11px] text-ink-muted/80">
+                کشف‌شده:
+                {{ reasoningSupportLabelFrom(discoveredInfo) }}
+                <span v-if="discoveredInfo.discovered.output === 'summary'"> · خلاصه قابل نمایش</span>
+                <span dir="auto"> · منبع: {{ SOURCE_LABELS[discoveredInfo.discovered.sources.supported] }}</span>
+              </p>
+
+              <template v-if="form.reasoningMode === 'manual'">
+                <label class="flex flex-col gap-1.5 text-xs">
+                  <span class="text-ink-muted">پشتیبانی استدلال</span>
+                  <select
+                    v-model="form.reasoningSupported"
+                    class="w-full appearance-none rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-ink transition-colors focus:border-primary"
+                  >
+                    <option value="unknown">نامشخص</option>
+                    <option value="supported">پشتیبانی می‌شود</option>
+                    <option value="unsupported">پشتیبانی نمی‌شود</option>
+                  </select>
+                </label>
+
+                <label v-if="form.reasoningSupported !== 'unsupported'" class="flex flex-col gap-1.5 text-xs">
+                  <span class="text-ink-muted">خروجی قابل نمایش</span>
+                  <select
+                    v-model="form.reasoningOutput"
+                    class="w-full appearance-none rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-ink transition-colors focus:border-primary"
+                  >
+                    <option value="unknown">نامشخص</option>
+                    <option value="none">هیچ (استدلال داخلی)</option>
+                    <option value="summary">خلاصهٔ قابل نمایش</option>
+                  </select>
+                </label>
+
+                <label
+                  v-if="form.reasoningSupported === 'supported' && form.reasoningOutput === 'summary'"
+                  class="flex cursor-pointer items-center gap-2 text-xs text-ink"
+                >
+                  <input
+                    v-model="form.reasoningStreaming"
+                    type="checkbox"
+                    class="size-4 cursor-pointer rounded border-line bg-elevated accent-primary"
+                  />
+                  <span>خلاصه به‌صورت زنده استریم می‌شود</span>
+                </label>
+              </template>
+
+              <BaseButton
+                v-if="isEdit"
+                variant="secondary"
+                size="sm"
+                type="button"
+                :loading="discovering"
+                @click="onDiscover"
+              >
+                کشف مجدد از ارائه‌دهنده
+              </BaseButton>
+            </fieldset>
 
             <footer class="flex items-center justify-end gap-2">
               <BaseButton variant="ghost" size="sm" type="button" :disabled="submitting" @click="onCancel">

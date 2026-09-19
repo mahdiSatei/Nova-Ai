@@ -3,7 +3,12 @@
 // عملیات: ویرایش، toggle enabled (با تأیید برای غیرفعال‌سازی مدل پیش‌فرض)، حذف (با تأیید).
 import { PhPencilSimple, PhStar, PhStarFour, PhToggleLeft } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
-import type { ModelAdmin, ModelVisibility } from '@/types/api'
+import type {
+  ModelAdmin,
+  ModelVisibility,
+  ReasoningCapabilitySource,
+  ReasoningConfigMode,
+} from '@/types/api'
 
 // فاز ۳: برچسب سطح دسترسی برای هر مدل.
 const VISIBILITY_LABELS: Record<ModelVisibility, string> = {
@@ -18,6 +23,27 @@ const VISIBILITY_CLASSES: Record<ModelVisibility, string> = {
   private: 'bg-warning/15 text-warning',
 }
 
+// فاز ۸ — نمایش توان مؤثر استدلال و منبع آن برای مدیر. «نامشخص» هرگز به
+// «پشتیبانی نمی‌شود» تبدیل نمی‌شود؛ این دو حالت برای مدیر متفاوت‌اند.
+const SOURCE_LABELS: Record<ReasoningCapabilitySource, string> = {
+  provider_api: 'اعلام‌شده توسط ارائه‌دهنده',
+  provider_rules: 'قواعد مستند ارائه‌دهنده',
+  manual: 'تنظیم دستی',
+  unknown: 'نامشخص',
+}
+
+const MODE_LABELS: Record<ReasoningConfigMode, string> = {
+  automatic: 'خودکار',
+  manual: 'دستی',
+}
+
+function reasoningSupportLabel(m: ModelAdmin): string {
+  const supported = m.reasoning?.effective.supported
+  if (supported === true) return 'پشتیبانی می‌شود'
+  if (supported === false) return 'پشتیبانی نمی‌شود'
+  return 'نامشخص'
+}
+
 defineProps<{ models: ModelAdmin[]; defaultModelId: string | null }>()
 const emit = defineEmits<{ edit: [m: ModelAdmin]; toggle: [m: ModelAdmin]; remove: [m: ModelAdmin] }>()
 </script>
@@ -30,6 +56,7 @@ const emit = defineEmits<{ edit: [m: ModelAdmin]; toggle: [m: ModelAdmin]; remov
           <th class="px-4 py-2.5 text-start font-medium">نام نمایشی</th>
           <th class="px-4 py-2.5 text-start font-medium">نام ارائه‌دهنده</th>
           <th class="px-4 py-2.5 text-start font-medium">سطح دسترسی</th>
+          <th class="px-4 py-2.5 text-start font-medium">استدلال</th>
           <th class="px-4 py-2.5 text-start font-medium">وضعیت</th>
           <th class="px-4 py-2.5 text-start font-medium">پیش‌فرض</th>
           <th class="px-4 py-2.5 text-end font-medium">عملیات</th>
@@ -50,6 +77,29 @@ const emit = defineEmits<{ edit: [m: ModelAdmin]; toggle: [m: ModelAdmin]; remov
             >
               {{ VISIBILITY_LABELS[m.visibility] }}
             </span>
+          </td>
+          <td class="px-4 py-3">
+            <div class="flex flex-col gap-1 text-xs">
+              <span
+                class="inline-flex w-fit items-center rounded-full px-2.5 py-0.5"
+                :class="
+                  m.reasoning?.effective.supported === true
+                    ? 'bg-primary/15 text-primary'
+                    : m.reasoning?.effective.supported === false
+                      ? 'bg-line text-ink-muted'
+                      : 'bg-warning/15 text-warning'
+                "
+              >
+                {{ reasoningSupportLabel(m) }}
+              </span>
+              <span v-if="m.reasoning?.effective.output === 'summary'" class="text-ink-muted">
+                خلاصه<span v-if="m.reasoning.effective.streaming"> · زنده</span>
+              </span>
+              <span dir="auto" class="text-[11px] text-ink-muted/70">
+                {{ MODE_LABELS[m.reasoning?.mode ?? 'automatic'] }} ·
+                {{ SOURCE_LABELS[m.reasoning?.discovered.sources.supported ?? 'unknown'] }}
+              </span>
+            </div>
           </td>
           <td class="px-4 py-3">
             <button

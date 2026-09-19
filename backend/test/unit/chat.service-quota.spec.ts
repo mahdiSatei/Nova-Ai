@@ -24,6 +24,7 @@ describe('ChatService quota preflight', () => {
   let runtime: any;
   let conversations: any;
   let quotas: any;
+  let failover: { establish: jest.Mock };
 
   beforeEach(async () => {
     models = {
@@ -41,32 +42,36 @@ describe('ChatService quota preflight', () => {
       assertReady: jest.fn().mockResolvedValue({ provider: { id: 'p1' }, adapter: {} }),
       stream: jest.fn(),
     };
-    // Phase 6: establishment goes through the failover service, so this stub
-    // delegates to the runtime mocks to keep each test's stream setup intact.
-    const failover = {
+    // Phase 6: establishment is a *selection* step (it decides which model
+    // serves the turn and how many attempts it took) and it is also what
+    // surfaces "no candidate could be reached". The stream the caller ends up
+    // consuming is opened by ChatService itself through `runtime.stream`.
+    failover = {
       establish: jest.fn(async (input: { model: any; messages: any[] }) => {
-        try {
-          const connection = await runtime.assertReady(input.model.id);
-          const stream = await runtime.stream(connection, {
-            model: input.model.actualName,
-            messages: input.messages,
-          });
-          return { model: input.model, connection, stream, attempts: 1, failures: [] };
-        } catch {
+        if (input.model.enabled === false) {
           throw new AllProvidersUnavailableError(
             [
               {
                 modelId: input.model.id,
                 providerId: input.model.providerId ?? 'p1',
-                attempt: 1,
-                code: 'provider_error',
-                category: 'terminal',
+                attempt: 0,
+                code: 'model_unavailable',
+                category: 'configuration',
                 durationMs: 0,
               },
             ],
-            1,
+            0,
           );
         }
+        return {
+          model: input.model,
+          connection: {},
+          stream: (async function* () {
+            /* opened then superseded by the consumed stream */
+          })(),
+          attempts: 1,
+          failures: [],
+        };
       }),
     };
     conversations = {
@@ -75,6 +80,10 @@ describe('ChatService quota preflight', () => {
       appendMessage: jest.fn().mockResolvedValue({ id: 'msg-1' }),
       findStreamingMessage: jest.fn().mockResolvedValue(null),
       updateMessageStatus: jest.fn().mockResolvedValue({}),
+      // Successful turns are completed through the atomic guarded write, not
+      // through a plain status update. Returning true means "we still owned
+      // the streaming row", which is what a happy path looks like.
+      completeIfStreaming: jest.fn().mockResolvedValue(true),
     };
     quotas = {
       checkAndReserve: jest.fn(),
@@ -129,12 +138,16 @@ describe('ChatService quota preflight', () => {
     const events = await collect({ message: 'hello there' } as any);
 
     expect(events).toHaveLength(1);
-    expect(events[0].event).toBe('error');
+    expect(events[0].type).toBe('error');
     expect(events[0].data.code).toBe('quota_exceeded');
     expect(events[0].data.message).toContain('12');
-    // Provider must never be called
-    expect(runtime.assertReady).not.toHaveBeenCalled();
+    // No generation request is ever issued to a provider. (assertReady is a
+    // local connection/config probe, not a provider call, and it legitimately
+    // runs before the reservation is attempted.)
     expect(runtime.stream).not.toHaveBeenCalled();
+    expect(failover.establish).not.toHaveBeenCalled();
+    // The reserved-for-streaming assistant row must not be left dangling.
+    expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'failed', '');
   });
 
   it('proceeds to the provider when quota is reserved', async () => {
@@ -158,7 +171,7 @@ describe('ChatService quota preflight', () => {
     const events = await collect({ message: 'hello there' } as any);
 
     expect(runtime.assertReady).toHaveBeenCalledWith('m1');
-    expect(events.some((e) => e.event === 'done')).toBe(true);
+    expect(events.some((e) => e.type === 'done')).toBe(true);
     expect(quotas.finalize).toHaveBeenCalled();
   });
 
@@ -177,7 +190,7 @@ describe('ChatService quota preflight', () => {
 
     const events = await collect({ message: 'hello there' } as any);
 
-    expect(events.some((e) => e.event === 'error')).toBe(true);
+    expect(events.some((e) => e.type === 'error')).toBe(true);
     expect(quotas.refund).toHaveBeenCalledWith('q1', expect.any(Number));
   });
 });

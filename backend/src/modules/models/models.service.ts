@@ -13,6 +13,17 @@ import { Conversation } from '../conversations/entities/conversation.entity';
 import { User } from '../users/entities/user.entity';
 import { ModelAccessService } from './model-access.service';
 import { MODEL_VISIBILITIES, ModelVisibility } from './model-visibility';
+import { ReasoningCapabilityService } from './reasoning-capability.service';
+import {
+  assertValidReasoningCapability,
+  readStoredReasoningConfig,
+} from '../reasoning/reasoning.capability';
+import {
+  EMPTY_REASONING_CONFIG,
+  ReasoningCapability,
+  ReasoningConfigInput,
+  StoredReasoningConfig,
+} from '../reasoning/reasoning.types';
 
 export interface CreateModelInput {
   displayName: string;
@@ -22,6 +33,8 @@ export interface CreateModelInput {
   enabled?: boolean;
   /** Model used when this model's provider fails (spec 006). One hop only. */
   fallbackModelId?: string | null;
+  /** Phase 8 — admin reasoning capability configuration. */
+  reasoning?: ReasoningConfigInput;
 }
 
 export interface UpdateModelInput {
@@ -32,6 +45,8 @@ export interface UpdateModelInput {
   enabled?: boolean;
   /** `null` clears the fallback; absent leaves it untouched. */
   fallbackModelId?: string | null;
+  /** Phase 8 — admin reasoning capability configuration. */
+  reasoning?: ReasoningConfigInput;
 }
 
 export interface DeleteModelMigrationResult {
@@ -65,6 +80,7 @@ export class ModelsService {
     @InjectRepository(Model)
     private readonly repo: Repository<Model>,
     private readonly access: ModelAccessService,
+    private readonly reasoningCapability: ReasoningCapabilityService,
   ) {}
 
   /**
@@ -205,6 +221,14 @@ export class ModelsService {
       });
     }
 
+    // Discovery always runs on create so an automatic model has a snapshot, and
+    // a manual model still shows the admin what the provider reports.
+    const reasoningConfig = await this.buildReasoningConfig(EMPTY_REASONING_CONFIG, input.reasoning, {
+      providerId: input.providerId,
+      modelName: actualName,
+      refreshDiscovery: true,
+    });
+
     const created = this.repo.create({
       displayName,
       actualName,
@@ -213,6 +237,7 @@ export class ModelsService {
       enabled,
       isDefault: false,
       fallbackModelId: input.fallbackModelId ?? null,
+      reasoningConfig,
     });
     return this.repo.save(created);
   }
@@ -275,6 +300,19 @@ export class ModelsService {
     if (input.fallbackModelId !== undefined) {
       model.fallbackModelId = input.fallbackModelId;
     }
+
+    const reasoningBase = readStoredReasoningConfig(model.reasoningConfig);
+    const identityChanged =
+      (input.actualName !== undefined && input.actualName !== model.actualName) ||
+      (input.providerId !== undefined && input.providerId !== model.providerId);
+    const switchedToAutomatic =
+      input.reasoning?.mode === 'automatic' && reasoningBase.mode !== 'automatic';
+
+    model.reasoningConfig = await this.buildReasoningConfig(reasoningBase, input.reasoning, {
+      providerId: input.providerId ?? model.providerId,
+      modelName: input.actualName ?? model.actualName,
+      refreshDiscovery: identityChanged || switchedToAutomatic,
+    });
 
     if (input.displayName !== undefined && input.displayName !== model.displayName) {
       const dup = await this.repo
@@ -347,6 +385,68 @@ export class ModelsService {
       }
     }
 
+    return this.repo.save(model);
+  }
+
+  /**
+   * Build the persisted reasoning snapshot.
+   *
+   * Discovery is re-run whenever the provider-side identity may have changed, so
+   * the admin always sees what the provider currently reports. Manual values are
+   * validated as a triple, so a contradictory configuration can never be stored.
+   */
+  private async buildReasoningConfig(
+    base: StoredReasoningConfig,
+    patch: ReasoningConfigInput | undefined,
+    context: { providerId: string; modelName: string; refreshDiscovery: boolean },
+  ): Promise<StoredReasoningConfig> {
+    const mode = patch?.mode ?? base.mode;
+
+    const manual: ReasoningCapability = {
+      supported: patch?.supported !== undefined ? patch.supported : base.manual.supported,
+      output: patch?.output !== undefined ? patch.output : base.manual.output,
+      streaming: patch?.streaming !== undefined ? patch.streaming : base.manual.streaming,
+    };
+    try {
+      assertValidReasoningCapability(manual);
+    } catch (err) {
+      // A cross-field rule that class-validator cannot express must still surface
+      // as a client error, not a 500.
+      throw new UnprocessableEntityException({
+        code: 'invalid_reasoning_configuration',
+        message: err instanceof Error ? err.message : 'Invalid reasoning configuration.',
+      });
+    }
+
+    let discovered = base.discovered;
+    if (context.refreshDiscovery) {
+      const result = await this.reasoningCapability.discover({
+        providerId: context.providerId,
+        modelName: context.modelName,
+      });
+      discovered = {
+        supported: result.capability.supported,
+        output: result.capability.output,
+        streaming: result.capability.streaming,
+        sources: result.sources,
+        discoveredAt: result.discoveredAt,
+      };
+    }
+
+    return { mode, discovered, manual };
+  }
+
+  /**
+   * Admin: re-run capability discovery and persist the snapshot. Manual values
+   * are left untouched — discovery is never the final authority for them.
+   */
+  async rediscoverReasoning(id: string): Promise<Model> {
+    const model = await this.findById(id);
+    model.reasoningConfig = await this.buildReasoningConfig(
+      readStoredReasoningConfig(model.reasoningConfig),
+      undefined,
+      { providerId: model.providerId, modelName: model.actualName, refreshDiscovery: true },
+    );
     return this.repo.save(model);
   }
 

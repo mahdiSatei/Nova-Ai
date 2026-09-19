@@ -71,7 +71,7 @@ export class ConversationsController {
   async get(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-  ): Promise<{ id: string; modelId: string; modelDisplayName: string | null; title: string | null; pinned: boolean; createdAt: string; updatedAt: string;    messages: Array<{ id: string; role: string; content: string; createdAt: string; status: string; citations: CitationSource[] }> }> {
+  ): Promise<{ id: string; modelId: string; modelDisplayName: string | null; title: string | null; pinned: boolean; createdAt: string; updatedAt: string;    messages: Array<{ id: string; role: string; content: string; createdAt: string; status: string; citations: CitationSource[]; reasoningEnabled: boolean; reasoningSummary: string | null }> }> {
     const conv = await this.conversations.findById(id);
     this.logger.debug(`ConversationsController.get: userId=${user.id}, conversationId=${id}, found=${!!conv}, messageCount=${conv?.messages.length ?? 0}`);
     if (!conv) {
@@ -98,6 +98,8 @@ export class ConversationsController {
         createdAt: m.createdAt.toISOString(),
         status: m.status,
         citations: m.citations ?? [],
+        reasoningEnabled: m.reasoningEnabled,
+        reasoningSummary: m.reasoningSummary ?? null,
       })),
     };
   }

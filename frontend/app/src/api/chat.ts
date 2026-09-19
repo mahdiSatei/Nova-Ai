@@ -1,6 +1,14 @@
 import { API_BASE, buildUrl, newRequestId, request, withStreamAuthRetry } from '@/api/http'
 import { streamErrorMessage } from '@/utils/errors'
-import type { ChatRequest, CitationSource, SseCitations, SseDelta, SseError, SseStatus } from '@/types/api'
+import type {
+  ChatRequest,
+  CitationSource,
+  SseCitations,
+  SseDelta,
+  SseError,
+  SseReasoningDelta,
+  SseStatus,
+} from '@/types/api'
 
 export interface StreamStartInfo {
   conversationId: string
@@ -17,6 +25,8 @@ export interface StreamHandlers {
   onStatus?: (info: SseStatus) => void
   /** Web-search sources cited by the final answer (phase 7). */
   onCitations?: (sources: CitationSource[]) => void
+  /** Provider-visible reasoning summary chunk (phase 8). isFirst = replace accumulated text. */
+  onReasoningDelta?: (delta: string, isFirst: boolean) => void
   /** Server assigns the real conversation + assistant message ids (new streams) */
   onStart?: (info: StreamStartInfo) => void
 }
@@ -115,6 +125,15 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
             }
             continue
           }
+          if (eventName === 'reasoning_delta') {
+            try {
+              const parsed = JSON.parse(payload) as SseReasoningDelta
+              if (typeof parsed.delta === 'string') handlers.onReasoningDelta?.(parsed.delta, false)
+            } catch {
+              /* ignore malformed reasoning frame */
+            }
+            continue
+          }
           if (eventName === 'error') {
             let parsed: Partial<SseError> = {}
             try {
@@ -188,6 +207,7 @@ export function retryStream(
   conversationId: string,
   failedMessageId: string,
   handlers: StreamHandlers,
+  options?: { webSearch?: boolean; reasoning?: boolean },
 ): AbortController {
   const controller = new AbortController()
 
@@ -203,7 +223,14 @@ export function retryStream(
         return fetch(buildUrl(`/v1/chat/${conversationId}/retry`), {
           method: 'POST',
           headers,
-          body: JSON.stringify({ failedMessageId }),
+          // The retry keeps the caller's current toggles so the regenerated
+          // answer matches the request that failed. Both flags are optional
+          // server-side, so they are only sent when actually enabled.
+          body: JSON.stringify({
+            failedMessageId,
+            ...(options?.webSearch ? { webSearch: true } : {}),
+            ...(options?.reasoning ? { reasoning: true } : {}),
+          }),
           signal: controller.signal,
         })
       })
@@ -262,6 +289,15 @@ export function retryStream(
               if (Array.isArray(parsed.sources)) handlers.onCitations?.(parsed.sources)
             } catch {
               /* ignore malformed citations frame */
+            }
+            continue
+          }
+          if (eventName === 'reasoning_delta') {
+            try {
+              const parsed = JSON.parse(payload) as SseReasoningDelta
+              if (typeof parsed.delta === 'string') handlers.onReasoningDelta?.(parsed.delta, false)
+            } catch {
+              /* ignore malformed reasoning frame */
             }
             continue
           }
@@ -374,6 +410,7 @@ export function resumeStream(
       let buffer = ''
       let done = false
       let receivedAccumulated = false
+      let receivedAccumulatedReasoning = false
 
       while (!done) {
         const { value, done: eof } = await reader.read()
@@ -403,6 +440,22 @@ export function resumeStream(
               if (Array.isArray(parsed.sources)) handlers.onCitations?.(parsed.sources)
             } catch {
               /* ignore malformed citations frame */
+            }
+            continue
+          }
+          if (eventName === 'reasoning_delta') {
+            try {
+              const parsed = JSON.parse(payload) as SseReasoningDelta
+              if (typeof parsed.delta === 'string') {
+                // As with answer text, the first reasoning frame on resume is
+                // the full accumulated summary, so it replaces what the client
+                // already has instead of duplicating it.
+                const isFirst = !receivedAccumulatedReasoning
+                receivedAccumulatedReasoning = true
+                handlers.onReasoningDelta?.(parsed.delta, isFirst)
+              }
+            } catch {
+              /* ignore malformed reasoning frame */
             }
             continue
           }

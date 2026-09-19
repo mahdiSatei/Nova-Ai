@@ -3,7 +3,7 @@ import { onMounted, ref } from 'vue'
 import { PhPlugsConnected } from '@phosphor-icons/vue'
 import ProviderForm from '@/components/admin/ProviderForm.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
-import { getProvider } from '@/api/admin'
+import { getProvider, listProviders } from '@/api/admin'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
 import type { ProviderAdmin } from '@/types/api'
@@ -16,7 +16,19 @@ async function load(): Promise<void> {
   loading.value = true
   loadError.value = null
   try {
-    provider.value = await getProvider('central')
+    // Try to load the 'central' provider (legacy ID). If not found,
+    // try to load any existing provider from the list.
+    try {
+      provider.value = await getProvider('central')
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        // No 'central' provider — load the first available provider
+        const { items } = await listProviders()
+        provider.value = items.length > 0 ? items[0] : null
+      } else {
+        throw err
+      }
+    }
   } catch (err) {
     if (err instanceof ApiError) loadError.value = err
   } finally {
@@ -55,6 +67,10 @@ function onSaved(next: ProviderAdmin): void {
       :provider="provider"
       @saved="onSaved"
     />
+
+    <p v-if="!provider && !loadError" class="mt-4 text-sm text-ink-muted">
+      هنوز ارائه‌دهنده‌ای پیکربندی نشده است. اطلاعات ارائه‌دهنده خود را وارد کنید.
+    </p>
 
     <p v-if="provider?.hasApiKey" class="mt-4 text-xs text-ink-muted/70">
       کلید API به‌صورت رمزگذاری‌شده ذخیره می‌شود.

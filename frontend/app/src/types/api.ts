@@ -47,19 +47,73 @@ export interface ApiErrorBody {
   requestId: string
 }
 
+/** فاز ۸ — توان استدلال مؤثر مدل (ناشناخته در سمت سرور به «پشتیبانی نمی‌شود» تبدیل می‌شود). */
+export interface ReasoningCapability {
+  supported: boolean
+  output: 'none' | 'summary'
+  streaming: boolean
+}
+
 export interface ModelPublic {
   id: string
   displayName: string
   isDefault: boolean
+  /** فاز ۸ — فقط وقتی supported=true کنترل استدلال نمایش داده می‌شود. */
+  reasoning?: ReasoningCapability
 }
 
-export interface ModelAdmin extends ModelPublic {
+/**
+ * Admin view of a model. The admin reasoning shape is deliberately different
+ * from the public capability (`reasoning` here carries the discovery snapshot
+ * and the manual values, not just the effective capability), so the inherited
+ * field is omitted and re-declared.
+ */
+export interface ModelAdmin extends Omit<ModelPublic, 'reasoning'> {
   actualName: string
   providerId: string
   visibility: ModelVisibility
   enabled: boolean
   createdAt: string
   updatedAt: string
+  /** فاز ۸ — پیکربندی استدلال مدل از دید مدیر. */
+  reasoning?: AdminModelReasoning
+}
+
+/** فاز ۸ — پیکربندی استدلال مدل از دید مدیر. */
+export type ReasoningConfigMode = 'automatic' | 'manual'
+export type ReasoningOutput = 'none' | 'summary'
+export type ReasoningCapabilitySource = 'provider_api' | 'provider_rules' | 'manual' | 'unknown'
+
+export interface AdminReasoningCapability {
+  supported: boolean | null
+  output: ReasoningOutput | null
+  streaming: boolean | null
+}
+
+export interface AdminModelReasoning {
+  mode: ReasoningConfigMode
+  effective: {
+    supported: boolean | null
+    output: ReasoningOutput | null
+    streaming: boolean | null
+    configurationSource: ReasoningConfigMode
+  }
+  discovered: AdminReasoningCapability & {
+    sources: {
+      supported: ReasoningCapabilitySource
+      output: ReasoningCapabilitySource
+      streaming: ReasoningCapabilitySource
+    }
+    discoveredAt: string | null
+  }
+  manual: AdminReasoningCapability
+}
+
+export interface ModelReasoningRequest {
+  mode?: ReasoningConfigMode
+  supported?: boolean | null
+  output?: ReasoningOutput | null
+  streaming?: boolean | null
 }
 
 export interface ModelUpsertRequest {
@@ -68,6 +122,8 @@ export interface ModelUpsertRequest {
   providerId?: string
   visibility?: ModelVisibility
   enabled?: boolean
+  /** فاز ۸ — پیکربندی استدلال. */
+  reasoning?: ModelReasoningRequest
 }
 
 export interface ModelList<T> {
@@ -151,6 +207,10 @@ export interface MessagePublic {
   status: MessageStatus
   /** فاز ۷ — منابع وبِ استنادشده در این پیام دستیار. */
   citations?: CitationSource[]
+  /** فاز ۸ — استدلال برای این نوبت فعال بوده است. */
+  reasoningEnabled?: boolean
+  /** فاز ۸ — خلاصهٔ استدلال ارائه‌شده توسط ارائه‌دهنده (نه زنجیرهٔ فکر خصوصی). */
+  reasoningSummary?: string | null
 }
 
 export interface ConversationDetail extends ConversationSummary {
@@ -163,6 +223,8 @@ export interface ChatRequest {
   message: string
   /** فاز ۷ — جستجوی وب برای این نوبت. */
   webSearch?: boolean
+  /** فاز ۸ — استدلال برای این نوبت. */
+  reasoning?: boolean
 }
 
 export interface SseDelta {
@@ -174,14 +236,22 @@ export interface SseError {
   message: string
 }
 
-/** فاز ۶/۷ — رویداد وضعیت: تلاش مجدد یا چرخهٔ جستجوی وب. */
+/** فاز ۸ — فازهای چرخهٔ استدلال. */
+export type ReasoningPhase = 'reasoning_started' | 'reasoning_completed' | 'answer_started'
+
+/** فاز ۶/۷/۸ — رویداد وضعیت: تلاش مجدد، چرخهٔ جستجوی وب، یا چرخهٔ استدلال. */
 export interface SseStatus {
-  phase: 'retrying' | SearchPhase
+  phase: 'retrying' | SearchPhase | ReasoningPhase
   attempt?: number
   maxAttempts?: number
   query?: string
   sources?: number
   credits?: number
+}
+
+/** فاز ۸ — یک تکه از خلاصهٔ استدلال قابل‌نمایش. */
+export interface SseReasoningDelta {
+  delta: string
 }
 
 /** فاز ۷ — منابع نهایی پاسخ، پیش از رویداد done. */

@@ -7,6 +7,7 @@ import { ModelsService } from '../models/models.service';
 import { PROVIDER_ADAPTERS } from './provider.service';
 import {
   ProviderChatMessage,
+  ProviderReasoningRequest,
   ProviderStreamChunk,
   ProviderToolDefinition,
 } from './adapters/provider-adapter.interface';
@@ -20,6 +21,8 @@ export interface ChatProviderInput {
   model: string;
   messages: ProviderChatMessage[];
   tools?: ProviderToolDefinition[];
+  /** Phase 8 — normalized reasoning request, translated by the adapter. */
+  reasoning?: ProviderReasoningRequest;
 }
 
 @Injectable()

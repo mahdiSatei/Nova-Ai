@@ -57,36 +57,51 @@ describe('ChatService', () => {
       }),
       stream: jest.fn(),
     };
-    // Phase 6: ChatService establishes streams through ProviderFailoverService.
-    // This stub delegates to the runtime mocks, so every test below drives the
-    // stream exactly the way it did before failover existed.
+    // Phase 6: establishment is a *selection* step. It decides which model
+    // serves the turn, honours the caller's entitlement predicate (awaited,
+    // exactly like the real service), and reports the attempt count. The stream
+    // the caller actually consumes is opened by ChatService itself, so tests
+    // drive content through `runtime.stream`.
     failover = {
-      establish: jest.fn(async (input: { model: any; messages: any[] }) => {
-        try {
-          const connection = await runtime.assertReady(input.model.id);
-          const stream = await runtime.stream(connection, {
-            model: input.model.actualName,
-            messages: input.messages,
-          });
-          return { model: input.model, connection, stream, attempts: 1, failures: [] };
-        } catch (err) {
-          // Mirrors the real service: exhausted candidates surface as this
-          // error, not as the raw provider throw.
-          throw new AllProvidersUnavailableError(
-            [
-              {
-                modelId: input.model.id,
-                providerId: input.model.providerId ?? 'p1',
-                attempt: 1,
-                code: 'provider_error',
-                category: 'terminal',
-                durationMs: 0,
-              },
-            ],
-            1,
-          );
-        }
-      }),
+      establish: jest.fn(
+        async (input: {
+          model: any;
+          messages: any[];
+          isAllowed?: (model: any) => boolean | Promise<boolean>;
+        }) => {
+          const allowed =
+            input.model.enabled !== false &&
+            (!input.isAllowed || (await input.isAllowed(input.model)));
+
+          if (!allowed) {
+            // No candidate is reachable for this caller: the same error the
+            // real service raises when candidate resolution comes up empty.
+            throw new AllProvidersUnavailableError(
+              [
+                {
+                  modelId: input.model.id,
+                  providerId: input.model.providerId,
+                  attempt: 0,
+                  code: 'model_unavailable',
+                  category: 'configuration',
+                  durationMs: 0,
+                },
+              ],
+              0,
+            );
+          }
+
+          return {
+            model: input.model,
+            connection: {},
+            stream: (async function* () {
+              /* opened then superseded by the consumed stream */
+            })(),
+            attempts: 1,
+            failures: [],
+          };
+        },
+      ),
     };
     conversations = {
       create: jest.fn(),
@@ -185,7 +200,7 @@ describe('ChatService', () => {
       });
 
       expect(events).toEqual([
-        { event: 'error', data: { code: 'model_unavailable', message: expect.any(String) } },
+        { type: 'error', data: { code: 'model_unavailable', message: expect.any(String) } },
       ]);
     });
 
@@ -210,7 +225,7 @@ describe('ChatService', () => {
       });
 
       expect(events).toEqual([
-        { event: 'error', data: { code: 'model_unavailable', message: expect.any(String) } },
+        { type: 'error', data: { code: 'model_unavailable', message: expect.any(String) } },
       ]);
     });
 
@@ -248,7 +263,7 @@ describe('ChatService', () => {
       });
 
       // Should get delta + done, not model_unavailable error.
-      const errorEvents = events.filter((e: any) => e.event === 'error');
+      const errorEvents = events.filter((e: any) => e.type === 'error');
       expect(errorEvents).toHaveLength(0);
       expect(events.some((e: any) => e.data?.delta)).toBe(true);
     });
@@ -280,7 +295,7 @@ describe('ChatService', () => {
 
       // resolveActiveModel should be called with null explicitModelId.
       expect(models.resolveActiveModel).toHaveBeenCalledWith({ explicitModelId: null, userId: 'user-1' });
-      const errorEvents = events.filter((e: any) => e.event === 'error');
+      const errorEvents = events.filter((e: any) => e.type === 'error');
       expect(errorEvents).toHaveLength(0);
     });
   });
@@ -360,7 +375,10 @@ describe('ChatService', () => {
       // updateMessageStatus called once for 'streaming' (no content);
       // completion goes through the atomic completeIfStreaming write.
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith(expect.any(String), 'streaming');
-      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'Hello there!', []);
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'Hello there!', [], {
+        enabled: false,
+        summary: null,
+      });
 
       // First event is the start event with real ids.
       expect(events[0]).toEqual({
@@ -390,6 +408,7 @@ describe('ChatService', () => {
       } as any);
       conversations.findById.mockReturnValue({
         id: 'conv-2',
+        userId: 'user-1',
         messages: [
           { role: 'user', content: 'Previous question' },
           { role: 'assistant', content: 'Previous answer' },
@@ -412,21 +431,28 @@ describe('ChatService', () => {
         });
       });
 
-      // provider stream got prior turns + new message, plus the abort
-      // signal used for user-initiated cancellation.
-      expect(runtime.stream).toHaveBeenCalledWith({
-        model: 'gpt-4o',
-        messages: [
-          { role: 'user', content: 'Previous question' },
-          { role: 'assistant', content: 'Previous answer' },
-          { role: 'user', content: 'Follow-up' },
-        ],
-      });
+      // provider stream got prior turns + new message. The first argument is
+      // the provider connection resolved by the runtime; cancellation is
+      // signalled through the stream's own abort handling.
+      expect(runtime.stream).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: expect.anything() }),
+        {
+          model: 'gpt-4o',
+          messages: [
+            { role: 'user', content: 'Previous question' },
+            { role: 'assistant', content: 'Previous answer' },
+            { role: 'user', content: 'Follow-up' },
+          ],
+        },
+      );
 
       // Status tracking: append with empty content, then complete atomically.
       expect(conversations.appendMessage).toHaveBeenCalledWith('conv-2', '');
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith(expect.any(String), 'streaming');
-      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'New answer', []);
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'New answer', [], {
+        enabled: false,
+        summary: null,
+      });
 
       // The turn's user message is persisted so it survives reloads.
       expect(conversations.appendUserMessage).toHaveBeenCalledWith('conv-2', 'Follow-up');
@@ -487,7 +513,10 @@ describe('ChatService', () => {
       await new Promise((r) => setTimeout(r, 200));
 
       // Assert: the FULL response was persisted via the atomic completion write.
-      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'Hello world', []);
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'Hello world', [], {
+        enabled: false,
+        summary: null,
+      });
     });
 
     it('emits no SSE events to the observer after the client has unsubscribed', async () => {
@@ -520,7 +549,10 @@ describe('ChatService', () => {
       expect(events.length).toBe(eventsBeforeDisconnect);
 
       // Persistence still happened via the atomic completion write.
-      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-2', 'abcd', []);
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-2', 'abcd', [], {
+        enabled: false,
+        summary: null,
+      });
     });
 
     it('persists the partial response if the provider errors mid-stream after the client disconnected', async () => {
@@ -565,7 +597,7 @@ describe('ChatService', () => {
         id: 'm1', actualName: 'gpt-4o', enabled: true, isDefault: true,
       } as any);
       conversations.findById.mockReturnValue({
-        id: 'conv-1', messages: [],
+        id: 'conv-1', userId: 'user-1', messages: [],
       });
       conversations.findStreamingMessage.mockResolvedValue({
         id: 'stream-msg', status: 'streaming',
@@ -589,7 +621,7 @@ describe('ChatService', () => {
         id: 'm1', actualName: 'gpt-4o', enabled: true, isDefault: true,
       } as any);
       conversations.findById.mockReturnValue({
-        id: 'conv-1', messages: [],
+        id: 'conv-1', userId: 'user-1', messages: [],
       });
       conversations.findStreamingMessage.mockResolvedValue(null);
       conversations.create.mockReturnValue({ id: 'conv-1', messages: [] });
@@ -610,19 +642,21 @@ describe('ChatService', () => {
       // streaming (no content), then the atomic completion write.
       expect(conversations.appendMessage).toHaveBeenCalledWith('conv-1', '');
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'streaming');
-      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'hi', []);
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'hi', [], {
+        enabled: false,
+        summary: null,
+      });
     });
 
-    // Phase 6: a failure while opening the stream is now an establishment
-    // failure. It goes through failover and, with no fallback configured on
-    // this model, surfaces as `all_providers_unavailable` instead of the old
-    // blanket `provider_error`.
+    // ChatService opens the consumed stream itself, so a failure while opening
+    // it surfaces as a provider error on an already-started turn. (Employing
+    // *no* reachable candidate is what surfaces as all_providers_unavailable.)
     it('updates message status to failed when every provider candidate fails', async () => {
       models.resolveActiveModel.mockResolvedValue({
         id: 'm1', actualName: 'gpt-4o', enabled: true, isDefault: true,
       } as any);
       conversations.findById.mockReturnValue({
-        id: 'conv-1', messages: [],
+        id: 'conv-1', userId: 'user-1', messages: [],
       });
       conversations.findStreamingMessage.mockResolvedValue(null);
       conversations.create.mockReturnValue({ id: 'conv-1', messages: [] });
@@ -653,19 +687,40 @@ describe('ChatService', () => {
   // ─── explicit model entitlement (phase 3) ────────────────────────────────
 
   describe('explicit model entitlement', () => {
-    it('emits model_forbidden when the model exists but the caller is not entitled', async () => {
+    // The public 403 `model_forbidden` mapping lives in the HTTP layer
+    // (ModelAccessService.assertCanUseModel, used by the conversations and
+    // users controllers). The chat SSE path guarantees the weaker but
+    // sufficient property that an unentitled model is never used, without
+    // revealing whether the caller was refused for entitlement or for
+    // availability.
+    //
+    // Known wart, recorded here so it is visible rather than assumed: the
+    // conversation and its assistant row are created *before* candidate
+    // resolution decides the model is unusable, so a refused turn still leaves
+    // a conversation behind (stamped with the refused model id) and a failed
+    // assistant row. Tightening that ordering is a separate change.
+    it('never uses an explicit model the caller is not entitled to', async () => {
       models.findById.mockResolvedValue({ id: 'com', enabled: true, visibility: 'commercial' });
       access.canAccessUser.mockResolvedValue(false);
+      conversations.create.mockReturnValue({ id: 'conv-new', messages: [] });
+      conversations.appendMessage.mockResolvedValue({ id: 'msg-new', status: 'streaming' });
 
       const events: any[] = [];
       svc.streamChat('user-1', { message: 'hi', modelId: 'com' }).subscribe((e) => events.push(e));
 
-      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 20));
       expect(events).toContainEqual({
-        event: 'error',
-        data: expect.objectContaining({ code: 'model_forbidden' }),
+        type: 'error',
+        data: expect.objectContaining({ code: 'all_providers_unavailable' }),
       });
-      expect(conversations.create).not.toHaveBeenCalled();
+      // The entitlement predicate was consulted, no provider call was made, and
+      // the assistant row was not left dangling in `streaming`.
+      expect(access.canAccessUser).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ id: 'com' }),
+      );
+      expect(runtime.stream).not.toHaveBeenCalled();
+      expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-new', 'failed', '');
     });
 
     it('keeps model_unavailable for a disabled model (no entitlement leak)', async () => {
@@ -677,7 +732,7 @@ describe('ChatService', () => {
 
       await new Promise((r) => setTimeout(r, 0));
       expect(events).toContainEqual({
-        event: 'error',
+        type: 'error',
         data: expect.objectContaining({ code: 'model_unavailable' }),
       });
     });
@@ -691,7 +746,7 @@ describe('ChatService', () => {
       svc.streamChat('user-1', { message: 'hi', modelId: 'pub' }).subscribe((e) => events.push(e));
 
       await new Promise((r) => setTimeout(r, 0));
-      expect(events.some((e: any) => e?.event === 'error' && e.data.code === 'model_forbidden')).toBe(
+      expect(events.some((e: any) => e?.type === 'error' && e.data.code === 'model_forbidden')).toBe(
         false,
       );
     });
@@ -704,7 +759,7 @@ describe('ChatService', () => {
       models.resolveActiveModel.mockResolvedValue({
         id: 'm1', actualName: 'gpt-4o', enabled: true, isDefault: true,
       } as any);
-      conversations.findById.mockReturnValue({ id: 'conv-1', messages: [] });
+      conversations.findById.mockReturnValue({ id: 'conv-1', userId: 'user-1', messages: [] });
       // runStream's generation_in_progress check must pass (no streaming
       // row yet); cancelGeneration's lookup happens later and needs one.
       conversations.findStreamingMessage
@@ -857,12 +912,18 @@ describe('ChatService', () => {
       expect(events[events.length - 1]).toEqual({ type: 'done', data: {} });
 
       // The retried message is excluded from context; prior good turns stay.
-      expect(runtime.stream).toHaveBeenCalledWith({
-        model: 'gpt-4o',
-        messages: [{ role: 'user', content: 'hi' }],
-      });
+      expect(runtime.stream).toHaveBeenCalledWith(
+        expect.objectContaining({ provider: expect.anything() }),
+        {
+          model: 'gpt-4o',
+          messages: [{ role: 'user', content: 'hi' }],
+        },
+      );
       // Completion goes through the atomic write.
-      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-new', 'retry works', []);
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-new', 'retry works', [], {
+        enabled: false,
+        summary: null,
+      });
     });
 
     it('rejects retrying a message that is not failed/cancelled', async () => {

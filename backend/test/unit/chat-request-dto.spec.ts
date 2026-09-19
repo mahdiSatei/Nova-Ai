@@ -24,3 +24,24 @@ describe('RetryRequestDto.webSearch', () => {
     expect(dto.webSearch).toBe(true);
   });
 });
+
+describe('ChatRequestDto.reasoning', () => {
+  it('accepts a boolean flag', () => {
+    const dto = plainToInstance(ChatRequestDto, { message: 'hi', reasoning: true });
+    expect(validateSync(dto)).toHaveLength(0);
+    expect(dto.reasoning).toBe(true);
+  });
+
+  it('rejects a non-boolean flag', () => {
+    const dto = plainToInstance(ChatRequestDto, { message: 'hi', reasoning: 'high' });
+    expect(validateSync(dto).some((e) => e.property === 'reasoning')).toBe(true);
+  });
+});
+
+describe('RetryRequestDto.reasoning', () => {
+  it('carries the reasoning preference', () => {
+    const dto = plainToInstance(RetryRequestDto, { failedMessageId: 'm1', reasoning: true });
+    expect(validateSync(dto)).toHaveLength(0);
+    expect(dto.reasoning).toBe(true);
+  });
+});

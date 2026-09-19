@@ -4,6 +4,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { ModelsService } from '../../src/modules/models/models.service';
 import { Model } from '../../src/modules/models/entities/model.entity';
 import { ModelAccessService } from '../../src/modules/models/model-access.service';
+import { ReasoningCapabilityService } from '../../src/modules/models/reasoning-capability.service';
 
 describe('ModelsService', () => {
   let svc: ModelsService;
@@ -97,6 +98,16 @@ describe('ModelsService', () => {
         ModelsService,
         { provide: getRepositoryToken(Model), useValue: repo },
         { provide: ModelAccessService, useValue: access },
+        {
+          provide: ReasoningCapabilityService,
+          useValue: {
+            discover: jest.fn().mockResolvedValue({
+              capability: { supported: null, output: null, streaming: null },
+              sources: { supported: 'unknown', output: 'unknown', streaming: 'unknown' },
+              discoveredAt: '2026-09-19T00:00:00.000Z',
+            }),
+          },
+        },
       ],
     }).compile();
 

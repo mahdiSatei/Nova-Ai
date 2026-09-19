@@ -68,6 +68,10 @@ const MESSAGES: Record<string, string> = {
   web_search_timeout: 'جستجوی وب زمان‌بر شد؛ پاسخ بدون منابع وب ادامه یافت.',
   web_search_provider_error: 'جستجوی وب در دسترس نیست؛ پاسخ بدون منابع وب ادامه یافت.',
   web_search_bad_response: 'پاسخ نامعتبر از سرویس جستجوی وب دریافت شد.',
+
+  // فاز ۸ — استدلال
+  reasoning_unsupported: 'این مدل از استدلال پشتیبانی نمی‌کند. استدلال را خاموش کنید و دوباره تلاش کنید.',
+  invalid_reasoning_configuration: 'پیکربندی استدلال این مدل ناسازگار است.',
 }
 
 const FALLBACK = 'خطایی رخ داد. لطفاً دوباره تلاش کنید.'

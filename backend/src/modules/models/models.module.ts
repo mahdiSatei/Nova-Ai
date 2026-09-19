@@ -7,11 +7,13 @@ import { ModelAccessService } from './model-access.service';
 import { ModelsService } from './models.service';
 import { ModelsPublicController } from './models.public.controller';
 import { ModelsAdminController } from './models.admin.controller';
+import { ProviderAdaptersModule } from '../provider/adapters/provider-adapters.module';
+import { ReasoningCapabilityService } from './reasoning-capability.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Model, Provider, User])],
+  imports: [TypeOrmModule.forFeature([Model, Provider, User]), ProviderAdaptersModule],
   controllers: [ModelsPublicController, ModelsAdminController],
-  providers: [ModelsService, ModelAccessService],
-  exports: [ModelsService, ModelAccessService],
+  providers: [ModelsService, ModelAccessService, ReasoningCapabilityService],
+  exports: [ModelsService, ModelAccessService, ReasoningCapabilityService],
 })
 export class ModelsModule {}

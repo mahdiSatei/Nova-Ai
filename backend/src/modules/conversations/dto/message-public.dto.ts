@@ -1,4 +1,5 @@
 import { MessageStatus } from '../conversations.types';
+import type { CitationSource } from '../../web-search/web-search.types';
 
 /**
  * Public message shape returned in conversation detail.
@@ -11,4 +12,9 @@ export class MessagePublicDto {
   content!: string;
   createdAt!: string;
   status!: MessageStatus;
+  citations?: CitationSource[];
+  /** Phase 8 — whether reasoning was enabled for this turn. */
+  reasoningEnabled?: boolean;
+  /** Phase 8 — provider-generated user-visible summary, when one was exposed. */
+  reasoningSummary?: string | null;
 }

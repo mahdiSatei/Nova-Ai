@@ -20,3 +20,9 @@ describe('streamErrorMessage', () => {
     expect(streamErrorMessage('brand_new_code', 'server text')).toBe('server text')
   })
 })
+
+describe('reasoning errors', () => {
+  it('maps reasoning_unsupported to a Persian explanation', () => {
+    expect(streamErrorMessage('reasoning_unsupported')).toContain('استدلال')
+  })
+})

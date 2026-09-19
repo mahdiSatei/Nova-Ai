@@ -25,4 +25,13 @@ export class ChatRequestDto {
   @IsOptional()
   @IsBoolean()
   webSearch?: boolean;
+
+  /**
+   * Opt-in reasoning for this turn. Absent/false means the provider request is
+   * unchanged. Explicit `true` on a model that is not configured as
+   * reasoning-capable is rejected with `reasoning_unsupported`.
+   */
+  @IsOptional()
+  @IsBoolean()
+  reasoning?: boolean;
 }

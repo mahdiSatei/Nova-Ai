@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
@@ -8,9 +9,39 @@ import {
   MinLength,
   Matches,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { PROVIDER_ID_PATTERN } from '../../provider/dto/create-provider.dto';
 import { MODEL_VISIBILITIES, ModelVisibility } from '../model-visibility';
+import type { ReasoningConfigMode, ReasoningOutput } from '../../reasoning/reasoning.types';
+
+export const REASONING_CONFIG_MODES: ReasoningConfigMode[] = ['automatic', 'manual'];
+export const REASONING_OUTPUTS: ReasoningOutput[] = ['none', 'summary'];
+
+/**
+ * Admin reasoning capability configuration (Phase 8).
+ *
+ * An absent field leaves the stored value untouched; an explicit `null` resets
+ * that capability to `unknown`. `@IsOptional()` skips validation for `null`, so
+ * `null` reaches the service while any other value is still type-checked.
+ */
+export class ReasoningConfigDto {
+  @IsOptional()
+  @IsIn(REASONING_CONFIG_MODES, { message: 'mode must be one of automatic, manual' })
+  mode?: ReasoningConfigMode;
+
+  @IsOptional()
+  @IsBoolean()
+  supported?: boolean | null;
+
+  @IsOptional()
+  @IsIn(REASONING_OUTPUTS, { message: 'output must be one of none, summary' })
+  output?: ReasoningOutput | null;
+
+  @IsOptional()
+  @IsBoolean()
+  streaming?: boolean | null;
+}
 
 /**
  * Request body for POST and PATCH on `/v1/admin/models`.
@@ -58,4 +89,10 @@ export class ModelUpsertDto {
   @ValidateIf((o: ModelUpsertDto) => o.fallbackModelId !== null)
   @IsUUID()
   fallbackModelId?: string | null;
+
+  /** Reasoning capability configuration. Absent leaves it untouched. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ReasoningConfigDto)
+  reasoning?: ReasoningConfigDto;
 }

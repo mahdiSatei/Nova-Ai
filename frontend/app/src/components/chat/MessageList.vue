@@ -16,6 +16,12 @@ const props = defineProps<{
   generation?: { conversationId: string; assistantMessageId: string; status: GenerationStatus; content: string; citations?: CitationSource[] } | null
   /** فاز ۷ — پیشرفت جستجو/بازیابی. */
   searchActivity?: { phase: SearchPhase; query?: string; sources?: number; credits?: number } | null
+  /** فاز ۸ — استدلال در جریان (فقط برای ردیف در حال استریم). */
+  reasoningActive?: boolean
+  /** فاز ۸ — استدلال این نوبت تمام شده است (فقط برای ردیف در حال استریم). */
+  reasoningCompleted?: boolean
+  /** فاز ۸ — خلاصهٔ استدلال دریافتی در همین نوبت. */
+  reasoningSummary?: string
   onRetry?: (failedMessageId: string) => void
   onReconnect?: () => void
   onCancel?: () => void
@@ -34,6 +40,12 @@ interface Row {
   showRecovery: boolean
   recoveryStatus: GenerationStatus | null
   citations?: CitationSource[]
+  /** فاز ۸ — استدلال این ردیف فعال بوده است. */
+  reasoningEnabled: boolean
+  /** فاز ۸ — استدلال این نوبت به پایان رسیده است. */
+  reasoningCompleted: boolean
+  /** فاز ۸ — خلاصهٔ استدلال این ردیف (ذخیره‌شده یا در حال استریم). */
+  reasoningSummary: string | null
 }
 
 const rows = computed<Row[]>(() => {
@@ -58,6 +70,11 @@ const rows = computed<Row[]>(() => {
       showRecovery: streamNeedsRecovery || m.status === 'failed' || m.status === 'cancelled',
       recoveryStatus: m.status as GenerationStatus,
       citations: m.citations,
+      // A persisted turn that reasoned but produced no user-visible summary is
+      // still worth labelling, so "reasoning was on" is never silently lost.
+      reasoningEnabled: m.reasoningEnabled ?? false,
+      reasoningCompleted: Boolean(m.reasoningEnabled && !m.reasoningSummary),
+      reasoningSummary: m.reasoningSummary ?? null,
     })
   }
 
@@ -73,6 +90,9 @@ const rows = computed<Row[]>(() => {
       status: 'completed',
       showRecovery: false,
       recoveryStatus: null,
+      reasoningEnabled: false,
+      reasoningCompleted: false,
+      reasoningSummary: null,
     })
   }
 
@@ -94,6 +114,11 @@ const rows = computed<Row[]>(() => {
       showRecovery: false,
       recoveryStatus: null,
       citations: props.generation?.citations,
+      // The synthetic row only exists while a generation is running, so the
+      // live reasoning state belongs to it.
+      reasoningEnabled: true,
+      reasoningCompleted: Boolean(props.reasoningCompleted),
+      reasoningSummary: props.reasoningSummary ?? null,
     })
   }
 
@@ -117,6 +142,10 @@ const rows = computed<Row[]>(() => {
       :recovery-status="row.recoveryStatus"
       :citations="row.citations"
       :search-activity="row.streaming ? searchActivity : null"
+      :reasoning-enabled="row.reasoningEnabled"
+      :reasoning-active="row.streaming ? Boolean(reasoningActive) : false"
+      :reasoning-completed="row.reasoningCompleted"
+      :reasoning-summary="row.streaming ? reasoningSummary ?? null : row.reasoningSummary"
       :on-retry="onRetry"
       :on-reconnect="onReconnect"
       :on-cancel="onCancel"

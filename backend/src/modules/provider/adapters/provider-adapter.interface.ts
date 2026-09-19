@@ -1,4 +1,5 @@
 import { Provider } from '../entities/provider.entity';
+import type { ProviderReasoningSignals } from '../../reasoning/reasoning.types';
 
 export interface ProviderToolCall {
   id: string;
@@ -15,6 +16,17 @@ export interface ProviderToolDefinition {
   };
 }
 
+/**
+ * Normalized reasoning request for one provider call. Provider-specific
+ * parameter names are translated inside the adapter.
+ */
+export interface ProviderReasoningRequest {
+  /** Reasoning was explicitly requested (and the model is configured for it). */
+  enabled: boolean;
+  /** The model exposes a user-visible reasoning summary the provider can return. */
+  summary: boolean;
+}
+
 export interface ProviderChatMessage {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
@@ -28,6 +40,8 @@ export interface ProviderStreamChunk {
   choices?: Array<{
     delta?: {
       content?: string;
+      /** Normalized provider reasoning summary delta. */
+      reasoning?: string;
       tool_calls?: Array<{
         index: number;
         id?: string;
@@ -62,6 +76,18 @@ export interface ProviderAdapter {
       model: string;
       messages: ProviderChatMessage[];
       tools?: ProviderToolDefinition[];
+      reasoning?: ProviderReasoningRequest;
     },
   ): Promise<AsyncIterable<ProviderStreamChunk>>;
+
+  /**
+   * Read the provider's explicit capability metadata for one model.
+   *
+   * Returns `null` when the provider exposes no reliable capability information.
+   * MUST NOT perform a generation request.
+   */
+  discoverCapabilities?(
+    provider: Provider,
+    modelName: string,
+  ): Promise<ProviderReasoningSignals | null>;
 }

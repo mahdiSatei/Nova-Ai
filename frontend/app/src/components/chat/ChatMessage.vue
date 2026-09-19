@@ -6,11 +6,12 @@
 // - pending (در حال ارسال) و streaming (caret + نقطه‌های پران) همین‌جا.
 // - recovery actions for failed/cancelled/streaming messages.
 import { computed, ref } from 'vue'
-import { PhRobot, PhCopy, PhCheck, PhHourglassMedium, PhWarning, PhArrowsClockwise, PhStop } from '@phosphor-icons/vue'
+import { PhRobot, PhCopy, PhCheck, PhHourglassMedium, PhWarning, PhArrowsClockwise, PhStop, PhBrain } from '@phosphor-icons/vue'
 import MarkdownRenderer from '@/components/chat/MarkdownRenderer.vue'
 import TypingIndicator from '@/components/chat/TypingIndicator.vue'
 import SearchActivity from '@/components/chat/SearchActivity.vue'
 import SourceCitations from '@/components/chat/SourceCitations.vue'
+import ReasoningPanel from '@/components/chat/ReasoningPanel.vue'
 import UserAvatar from '@/components/user/UserAvatar.vue'
 import { copyText } from '@/utils/clipboard'
 import { formatDateTime } from '@/utils/time'
@@ -34,11 +35,29 @@ const props = withDefaults(
     citations?: CitationSource[]
     /** فاز ۷ — پیشرفت جستجو/بازیابی حین نسخه‌برداری. */
     searchActivity?: { phase: SearchPhase; query?: string; sources?: number; credits?: number } | null
+    /** فاز ۸ — استدلال برای این پیام فعال بوده است. */
+    reasoningEnabled?: boolean
+    /** فاز ۸ — سرور تأیید کرده که استدلال در جریان است. */
+    reasoningActive?: boolean
+    /** فاز ۸ — استدلال این نوبت به پایان رسیده است. */
+    reasoningCompleted?: boolean
+    /** فاز ۸ — خلاصهٔ استدلال (در حال استریم یا ذخیره‌شده). */
+    reasoningSummary?: string | null
     onRetry?: (failedMessageId: string) => void
     onReconnect?: () => void
     onCancel?: () => void
   }>(),
-  { createdAt: null, streaming: false, pending: false, status: 'completed', showRecovery: false },
+  {
+    createdAt: null,
+    streaming: false,
+    pending: false,
+    status: 'completed',
+    showRecovery: false,
+    reasoningEnabled: false,
+    reasoningActive: false,
+    reasoningCompleted: false,
+    reasoningSummary: null,
+  },
 )
 
 const isUser = props.role === 'user'
@@ -91,6 +110,31 @@ function onCopy(): void {
         <MarkdownRenderer :source="content" :streaming="streaming" />
         <TypingIndicator v-if="streaming && !content" />
       </div>
+
+      <!-- فاز ۸ — «استدلال فعال» و «محتوای استدلال موجود» دو حالت جدا هستند -->
+      <ReasoningPanel
+        v-if="!isUser && reasoningSummary"
+        :summary="reasoningSummary"
+        :streaming="streaming || reasoningActive"
+      />
+      <p
+        v-else-if="!isUser && reasoningActive"
+        class="mt-1 flex items-center gap-1.5 px-1 text-xs text-ink-muted"
+        role="status"
+        aria-live="polite"
+      >
+        <PhBrain class="size-3.5 animate-pulse text-primary" aria-hidden="true" />
+        <span>در حال استدلال…</span>
+      </p>
+      <p
+        v-else-if="!isUser && reasoningEnabled && reasoningCompleted"
+        class="mt-1 flex items-center gap-1.5 px-1 text-xs text-ink-muted"
+        role="status"
+        aria-live="polite"
+      >
+        <PhBrain class="size-3.5 text-ink-muted" aria-hidden="true" />
+        <span>استدلال فعال بود؛ این مدل محتوایی برای نمایش ارائه نکرد.</span>
+      </p>
 
       <!-- فاز ۷ — پیشرفت جستجو و فهرست منابع -->
       <SearchActivity v-if="!isUser && searchActivity && streaming" :activity="searchActivity" />

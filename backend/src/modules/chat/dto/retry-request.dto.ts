@@ -9,4 +9,9 @@ export class RetryRequestDto {
   @IsOptional()
   @IsBoolean()
   webSearch?: boolean;
+
+  /** Retry with reasoning enabled, matching the client's current toggle. */
+  @IsOptional()
+  @IsBoolean()
+  reasoning?: boolean;
 }

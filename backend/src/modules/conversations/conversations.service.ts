@@ -11,6 +11,13 @@ import { Message } from './entities/message.entity';
 import { MessageStatus } from './conversations.types';
 import type { CitationSource } from '../web-search/web-search.types';
 
+/** Reasoning metadata accepted when a streaming message completes (Phase 8). */
+export interface CompletionReasoning {
+  enabled: boolean;
+  /** Provider-generated, user-visible summary. `null` when none was exposed. */
+  summary: string | null;
+}
+
 /**
  * Persistent ConversationsService backed by TypeORM.
  *
@@ -242,10 +249,17 @@ export class ConversationsService {
     messageId: string,
     content: string,
     citations: CitationSource[] = [],
+    reasoning: CompletionReasoning = { enabled: false, summary: null },
   ): Promise<boolean> {
     const result = await this.messageRepo.update(
       { id: messageId, status: 'streaming' as MessageStatus },
-      { status: 'completed' as MessageStatus, content, citations },
+      {
+        status: 'completed' as MessageStatus,
+        content,
+        citations,
+        reasoningEnabled: reasoning.enabled,
+        reasoningSummary: reasoning.summary,
+      },
     );
     return (result.affected ?? 0) > 0;
   }

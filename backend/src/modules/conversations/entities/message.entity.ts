@@ -40,4 +40,16 @@ export class Message {
   /** Web-search sources cited by this assistant message (empty for normal turns). */
   @Column({ name: 'citations', type: 'jsonb', default: () => "'[]'::jsonb" })
   citations!: CitationSource[];
+
+  /** True when the user enabled reasoning for this turn. */
+  @Column({ name: 'reasoning_enabled', type: 'boolean', default: false })
+  reasoningEnabled!: boolean;
+
+  /**
+   * The provider's user-visible reasoning summary, when one was exposed.
+   * Only ever written on successful completion — never chain-of-thought, never
+   * internal reasoning tokens, never a summary for an interrupted generation.
+   */
+  @Column({ name: 'reasoning_summary', type: 'text', nullable: true })
+  reasoningSummary!: string | null;
 }

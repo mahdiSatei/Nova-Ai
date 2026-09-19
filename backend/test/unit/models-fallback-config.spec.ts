@@ -55,7 +55,9 @@ function build(fixtures: Fixtures = {}) {
     }),
   };
 
-  const service = new ModelsService(repo as never, {} as never);
+  const service = new ModelsService(repo as never, {} as never, {
+    discover: jest.fn(),
+  } as never);
   return { service, repo, saved };
 }
 

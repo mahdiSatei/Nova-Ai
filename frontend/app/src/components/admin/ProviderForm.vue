@@ -8,14 +8,15 @@ import BaseInput from '@/components/ui/BaseInput.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
-import { getProvider, updateProvider } from '@/api/admin'
+import { getProvider, updateProvider, createProvider } from '@/api/admin'
 import { formatDateTime } from '@/utils/time'
 import type { ProviderAdmin } from '@/types/api'
 
 const props = defineProps<{ provider: ProviderAdmin | null }>()
 const emit = defineEmits<{ saved: [provider: ProviderAdmin] }>()
 
-const providerId = 'central'
+// Use the existing provider's id if available, otherwise generate a default
+const providerId = props.provider?.id ?? 'central'
 const form = reactive({ baseUrl: props.provider?.baseUrl ?? '', apiKey: '' })
 const fieldErrors = reactive<{ baseUrl: string | null; apiKey: string | null }>({ baseUrl: null, apiKey: null })
 const submitError = ref<{ message: string; code?: string; requestId?: string } | null>(null)
@@ -51,9 +52,22 @@ async function onSubmit(): Promise<void> {
 
   submitting.value = true
   try {
-    const body: { baseUrl: string; apiKey?: string } = { baseUrl: form.baseUrl.trim() }
-    if (form.apiKey.trim()) body.apiKey = form.apiKey.trim()
-    const next = await updateProvider(providerId, body)
+    let next: ProviderAdmin
+    if (props.provider) {
+      // Update existing provider
+      const body: { baseUrl: string; apiKey?: string } = { baseUrl: form.baseUrl.trim() }
+      if (form.apiKey.trim()) body.apiKey = form.apiKey.trim()
+      next = await updateProvider(providerId, body)
+    } else {
+      // Create new provider
+      next = await createProvider({
+        id: providerId,
+        name: 'Default Provider',
+        type: 'openai-compatible',
+        baseUrl: form.baseUrl.trim(),
+        apiKey: form.apiKey.trim(),
+      })
+    }
     emit('saved', next)
     form.apiKey = ''
   } catch (err) {

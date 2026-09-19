@@ -1,6 +1,13 @@
 // Composable مرکزی چت: dual state model — connection + generation.
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { streamChat, resumeStream, retryStream, cancelGeneration, type StreamHandlers } from '@/api/chat'
+import {
+  streamChat,
+  resumeStream,
+  retryStream,
+  cancelGeneration,
+  type StreamHandlers,
+  type StreamStartInfo,
+} from '@/api/chat'
 import { getConversation, setConversationModel } from '@/api/conversations'
 import { ApiError } from '@/api/http'
 import { streamErrorMessage } from '@/utils/errors'
@@ -9,6 +16,7 @@ import type { CitationSource, MessagePublic, SearchPhase, SseStatus } from '@/ty
 const SESSION_KEY = 'mmcb.lastModelId'
 const CONVERSATION_KEY = 'mmcb.lastConversationId'
 const WEB_SEARCH_KEY = 'mmcb.webSearchEnabled'
+const REASONING_KEY = 'mmcb.reasoningEnabled'
 
 type SearchActivityState = {
   phase: SearchPhase
@@ -60,6 +68,22 @@ function saveWebSearch(enabled: boolean): void {
   }
 }
 
+function loadSavedReasoning(): boolean {
+  try {
+    return sessionStorage.getItem(REASONING_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function saveReasoning(enabled: boolean): void {
+  try {
+    sessionStorage.setItem(REASONING_KEY, enabled ? 'true' : 'false')
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * Codes that mean "the model this client holds is not usable by this account".
  * When one arrives, drop the selection and reload the entitlement-filtered
@@ -83,8 +107,22 @@ export interface ChatStreamHandle {
   searchActivity: import('vue').Ref<SearchActivityState | null>
   /** Sources cited by the latest grounded answer. */
   citations: import('vue').Ref<CitationSource[]>
+  /** فاز ۸ — استدلال برای نوبت بعد. فقط برای مدل‌های دارای استدلال معنا دارد. */
+  reasoningEnabled: import('vue').Ref<boolean>
+  /** فاز ۸ — توان مؤثر مدل انتخاب‌شده (از چیدمان عمومی مدل‌ها). */
+  reasoningSupported: import('vue').Ref<boolean>
+  /** فاز ۸ — وضعیت «در حال استدلال»، فقط بر اساس رویدادهای سرور. */
+  reasoningActive: import('vue').Ref<boolean>
+  /** فاز ۸ — استدلال این نوبت تمام شده است (بدون اینکه لزوماً محتوایی داشته باشد). */
+  reasoningCompleted: import('vue').Ref<boolean>
+  /** فاز ۸ — خلاصهٔ استدلال دریافتی (خالی یعنی محتوایی برای نمایش نیست). */
+  reasoningSummary: import('vue').Ref<string>
+  /** فاز ۸ — آیا محتوای استدلال برای نمایش وجود دارد. */
+  reasoningAvailable: import('vue').ComputedRef<boolean>
   connectionError: import('vue').Ref<{ code: string; message: string } | null>
   setWebSearch: (value: boolean) => void
+  setReasoning: (value: boolean) => void
+  setReasoningSupport: (supported: boolean) => void
   setModel: (id: string | null) => Promise<void>
   loadConversation: (id: string) => Promise<void>
   resetConversation: () => void
@@ -115,6 +153,12 @@ export function useChatStream(): ChatStreamHandle {
   const webSearchEnabled = ref<boolean>(loadSavedWebSearch())
   const searchActivity = ref<SearchActivityState | null>(null)
   const citations = ref<CitationSource[]>([])
+  const reasoningEnabled = ref<boolean>(loadSavedReasoning())
+  const reasoningSupported = ref<boolean>(false)
+  const reasoningActive = ref<boolean>(false)
+  const reasoningCompleted = ref<boolean>(false)
+  const reasoningSummary = ref<string>('')
+  const reasoningAvailable = computed(() => reasoningSummary.value.length > 0)
 
   let controller: AbortController | null = null
   let retryTimer: ReturnType<typeof setInterval> | null = null
@@ -304,6 +348,9 @@ export function useChatStream(): ChatStreamHandle {
         }
       }
       connectionError.value = null
+      reasoningActive.value = false
+      reasoningCompleted.value = false
+      reasoningSummary.value = ''
       setConnected()
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
@@ -334,10 +381,41 @@ export function useChatStream(): ChatStreamHandle {
     saveWebSearch(value)
   }
 
+  // ── Reasoning (فاز ۸) ────────────────────────────────────────────────
+  /**
+   * The preference only ever applies to a reasoning-capable model: ChatView is
+   * responsible for keeping `reasoningSupported` in sync with the selection.
+   */
+  function setReasoning(value: boolean): void {
+    if (value && !reasoningSupported.value) return
+    reasoningEnabled.value = value
+    saveReasoning(value)
+  }
+
+  function setReasoningSupport(supported: boolean): void {
+    reasoningSupported.value = supported
+    if (!supported && reasoningEnabled.value) setReasoning(false)
+  }
+
+  /**
+   * Reasoning phases drive only the reasoning state, so a turn can never show
+   * reasoning UI that the backend did not actually report.
+   */
   function applyStatus(info: SseStatus): void {
     if (info.phase === 'retrying') {
       retrying.value = { attempt: info.attempt ?? 1, maxAttempts: info.maxAttempts ?? 1 }
-    } else if (info.phase === 'generating') {
+      return
+    }
+    if (info.phase === 'reasoning_started') {
+      reasoningActive.value = true
+      return
+    }
+    if (info.phase === 'reasoning_completed' || info.phase === 'answer_started') {
+      reasoningActive.value = false
+      reasoningCompleted.value = true
+      return
+    }
+    if (info.phase === 'generating') {
       searchActivity.value = null
     } else {
       searchActivity.value = {
@@ -347,6 +425,10 @@ export function useChatStream(): ChatStreamHandle {
         credits: info.credits,
       }
     }
+  }
+
+  function applyReasoningDelta(delta: string, isFirst: boolean): void {
+    reasoningSummary.value = isFirst ? delta : reasoningSummary.value + delta
   }
 
   function applyCitations(sources: CitationSource[]): void {
@@ -451,6 +533,8 @@ export function useChatStream(): ChatStreamHandle {
     }
 
     // Optimistic streaming state; the server's real ids arrive via onStart.
+    // `retriedRowId` remembers which transcript row this retry replaces.
+    const retriedRowId = failedMsg.id
     generation.value = {
       conversationId: convId,
       assistantMessageId: `assistant-${Date.now()}`,
@@ -459,36 +543,15 @@ export function useChatStream(): ChatStreamHandle {
     }
     generationState.value = 'streaming'
     connectionError.value = null
+    reasoningActive.value = false
+    reasoningCompleted.value = false
+    reasoningSummary.value = ''
 
     const handlers: StreamHandlers = {
-      onStart: (info) => {
-        // The server assigns the real conversation + assistant message ids
-        // once the DB rows exist. Adopt them so deltas sync into the
-        // transcript, cancel hits the right conversation, and the router can
-        // update the URL — all before the first token arrives.
-        conversationId.value = info.conversationId
-        saveConversationId(info.conversationId)
-        if (generation.value && generation.value.assistantMessageId !== info.assistantMessageId) {
-          const oldId = generation.value.assistantMessageId
-          generation.value = {
-            ...generation.value,
-            conversationId: info.conversationId,
-            assistantMessageId: info.assistantMessageId,
-          }
-          // Re-key the optimistic transcript rows to the real ids.
-          const userIdx = transcript.value.findIndex((m) => m.id === `user-${oldId.slice('assistant-'.length)}`)
-          if (userIdx !== -1) {
-            transcript.value = [
-              ...transcript.value.slice(0, userIdx),
-              { ...transcript.value[userIdx], id: `user-${info.assistantMessageId}` },
-              ...transcript.value.slice(userIdx + 1),
-            ]
-          }
-        }
-        touchStreamActivity()
-      },
+      onStart: makeOnStart(retriedRowId),
       onStatus: applyStatus,
       onCitations: applyCitations,
+      onReasoningDelta: applyReasoningDelta,
       onDelta: (_delta: string, _isFirst: boolean) => {
         touchStreamActivity()
         if (!generation.value) return
@@ -509,6 +572,7 @@ export function useChatStream(): ChatStreamHandle {
       onDone: async () => {
         retrying.value = null
         searchActivity.value = null
+        reasoningActive.value = false
         if (generation.value) {
           generation.value = { ...generation.value, status: 'completed' }
           // Mark the transcript message as completed so recovery UI clears.
@@ -531,6 +595,9 @@ export function useChatStream(): ChatStreamHandle {
         connectionError.value = err
         retrying.value = null
         searchActivity.value = null
+        // A failed or cancelled turn has no live reasoning state, even when the
+        // provider had already streamed part of a summary.
+        reasoningActive.value = false
         if (generation.value) {
           if (err.code === 'generation_cancelled') {
             generation.value = { ...generation.value, status: 'cancelled' }
@@ -569,7 +636,12 @@ export function useChatStream(): ChatStreamHandle {
       },
     }
 
-    controller = retryStream(convId, failedMsg.id, handlers)
+    controller = retryStream(convId, failedMsg.id, handlers, {
+      webSearch: webSearchEnabled.value,
+      // A retry must keep the caller's reasoning choice: silently dropping it
+      // would produce a different answer than the one being retried.
+      reasoning: reasoningEnabled.value && reasoningSupported.value,
+    })
     startWatchdog()
   }
 
@@ -715,6 +787,9 @@ export function useChatStream(): ChatStreamHandle {
     connectionError.value = null
     searchActivity.value = null
     citations.value = []
+    reasoningActive.value = false
+    reasoningCompleted.value = false
+    reasoningSummary.value = ''
     setConnected()
     try {
       const detail = await getConversation(id)
@@ -783,6 +858,60 @@ export function useChatStream(): ChatStreamHandle {
     connectionError.value = null
     searchActivity.value = null
     citations.value = []
+    reasoningActive.value = false
+    reasoningCompleted.value = false
+    reasoningSummary.value = ''
+  }
+
+  /**
+   * Builds the shared `onStart` handler: adopt the server-assigned ids and
+   * re-key the optimistic transcript rows. When `replaceRowId` is set (a retry),
+   * the already-persisted failed/cancelled row is replaced in place, so the
+   * transcript shows the regenerated answer instead of the stale row.
+   */
+  function makeOnStart(replaceRowId: string | null) {
+    return (info: StreamStartInfo): void => {
+      // The server assigns the real conversation + assistant message ids
+      // once the DB rows exist. Adopt them so deltas sync into the
+      // transcript, cancel hits the right conversation, and the router can
+      // update the URL — all before the first token arrives.
+      conversationId.value = info.conversationId
+      saveConversationId(info.conversationId)
+      if (generation.value && generation.value.assistantMessageId !== info.assistantMessageId) {
+        const oldId = generation.value.assistantMessageId
+        generation.value = {
+          ...generation.value,
+          conversationId: info.conversationId,
+          assistantMessageId: info.assistantMessageId,
+        }
+        // Re-key the optimistic transcript rows to the real ids.
+        const userIdx = transcript.value.findIndex((m) => m.id === `user-${oldId.slice('assistant-'.length)}`)
+        if (userIdx !== -1) {
+          transcript.value = [
+            ...transcript.value.slice(0, userIdx),
+            { ...transcript.value[userIdx], id: `user-${info.assistantMessageId}` },
+            ...transcript.value.slice(userIdx + 1),
+          ]
+        }
+
+        if (replaceRowId) {
+          const retriedIdx = transcript.value.findIndex((m) => m.id === replaceRowId)
+          if (retriedIdx !== -1) {
+            transcript.value = [
+              ...transcript.value.slice(0, retriedIdx),
+              {
+                ...transcript.value[retriedIdx],
+                id: info.assistantMessageId,
+                content: '',
+                status: 'streaming',
+              },
+              ...transcript.value.slice(retriedIdx + 1),
+            ]
+          }
+        }
+      }
+      touchStreamActivity()
+    }
   }
 
   // ── Send (FR-2, FR-3) ────────────────────────────────────────────
@@ -815,39 +944,18 @@ export function useChatStream(): ChatStreamHandle {
     retrying.value = null
     searchActivity.value = null
     citations.value = []
+    reasoningActive.value = false
+    reasoningCompleted.value = false
+    reasoningSummary.value = ''
 
     const targetConversationId = conversationId.value
     if (targetConversationId) saveConversationId(targetConversationId)
 
     const handlers: StreamHandlers = {
-      onStart: (info) => {
-        // The server assigns the real conversation + assistant message ids
-        // once the DB rows exist. Adopt them so deltas sync into the
-        // transcript, cancel hits the right conversation, and the router can
-        // update the URL — all before the first token arrives.
-        conversationId.value = info.conversationId
-        saveConversationId(info.conversationId)
-        if (generation.value && generation.value.assistantMessageId !== info.assistantMessageId) {
-          const oldId = generation.value.assistantMessageId
-          generation.value = {
-            ...generation.value,
-            conversationId: info.conversationId,
-            assistantMessageId: info.assistantMessageId,
-          }
-          // Re-key the optimistic transcript rows to the real ids.
-          const userIdx = transcript.value.findIndex((m) => m.id === `user-${oldId.slice('assistant-'.length)}`)
-          if (userIdx !== -1) {
-            transcript.value = [
-              ...transcript.value.slice(0, userIdx),
-              { ...transcript.value[userIdx], id: `user-${info.assistantMessageId}` },
-              ...transcript.value.slice(userIdx + 1),
-            ]
-          }
-        }
-        touchStreamActivity()
-      },
+      onStart: makeOnStart(null),
       onStatus: applyStatus,
       onCitations: applyCitations,
+      onReasoningDelta: applyReasoningDelta,
       onDelta: (_delta: string, _isFirst: boolean) => {
         touchStreamActivity()
         if (!generation.value) return
@@ -868,6 +976,7 @@ export function useChatStream(): ChatStreamHandle {
       onDone: async () => {
         retrying.value = null
         searchActivity.value = null
+        reasoningActive.value = false
         if (generation.value) {
           generation.value = { ...generation.value, status: 'completed' }
           // Mark the transcript message as completed so recovery UI clears.
@@ -890,6 +999,9 @@ export function useChatStream(): ChatStreamHandle {
         connectionError.value = err
         retrying.value = null
         searchActivity.value = null
+        // A failed or cancelled turn has no live reasoning state, even when the
+        // provider had already streamed part of a summary.
+        reasoningActive.value = false
         if (generation.value) {
           if (err.code === 'generation_cancelled') {
             generation.value = { ...generation.value, status: 'cancelled' }
@@ -934,6 +1046,7 @@ export function useChatStream(): ChatStreamHandle {
         modelId,
         message: trimmed,
         webSearch: webSearchEnabled.value,
+        reasoning: reasoningEnabled.value && reasoningSupported.value,
       },
       handlers,
     )
@@ -1061,7 +1174,15 @@ export function useChatStream(): ChatStreamHandle {
     webSearchEnabled,
     searchActivity,
     citations,
+    reasoningEnabled,
+    reasoningSupported,
+    reasoningActive,
+    reasoningCompleted,
+    reasoningSummary,
+    reasoningAvailable,
     setWebSearch,
+    setReasoning,
+    setReasoningSupport,
     setModel,
     loadConversation,
     resetConversation,

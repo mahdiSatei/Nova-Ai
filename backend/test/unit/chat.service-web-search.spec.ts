@@ -137,9 +137,12 @@ describe('ChatService web search', () => {
     expect(secondMessages.at(-1)).toMatchObject({ role: 'tool', toolCallId: 'call_1' });
     expect(secondMessages.at(-1).content).toContain('UNTRUSTED');
 
-    expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'Cats are great [S1].', [
-      { id: 'S1', title: 'Cats', url: 'https://cats.test', snippet: 'meow' },
-    ]);
+    expect(conversations.completeIfStreaming).toHaveBeenCalledWith(
+      'msg-1',
+      'Cats are great [S1].',
+      [{ id: 'S1', title: 'Cats', url: 'https://cats.test', snippet: 'meow' }],
+      { enabled: false, summary: null },
+    );
     expect(events).toContainEqual({
       type: 'citations',
       data: { sources: [{ id: 'S1', title: 'Cats', url: 'https://cats.test', snippet: 'meow' }] },

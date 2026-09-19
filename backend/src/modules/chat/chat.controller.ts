@@ -104,7 +104,13 @@ export class ChatController {
     @Body() dto: RetryRequestDto,
   ): Observable<Record<string, unknown>> {
     return this.chat
-      .retryGenerationStream(user.id, conversationId, dto.failedMessageId, dto.webSearch === true)
+      .retryGenerationStream(
+        user.id,
+        conversationId,
+        dto.failedMessageId,
+        dto.webSearch === true,
+        dto.reasoning === true,
+      )
       .pipe(map((e) => toSseMessage(e)));
   }
 }
