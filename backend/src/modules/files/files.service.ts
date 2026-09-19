@@ -6,6 +6,7 @@ import { Queue } from 'bullmq';
 import { StorageService } from './storage.service';
 import { FileRecord, FileStatus } from './entities/file.entity';
 import { FILE_PROCESSING_QUEUE, EXTRACT_TEXT_JOB } from './files.constants';
+import { User } from '../users/entities/user.entity';
 
 @Injectable()
 export class FilesService {
@@ -13,6 +14,8 @@ export class FilesService {
     private readonly storage: StorageService,
     @InjectRepository(FileRecord)
     private readonly repo: Repository<FileRecord>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
     @InjectQueue(FILE_PROCESSING_QUEUE)
     private readonly fileQueue: Queue,
   ) {}
@@ -66,7 +69,7 @@ export class FilesService {
     limit = 20,
     offset = 0,
     filters?: { status?: FileStatus; mimeType?: string; userId?: string },
-  ): Promise<{ items: FileRecord[]; total: number }> {
+  ): Promise<{ items: (FileRecord & { username?: string | null })[]; total: number }> {
     const where: any = {};
     if (filters?.status) where.status = filters.status;
     if (filters?.mimeType) where.mimeType = filters.mimeType;
@@ -79,6 +82,16 @@ export class FilesService {
       skip: offset,
     });
 
-    return { items, total };
+    // واکشی نام کاربری برای هر فایل
+    const userIds = [...new Set(items.map((i) => i.userId))];
+    const users = await this.userRepo.findByIds(userIds);
+    const userMap = new Map(users.map((u) => [u.id, u.username]));
+
+    const itemsWithUsername = items.map((item) => ({
+      ...item,
+      username: userMap.get(item.userId) || 'Unknown',
+    }));
+
+    return { items: itemsWithUsername, total };
   }
 }

@@ -109,7 +109,7 @@ onMounted(() => {
             <th class="p-4 text-right">نام فایل</th>
             <th class="p-4 text-right">نوع</th>
             <th class="p-4 text-right">حجم</th>
-            <th class="p-4 text-right">کاربر</th>
+            <th class="p-4 text-right">نام کاربری</th>
             <th class="p-4 text-right">وضعیت</th>
             <th class="p-4 text-right">تاریخ</th>
           </tr>
@@ -125,9 +125,7 @@ onMounted(() => {
             </td>
             <td class="p-4 font-mono text-xs text-ink-muted">{{ file.mimeType.split('/')[1] || file.mimeType }}</td>
             <td class="p-4 font-mono text-xs text-ink-muted">{{ formatFileSize(file.size) }}</td>
-            <td class="p-4 font-mono text-xs text-ink-muted" :title="file.userId">
-              {{ file.userId.slice(0, 6) }}
-            </td>
+            <td class="p-4 text-xs text-ink">{{ file.username }}</td>
             <td class="p-4">
               <span
                 class="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide"

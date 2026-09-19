@@ -62,10 +62,11 @@ export interface AdminFileRecord {
   originalName: string;
   mimeType: string;
   size: number;
-  status: 'uploaded' | 'processing' | 'ready' | 'failed';
+  status: 'UPLOADED' | 'PROCESSING' | 'READY' | 'FAILED';
   errorMessage: string | null;
   createdAt: string;
   userId: string;
+  username: string; // فیلد جدید
 }
 
 export async function listAdminFiles(
