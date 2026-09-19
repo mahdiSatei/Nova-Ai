@@ -16,7 +16,7 @@ const nav = [
   { to: { name: 'admin-provider' }, label: 'ارائه‌دهنده', icon: PhPlugsConnected },
   { to: { name: 'admin-models' }, label: 'کاتالوگ مدل‌ها', icon: PhListBullets },
   { to: { name: 'admin-default-model' }, label: 'مدل پیش‌فرض', icon: PhStar },
-  { to: { name: 'admin-files' }, label: 'مدیریت فایل‌ها', icon: PhFileText }
+  { to: { name: 'admin-files' }, label: 'مدیریت فایل‌ها', icon: PhFileText },
 ]
 
 const userMenuOpen = ref(false)
@@ -29,12 +29,16 @@ async function onSignOut(): Promise<void> {
 </script>
 
 <template>
-  <div class="flex min-h-screen">
-    <aside class="flex w-56 shrink-0 flex-col border-r border-line bg-surface">
+  <div class="flex h-dvh overflow-hidden">
+    <!-- سایدبار ادمین -->
+    <aside class="flex w-72 shrink-0 flex-col border-r border-line bg-surface">
       <div class="flex h-14 items-center gap-2 border-b border-line px-4 font-semibold">
-        <PhGear class="size-5 text-accent" aria-hidden="true" />
-        <span>مدیر</span>
+        <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent/10">
+          <PhGear class="size-4.5 text-accent" aria-hidden="true" />
+        </span>
+        <span>پنل مدیریت</span>
       </div>
+      
       <nav class="flex flex-col gap-1 p-3" aria-label="ناوبری مدیر">
         <RouterLink
           v-for="item in nav"
@@ -46,14 +50,9 @@ async function onSignOut(): Promise<void> {
           {{ item.label }}
         </RouterLink>
       </nav>
-      <div class="mt-auto flex flex-col gap-1 p-3">
-        <BaseButton variant="ghost" size="sm" class="w-full justify-start" @click="toggleTheme">
-          <PhSun v-if="theme === 'dark'" class="size-4" aria-hidden="true" />
-          <PhMoon v-else class="size-4" aria-hidden="true" />
-          {{ theme === 'dark' ? 'حالت روشن' : 'حالت تاریک' }}
-        </BaseButton>
-
-        <!-- منوی حساب کاربری: پروفایل / چت / خروج -->
+      
+      <!-- فوتر سایدبار ادمین (فقط منوی پروفایل) -->
+      <div class="mt-auto shrink-0 border-t border-line/70 p-2">
         <div class="relative">
           <button
             type="button"
@@ -70,7 +69,6 @@ async function onSignOut(): Promise<void> {
             v-if="userMenuOpen"
             class="absolute bottom-full start-0 z-50 mb-2 w-52 rounded-xl border border-line bg-surface p-1.5 shadow-2xl"
             role="menu"
-            @keydown="(e: KeyboardEvent) => { if (e.key === 'Escape') userMenuOpen = false }"
           >
             <RouterLink
               to="/chat"
@@ -81,14 +79,6 @@ async function onSignOut(): Promise<void> {
               <PhChatCircleText class="size-4 shrink-0" aria-hidden="true" />
               <span>چت</span>
             </RouterLink>
-            <button
-              type="button"
-              class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start text-sm text-ink transition-colors hover:bg-hover"
-              role="menuitem"
-            >
-              <PhUserGear class="size-4 shrink-0" aria-hidden="true" />
-              <span>ویرایش پروفایل</span>
-            </button>
             <button
               type="button"
               class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start text-sm text-danger transition-colors hover:bg-danger-soft"
@@ -103,9 +93,25 @@ async function onSignOut(): Promise<void> {
       </div>
     </aside>
 
-    <main class="min-w-0 flex-1">
-      <div class="mx-auto w-full max-w-3xl px-6 py-10">
-        <RouterView />
+    <main class="min-w-0 flex-1 flex flex-col overflow-hidden">
+      <!-- هدر بالای صفحه ادمین (دقیقا مشابه صفحه چت کاربر) -->
+      <header class="flex h-14 shrink-0 items-center justify-end px-6 border-line bg-surface/50 backdrop-blur">
+        <button
+          type="button"
+          class="inline-flex size-9 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink focus-visible:text-ink"
+          :aria-label="theme === 'light' ? 'حالت تاریک' : 'حالت روشن'"
+          :title="theme === 'light' ? 'تاریک' : 'روشن'"
+          @click="toggleTheme"
+        >
+          <PhMoon v-if="theme === 'light'" class="size-4" aria-hidden="true" />
+          <PhSun v-else class="size-4" aria-hidden="true" />
+        </button>
+      </header>
+
+      <div class="flex-1 overflow-y-auto px-6 py-10">
+        <div class="mx-auto w-full max-w-4xl">
+          <RouterView />
+        </div>
       </div>
     </main>
   </div>
