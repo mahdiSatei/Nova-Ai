@@ -13,7 +13,11 @@ const FORMATTER = new Intl.DateTimeFormat('fa-IR', {
 
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return '—'
-  const d = new Date(iso)
+
+  // If the ISO string lacks timezone information, treat it as UTC to avoid local-time misinterpretation
+  const dateStr = (iso.endsWith('Z') || iso.includes('+')) ? iso : iso + 'Z'
+  const d = new Date(dateStr)
+
   if (Number.isNaN(d.getTime())) return '—'
   return FORMATTER.format(d)
 }
