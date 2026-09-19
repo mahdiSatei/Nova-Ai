@@ -31,7 +31,7 @@ watch(() => route.fullPath, () => (drawerOpen.value = false))
         </button>
         <span class="flex items-center gap-1.5 text-sm font-semibold">
           <PhChatCircleText class="size-4 text-primary" aria-hidden="true" />
-          چت‌بات چند مدله
+          Nova AI
         </span>
       </header>
 
