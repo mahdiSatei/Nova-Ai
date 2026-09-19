@@ -9,7 +9,7 @@ import { Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { ChatRequestDto } from './dto/chat-request.dto';
 import { FilesService } from '../files/files.service';
-import { FileContentService, FileParseError } from '../files/file-content.service';
+import { FileContentService } from '../files/file-content.service';
 import { FileStatus } from '../files/entities/file.entity';
 
 /**
@@ -471,6 +471,9 @@ export class ChatService {
             if (delta) {
               fullResponse += delta;
               state.fullResponse += delta;
+// Persist partial content to database for recovery
+              await this.conversations.updateAssistantMessageContent(conversationId, assistantMessageId, fullResponse);
+              // Emit to all current subscribers (original + any reconnects).
               for (const sub of state.subscribers) {
                 sub({ data: { delta } });
               }

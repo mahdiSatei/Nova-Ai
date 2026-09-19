@@ -1,9 +1,8 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger as NestLogger } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { Logger as PinoLogger } from 'nestjs-pino';
 import { mkdirSync } from 'fs';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
@@ -13,20 +12,6 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
   });
-
-  // Use nestjs-pino for structured logging. Bootstrap happens before
-  // ConfigModule is fully wired for logging, so we read directly.
-  const logDir = process.env.LOG_DIR ?? './logs';
-  const logLevel = process.env.LOG_LEVEL ?? 'info';
-  try {
-    mkdirSync(logDir, { recursive: true });
-  } catch {
-    /* ignore — dev fallback to stdout */
-  }
-  app.useLogger(
-    app.get(PinoLogger) ??
-      new NestLogger(),
-  );
 
   app.use(helmet());
 
@@ -56,9 +41,9 @@ async function bootstrap(): Promise<void> {
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port);
 
-  // Best-effort log of boot state (the pino logger is already active).
+  // Best-effort log of boot state (the pino logger is already active via NestjsPinoModule).
   // eslint-disable-next-line no-console
-  console.log(`[boot] listening on http://localhost:${port} (log level=${logLevel}, log dir=${logDir})`);
+  console.log(`[boot] listening on http://localhost:${port}`);
 }
 
 void bootstrap();

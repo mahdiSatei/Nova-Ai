@@ -194,6 +194,26 @@ export class ConversationsService {
   }
 
   /**
+   * Update the content of an assistant message that is currently streaming.
+   * Used to persist partial content during streaming.
+   * @param conversationId The conversation ID
+   * @param assistantMessageId The assistant message ID
+   * @param content The new content to set
+   */
+  async updateAssistantMessageContent(
+    conversationId: string,
+    assistantMessageId: string,
+    content: string,
+  ): Promise<void> {
+    await this.messageRepo.update(
+      { id: assistantMessageId, conversationId, status: 'streaming' as MessageStatus },
+      { content },
+    );
+    // Note: We do not check the result because if the message is no longer streaming,
+    // the update will be ignored (no rows affected) and the stream will be finalized soon.
+  }
+
+  /**
    * Find a message by id with its conversation relation.
    */
   async findMessageById(messageId: string): Promise<(Message & { conversation: Conversation }) | null> {
