@@ -367,24 +367,32 @@ export function useChatStream(): ChatStreamHandle {
           ]
         }
       },
-      onDone: () => {
-        if (generation.value) {
-          generation.value = { ...generation.value, status: 'completed' }
-          const idx = transcript.value.findIndex(
-            (m) => m.id === generation.value!.assistantMessageId,
-          )
-          if (idx !== -1) {
-            transcript.value = [
-              ...transcript.value.slice(0, idx),
-              { ...transcript.value[idx], status: 'completed' as const },
-              ...transcript.value.slice(idx + 1),
-            ]
+        onDone: () => {
+          if (generation.value) {
+            generation.value = { ...generation.value, status: 'completed' }
+            const idx = transcript.value.findIndex(
+              (m) => m.id === generation.value!.assistantMessageId,
+            )
+            if (idx !== -1) {
+              transcript.value = [
+                ...transcript.value.slice(0, idx),
+                { ...transcript.value[idx], status: 'completed' as const },
+                ...transcript.value.slice(idx + 1),
+              ]
+            } else {
+              transcript.value.push({
+                id: generation.value.assistantMessageId,
+                role: 'assistant',
+                content: generation.value.content,
+                createdAt: new Date().toISOString(),
+                status: 'completed' as const,
+              })
+            }
           }
-        }
-        generationState.value = 'completed'
-        controller = null
-        stopWatchdog()
-      },
+          generationState.value = 'completed'
+          controller = null
+          stopWatchdog()
+        },
       onError: (err) => {
         if (err.code === 'generation_cancelled') {
           if (generation.value) {
@@ -507,6 +515,14 @@ export function useChatStream(): ChatStreamHandle {
                 { ...transcript.value[idx], status: 'completed' as const },
                 ...transcript.value.slice(idx + 1),
               ]
+            } else {
+              transcript.value.push({
+                id: generation.value.assistantMessageId,
+                role: 'assistant',
+                content: generation.value.content,
+                createdAt: new Date().toISOString(),
+                status: 'completed' as const,
+              })
             }
           }
           generationState.value = 'completed'
@@ -672,32 +688,40 @@ export function useChatStream(): ChatStreamHandle {
           }
         }
       },
-      onDone: async () => {
-        if (generation.value) {
-          generation.value = { ...generation.value, status: 'completed' }
-          const idx = transcript.value.findIndex(
-            (m) => m.id === generation.value!.assistantMessageId,
-          )
-          if (idx !== -1) {
-            transcript.value = [
-              ...transcript.value.slice(0, idx),
-              { ...transcript.value[idx], status: 'completed' as const },
-              ...transcript.value.slice(idx + 1),
-            ]
+        onDone: async () => {
+          if (generation.value) {
+            generation.value = { ...generation.value, status: 'completed' }
+            const idx = transcript.value.findIndex(
+              (m) => m.id === generation.value!.assistantMessageId,
+            )
+            if (idx !== -1) {
+              transcript.value = [
+                ...transcript.value.slice(0, idx),
+                { ...transcript.value[idx], status: 'completed' as const },
+                ...transcript.value.slice(idx + 1),
+              ]
+            } else {
+              transcript.value.push({
+                id: generation.value.assistantMessageId,
+                role: 'assistant',
+                content: generation.value.content,
+                createdAt: new Date().toISOString(),
+                status: 'completed' as const,
+              })
+            }
           }
-        }
-        generationState.value = 'completed'
-        controller = null
-        stopWatchdog()
+          generationState.value = 'completed'
+          controller = null
+          stopWatchdog()
 
-        if (!conversationId.value) {
-          const id = await findLatestConversationId()
-          if (id) {
-            conversationId.value = id
-            saveConversationId(id)
+          if (!conversationId.value) {
+            const id = await findLatestConversationId()
+            if (id) {
+              conversationId.value = id
+              saveConversationId(id)
+            }
           }
-        }
-      },
+        },
       onError: (err) => {
         if (err.code === 'generation_cancelled') {
           if (generation.value) {
