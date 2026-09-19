@@ -26,6 +26,7 @@ const recent = computed(() => props.items.filter((c) => !c.pinned))
     هنوز گفتگویی ندارید.
   </p>
   <div v-else class="flex flex-col gap-1">
+    <!-- بخش پین‌شده‌ها -->
     <ConversationSection v-if="pinned.length" title="پین‌شده‌ها" storage-key="mmcb.section.pinned">
       <ConversationRow
         v-for="c in pinned"
@@ -38,6 +39,13 @@ const recent = computed(() => props.items.filter((c) => !c.pinned))
         @remove="$emit('remove', $event)"
       />
     </ConversationSection>
+
+    <!-- ✨ خط جداکننده (Divider) بین پین‌شده‌ها و گفتگوهای اخیر -->
+    <div v-if="pinned.length && recent.length" class="my-2 px-2">
+      <div class="h-px w-full bg-line/80" />
+    </div>
+
+    <!-- بخش گفتگوهای اخیر -->
     <ConversationSection v-if="recent.length" title="آخرین گفتگوها" storage-key="mmcb.section.recent">
       <ConversationRow
         v-for="c in recent"
