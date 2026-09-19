@@ -193,13 +193,13 @@ describe('UsersController', () => {
     });
 
     it('denies an unentitled but enabled model with model_forbidden', async () => {
-      models.findById.mockResolvedValue({ id: 'com', enabled: true, visibility: 'commercial' });
+      models.findById.mockResolvedValue({ id: 'priv', enabled: true, visibility: 'private' });
       access.assertCanUseModel.mockRejectedValue(
         new ForbiddenException({ code: 'model_forbidden', message: 'no' }),
       );
 
       const err = await controller
-        .setModelPreference({ id: 'u-1' } as never, { modelId: 'com' })
+        .setModelPreference({ id: 'u-1' } as never, { modelId: 'priv' })
         .catch((e) => e);
 
       expect(err.getStatus()).toBe(403);

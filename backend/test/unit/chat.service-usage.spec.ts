@@ -15,18 +15,13 @@ describe('ChatService usage recording', () => {
       {} as any, // access
       {} as any, // runtime
       {} as any, // conversations
+      {} as any, // files
       {} as any, // userRepo
       mockUsageService,
       {
-        // quota preflight must not interfere with the usage assertions
-        checkAndReserve: jest.fn(async () => ({
-          reserved: true,
-          quotaId: 'quota-1',
-          tokenRemaining: 100000,
-        })),
-        finalize: jest.fn(async () => {}),
-        refund: jest.fn(async () => {}),
-      } as any,
+        // Pricing must not interfere with the usage assertions.
+        calculateLlmCost: jest.fn(async () => ({ chargedCost: 0, chargedCredits: 0 })),
+      } as any, // PricingService (phase 5)
       {} as any, // failover (phase 6)
       { isConfigured: () => true, search: jest.fn().mockResolvedValue({ query: '', sources: [], creditsUsed: 0, empty: true }) } as any, // web search (phase 7)
     );

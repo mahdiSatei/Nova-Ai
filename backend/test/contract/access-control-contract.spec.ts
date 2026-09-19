@@ -2,6 +2,13 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import YAML from 'yaml';
 
+/**
+ * NOTE: `openapi-3.1.yaml` is currently truncated — it has no `components`
+ * section, so the schema assertions below cannot pass until the contract is
+ * regenerated with `npm run openapi:export` against a reachable database. The
+ * assertions are written for the phase-5 vocabulary so they are correct as soon
+ * as the document is regenerated.
+ */
 const document = YAML.parse(
   readFileSync(
     join(__dirname, '../../specs/001-multi-model-chatbot-mvp/contracts/openapi-3.1.yaml'),
@@ -10,11 +17,8 @@ const document = YAML.parse(
 );
 
 describe('model access-control API contract', () => {
-  it('documents the admin user access endpoints as admin-only', () => {
-    const pairs = [
-      ['/v1/admin/users', 'get'],
-      ['/v1/admin/users/{id}/access-tier', 'patch'],
-    ] as const;
+  it('documents the admin user directory as admin-only', () => {
+    const pairs = [['/v1/admin/users', 'get']] as const;
     for (const [path, method] of pairs) {
       const op = document.paths[path]?.[method];
       expect(op).toBeDefined();
@@ -24,10 +28,14 @@ describe('model access-control API contract', () => {
     }
   });
 
-  it('requires visibility on ModelAdmin and keeps ModelPublic minimal', () => {
+  it('no longer documents the retired access-tier endpoint', () => {
+    expect(document.paths['/v1/admin/users/{id}/access-tier']).toBeUndefined();
+  });
+
+  it('narrows ModelVisibility to public/private and drops UserAccessTier', () => {
     const schemas = document.components.schemas;
-    expect(schemas.ModelVisibility.enum).toEqual(['public', 'commercial', 'private']);
-    expect(schemas.UserAccessTier.enum).toEqual(['free', 'commercial']);
+    expect(schemas.ModelVisibility.enum).toEqual(['public', 'private']);
+    expect(schemas.UserAccessTier).toBeUndefined();
     expect(schemas.ModelAdmin.allOf[1].required).toContain('visibility');
     expect(schemas.ModelAdmin.allOf[1].properties.visibility.$ref).toBe(
       '#/components/schemas/ModelVisibility',
@@ -63,5 +71,16 @@ describe('model access-control API contract', () => {
       /default/i,
     );
     expect(document.paths['/v1/admin/config'].put.responses['422'].description).toMatch(/public/i);
+  });
+
+  it('exposes the deployment billing configuration as an admin-only read', () => {
+    const billing = document.paths['/v1/admin/billing/config'];
+    expect(billing).toBeDefined();
+    expect(billing.get).toBeDefined();
+    expect(billing.get.security).toEqual([{ bearerAdminAuth: [] }]);
+    expect(billing.get.responses['200']).toBeDefined();
+    // Read-only: there is deliberately no write operation.
+    expect(billing.patch).toBeUndefined();
+    expect(billing.put).toBeUndefined();
   });
 });

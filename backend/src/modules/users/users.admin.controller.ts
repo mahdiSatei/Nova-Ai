@@ -1,21 +1,21 @@
-import { Body, Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UsersService } from './users.service';
-import { SetUserAccessTierDto } from './dto/set-access-tier.dto';
 import type { User } from './entities/user.entity';
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
 /**
- * Admin-only access-tier management (spec 003 §Scope — "Associate models with
- * the required role, subscription, or user group").
+ * Admin-only user directory (spec 003 §Scope — "Associate models with the
+ * required role, subscription, or user group").
  *
- * Deliberately narrow: this surface assigns the entitlement tier that a model's
- * visibility is checked against. It is NOT account administration (no create,
- * disable, delete, or password reset) — that remains out of scope per spec 001.
+ * Deliberately narrow: this surface lists accounts and their role. The former
+ * entitlement-tier assignment was removed in phase 5 (the credit wallet
+ * replaced access tiers). It is NOT account administration (no create, disable,
+ * delete, or password reset) — that remains out of scope per spec 001.
  */
 @Controller('v1/admin/users')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -45,19 +45,12 @@ export class UsersAdminController {
     return { items: items.map((u) => this.toAdminUser(u)), total };
   }
 
-  @Patch(':id/access-tier')
-  async setAccessTier(@Param('id') id: string, @Body() dto: SetUserAccessTierDto) {
-    const updated = await this.users.setAccessTier(id, dto.accessTier);
-    return this.toAdminUser(updated);
-  }
-
   private toAdminUser(u: User) {
     return {
       id: u.id,
       email: u.email,
       username: u.username,
       role: u.role,
-      accessTier: u.accessTier,
       createdAt: u.createdAt.toISOString(),
     };
   }

@@ -87,7 +87,7 @@ describe('AppConfigService', () => {
     id: string,
     enabled = true,
     isDefault = false,
-    visibility: 'public' | 'commercial' | 'private' = 'public',
+    visibility: 'public' | 'private' = 'public',
   ) {
     models.set(id, { id, enabled, isDefault, visibility });
   }
@@ -145,9 +145,9 @@ describe('AppConfigService', () => {
     });
 
     it('rejects with 422 when the referenced model is not public', async () => {
-      seedModel('com-1', true, false, 'commercial');
+      seedModel('priv-1', true, false, 'private');
 
-      const err = await svc.update({ defaultModelId: 'com-1' }).catch((e) => e);
+      const err = await svc.update({ defaultModelId: 'priv-1' }).catch((e) => e);
 
       expect(err).toBeInstanceOf(UnprocessableEntityException);
       expect(err.getResponse()).toMatchObject({ code: 'model_not_eligible_default' });

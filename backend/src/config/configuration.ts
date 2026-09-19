@@ -37,6 +37,10 @@ export interface AppConfig {
   provider: {
     encryptionKeyBase64: string;
   };
+  billing: {
+    creditPriceToman: number;
+    webSearchPriceToman: number;
+  };
   webSearch: {
     serpexApiKey: string;
     serpexApiUrl: string;
@@ -81,6 +85,10 @@ export default (): AppConfig => ({
   },
   provider: {
     encryptionKeyBase64: process.env.PROVIDER_ENCRYPTION_KEY ?? '',
+  },
+  billing: {
+    creditPriceToman: Number(process.env.CREDIT_PRICE_TOMAN ?? 100),
+    webSearchPriceToman: Number(process.env.WEB_SEARCH_PRICE_TOMAN ?? 1000),
   },
   webSearch: {
     serpexApiKey: process.env.SERPEX_API_KEY ?? '',

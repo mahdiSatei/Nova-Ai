@@ -1,6 +1,7 @@
 import { plainToInstance, Type } from 'class-transformer';
 import {
   IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -122,6 +123,23 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   SEED_ADMIN_PASSWORD?: string;
+
+  /**
+   * Toman price of one Credit. Deployment-level configuration, never editable
+   * through the API (Phase 5 §1.5) — surfaced read-only in the Admin UI.
+   */
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  CREDIT_PRICE_TOMAN = 100;
+
+  /** Toman price of a single web search. */
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  WEB_SEARCH_PRICE_TOMAN = 1000;
 
   @IsString()
   @IsOptional()

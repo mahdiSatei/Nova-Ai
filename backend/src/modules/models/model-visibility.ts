@@ -3,19 +3,12 @@
  *
  * Kept dependency-free (no Nest, no TypeORM) so entities, DTOs, the policy
  * service and the tests all import the exact same string literals.
+ *
+ * Phase 5 retired the `commercial` visibility and the per-user access tier:
+ * entitlement is now decided by the prepaid credit wallet, not by a tier
+ * ladder. What remains is `public` (any authenticated user) and `private`
+ * (admins only).
  */
-export type ModelVisibility = 'public' | 'commercial' | 'private';
-export type UserAccessTier = 'free' | 'commercial';
+export type ModelVisibility = 'public' | 'private';
 
-export const MODEL_VISIBILITIES: readonly ModelVisibility[] = ['public', 'commercial', 'private'];
-export const USER_ACCESS_TIERS: readonly UserAccessTier[] = ['free', 'commercial'];
-
-/** Ordered ladder for the tier a *viewer* holds. */
-export const TIER_RANK: Record<UserAccessTier, number> = { free: 0, commercial: 1 };
-
-/** Ordered ladder for the visibility a *model* requires. */
-export const VISIBILITY_RANK: Record<ModelVisibility, number> = {
-  public: 0,
-  commercial: 1,
-  private: 2,
-};
+export const MODEL_VISIBILITIES: readonly ModelVisibility[] = ['public', 'private'];

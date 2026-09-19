@@ -8,8 +8,8 @@ const MODEL = {
   enabled: true,
   visibility: 'public',
   fallbackModelId: null,
-  inputPricePer1k: 0.5,
-  outputPricePer1k: 1.5,
+  inputPricePer1m: 500_000,
+  outputPricePer1m: 1_000_000,
 };
 
 const outcome = {
@@ -77,12 +77,11 @@ function build() {
     { canAccessUser: jest.fn().mockResolvedValue(true) } as never,
     runtime as never,
     conversations as never,
+    {} as never, // files (not exercised by these cases)
     { update: jest.fn() } as never,
     usage as never,
     {
-      checkAndReserve: jest.fn().mockResolvedValue({ reserved: true, quotaId: 'q1', tokenRemaining: 9 }),
-      finalize: jest.fn(),
-      refund: jest.fn(),
+      calculateLlmCost: jest.fn().mockResolvedValue({ chargedCost: 0, chargedCredits: 0 }),
     } as never,
     {
       establish: jest.fn().mockResolvedValue({

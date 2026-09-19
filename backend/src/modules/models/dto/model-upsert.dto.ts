@@ -2,10 +2,12 @@ import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
+  Min,
   MinLength,
   Matches,
   ValidateIf,
@@ -72,13 +74,27 @@ export class ModelUpsertDto {
 
   @IsOptional()
   @IsIn(MODEL_VISIBILITIES as unknown as string[], {
-    message: 'visibility must be one of public, commercial, private',
+    message: 'visibility must be one of public, private',
   })
   visibility?: ModelVisibility;
 
   @IsOptional()
   @IsBoolean()
   enabled?: boolean;
+
+  /** Cost per 1,000,000 input tokens in Toman. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  inputPricePer1m?: number;
+
+  /** Cost per 1,000,000 output tokens in Toman. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  outputPricePer1m?: number;
 
   /**
    * Fallback model id. `null` clears the fallback; the field being absent

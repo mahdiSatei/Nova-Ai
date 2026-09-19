@@ -2,12 +2,11 @@ import { ForbiddenException, Injectable, UnprocessableEntityException } from '@n
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
-import { ModelVisibility, UserAccessTier, TIER_RANK, VISIBILITY_RANK } from './model-visibility';
+import { ModelVisibility } from './model-visibility';
 
 /** The caller's entitlement, resolved once per request. */
 export interface AccessViewer {
   role: 'user' | 'admin';
-  accessTier: UserAccessTier;
 }
 
 /** The minimum a model must expose for the policy to decide. */
@@ -24,12 +23,13 @@ export interface AccessTarget {
  *   - a disabled model is usable by nobody (including admins) — callers keep
  *     returning the pre-existing `model_unavailable` error for that case;
  *   - `private` models are admin-only;
- *   - otherwise the viewer's tier must be >= the model's visibility rank
- *     (free < commercial); admins hold the maximum tier.
+ *   - every other (i.e. `public`) enabled model is open to any authenticated
+ *     user. Phase 5 removed the tier ladder: spend is governed by the credit
+ *     wallet, not by visibility.
  *
- * Entitlement is read from the database on every request rather than from the
- * JWT so an access-tier change takes effect immediately. A missing user row
- * denies everything.
+ * The viewer is read from the database on every request rather than from the
+ * JWT so a role change takes effect immediately. A missing user row denies
+ * everything.
  */
 @Injectable()
 export class ModelAccessService {
@@ -41,18 +41,17 @@ export class ModelAccessService {
   async loadViewer(userId: string): Promise<AccessViewer | null> {
     const row = await this.userRepo.findOne({
       where: { id: userId },
-      select: ['id', 'role', 'accessTier'],
+      select: ['id', 'role'],
     });
     if (!row) return null;
-    return { role: row.role, accessTier: row.accessTier };
+    return { role: row.role };
   }
 
   canAccess(viewer: AccessViewer | null | undefined, model: AccessTarget): boolean {
     if (!viewer) return false;
     if (!model.enabled) return false;
     if (model.visibility === 'private') return viewer.role === 'admin';
-    const tier: UserAccessTier = viewer.role === 'admin' ? 'commercial' : viewer.accessTier;
-    return TIER_RANK[tier] >= VISIBILITY_RANK[model.visibility];
+    return true; // public
   }
 
   async canAccessUser(userId: string, model: AccessTarget): Promise<boolean> {

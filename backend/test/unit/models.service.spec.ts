@@ -287,12 +287,12 @@ describe('ModelsService', () => {
   describe('listAccessibleFor()', () => {
     it('returns only the enabled models the caller is entitled to, name-ordered', async () => {
       repo.__setRows([
-        { id: 'com', displayName: 'Zeta', visibility: 'commercial', enabled: true },
+        { id: 'priv', displayName: 'Zeta', visibility: 'private', enabled: true },
         { id: 'pub', displayName: 'Alpha', visibility: 'public', enabled: true },
         { id: 'off', displayName: 'Beta', visibility: 'public', enabled: false },
       ] as any);
       access.filterAccessible.mockImplementation(async (_userId: string, models: any[]) =>
-        models.filter((m) => m.visibility !== 'commercial'),
+        models.filter((m) => m.visibility !== 'private'),
       );
 
       const result = await svc.listAccessibleFor('u-1');
@@ -320,7 +320,7 @@ describe('ModelsService', () => {
         { id: 'm-default', displayName: 'Default', actualName: 'd', providerId: 'p1', visibility: 'public', enabled: true, isDefault: true },
       ] as any);
 
-      const err = await svc.update('m-default', { visibility: 'commercial' }).catch((e) => e);
+      const err = await svc.update('m-default', { visibility: 'private' }).catch((e) => e);
 
       expect(err.getStatus()).toBe(409);
       expect(err.getResponse()).toMatchObject({ code: 'model_is_default' });

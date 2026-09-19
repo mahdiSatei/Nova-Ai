@@ -16,7 +16,7 @@ import {
 } from '../provider/provider-failover.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { UsageService } from '../usage/usage.service';
-import { QuotaService } from '../quotas/quotas.service';
+import { UsagePricingService } from '../billing/usage-pricing.service';
 import { User } from '../users/entities/user.entity';
 import { ChatRequestDto } from './dto/chat-request.dto';
 import { FilesService } from '../files/files.service';
@@ -113,14 +113,6 @@ export type ChatStreamEvent =
   | ChatReasoningDeltaEvent;
 
 /**
- * Loose message shape used internally.
- */
-interface ChatMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-}
-
-/**
  * Holds the in-progress stream state for a conversation.
  */
 interface StreamState {
@@ -168,7 +160,7 @@ export class ChatService {
     private readonly userRepo: Repository<User>,
 
     private readonly usage: UsageService,
-    private readonly quotas: QuotaService,
+    private readonly pricing: UsagePricingService,
     private readonly failover: ProviderFailoverService,
     private readonly webSearch: WebSearchService,
   ) {}
@@ -587,49 +579,6 @@ export class ChatService {
         'streaming',
       );
 
-      // ── quota preflight ─────────────────────────────────────────────────
-
-      let quotaId: string | undefined;
-      let quotaReservedTokens = 0;
-
-      try {
-        const estimatedTokens = Math.max(
-          1,
-          Math.ceil(dto.message.length / 4),
-        );
-
-        const reservation =
-          await this.quotas.checkAndReserve(
-            userId,
-            estimatedTokens,
-          );
-
-        if (!reservation.reserved) {
-          // Do not leave the assistant message permanently streaming.
-          await this.conversations.updateMessageStatus(
-            assistantMessageId,
-            'failed',
-            '',
-          );
-
-          return this.failStream(
-            observer,
-            isActive,
-            'quota_exceeded',
-            `You have reached your token limit. ${reservation.tokenRemaining.toLocaleString()} tokens remaining.`,
-          );
-        }
-
-        quotaId = reservation.quotaId;
-        quotaReservedTokens = estimatedTokens;
-      } catch (err) {
-        this.logger.warn(
-          `Quota preflight failed open: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      }
-
       // ── provider establishment ─────────────────────────────────────────
 
       let established: EstablishedStream;
@@ -698,15 +647,6 @@ export class ChatService {
             attempts: err.attempts,
           });
 
-          if (quotaId) {
-            await this.quotas
-              .refund(
-                quotaId,
-                quotaReservedTokens,
-              )
-              .catch(() => {});
-          }
-
           observer.complete();
           return;
         }
@@ -759,8 +699,6 @@ export class ChatService {
         observer,
         isActive,
         usageRecordId,
-        quotaId,
-        quotaReservedTokens,
         effectiveModel,
         webSearchEnabled: dto.webSearch === true,
         reasoning: reasoningRequested
@@ -816,8 +754,6 @@ export class ChatService {
     };
     isActive: () => boolean;
     usageRecordId: string | undefined;
-    quotaId: string | undefined;
-    quotaReservedTokens: number;
     effectiveModel: Model;
     webSearchEnabled: boolean;
     reasoning: ProviderReasoningRequest;
@@ -830,8 +766,6 @@ export class ChatService {
       observer,
       isActive,
       usageRecordId,
-      quotaId,
-      quotaReservedTokens,
       effectiveModel,
       webSearchEnabled,
       reasoning,
@@ -1214,44 +1148,49 @@ export class ChatService {
 
         if (usageRecordId) {
           const usage = lastChunk?.usage;
+          const inputTokens =
+            usage?.prompt_tokens ?? 0;
+          const outputTokens =
+            usage?.completion_tokens ?? 0;
+          const reasoningTokens =
+            usage?.reasoning_tokens ??
+            usage?.completion_tokens_details
+              ?.reasoning_tokens ??
+            0;
+
+          const cost = await this.pricing
+            .calculateLlmCost(
+              effectiveModel.id,
+              inputTokens,
+              outputTokens,
+              reasoningTokens,
+            )
+            .catch((err) => {
+              this.logger.warn(
+                `Failed to price usage: ${err}`,
+              );
+              return {
+                chargedCost: 0,
+                chargedCredits: 0,
+              };
+            });
 
           await this.usage
             .finalize(usageRecordId, {
-              promptTokens:
-                usage?.prompt_tokens ?? 0,
-              completionTokens:
-                usage?.completion_tokens ?? 0,
+              inputTokens,
+              outputTokens,
               totalTokens:
                 usage?.total_tokens ?? 0,
-              inputPricePer1k:
-                effectiveModel.inputPricePer1k,
-              outputPricePer1k:
-                effectiveModel.outputPricePer1k,
+              reasoningTokens,
+              chargedCost: cost.chargedCost,
+              chargedCredits:
+                cost.chargedCredits,
               status: 'completed',
               searchCredits,
             })
             .catch((err) => {
               this.logger.warn(
                 `Failed to finalize usage: ${err}`,
-              );
-            });
-        }
-
-        // ── finalize quota ───────────────────────────────────────────────
-
-        if (quotaId) {
-          const totalTokens =
-            lastChunk?.usage?.total_tokens ?? 0;
-
-          await this.quotas
-            .finalize(
-              quotaId,
-              quotaReservedTokens,
-              totalTokens,
-            )
-            .catch((err) => {
-              this.logger.warn(
-                `Failed to finalize quota: ${err}`,
               );
             });
         }
@@ -1317,32 +1256,18 @@ export class ChatService {
         if (usageRecordId) {
           await this.usage
             .finalize(usageRecordId, {
-              promptTokens: 0,
-              completionTokens: 0,
+              inputTokens: 0,
+              outputTokens: 0,
               totalTokens: 0,
-              inputPricePer1k:
-                effectiveModel.inputPricePer1k,
-              outputPricePer1k:
-                effectiveModel.outputPricePer1k,
+              reasoningTokens: 0,
+              chargedCost: 0,
+              chargedCredits: 0,
               status: 'failed',
               searchCredits,
             })
             .catch((usageError) => {
               this.logger.warn(
                 `Failed to finalize failed usage: ${usageError}`,
-              );
-            });
-        }
-
-        if (quotaId) {
-          await this.quotas
-            .refund(
-              quotaId,
-              quotaReservedTokens,
-            )
-            .catch((quotaError) => {
-              this.logger.warn(
-                `Failed to refund quota: ${quotaError}`,
               );
             });
         }
@@ -1524,8 +1449,8 @@ export class ChatService {
         },
       });
 
-      // Retry currently does not reserve quota or create a usage record,
-      // preserving the behavior of the existing implementation.
+      // Retry currently does not create a usage record, preserving the
+      // behavior of the existing implementation.
       await this.runToolLoop({
         conversationId,
         assistantMessageId,
@@ -1534,8 +1459,6 @@ export class ChatService {
         observer,
         isActive,
         usageRecordId: undefined,
-        quotaId: undefined,
-        quotaReservedTokens: 0,
         effectiveModel: model,
         webSearchEnabled,
         reasoning: reasoningEnabled
@@ -1601,11 +1524,12 @@ export class ChatService {
       await this.usage.finalize(
         record.id,
         {
-          promptTokens: 0,
-          completionTokens: 0,
+          inputTokens: 0,
+          outputTokens: 0,
           totalTokens: 0,
-          inputPricePer1k: 0,
-          outputPricePer1k: 0,
+          reasoningTokens: 0,
+          chargedCost: 0,
+          chargedCredits: 0,
           status: 'failed',
         },
       );

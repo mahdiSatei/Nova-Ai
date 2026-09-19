@@ -9,8 +9,8 @@ const MODEL = {
   enabled: true,
   visibility: 'public',
   fallbackModelId: 'model-2',
-  inputPricePer1k: 0.5,
-  outputPricePer1k: 1.5,
+  inputPricePer1m: 500_000,
+  outputPricePer1m: 1_000_000,
 };
 
 const FALLBACK_MODEL = {
@@ -18,8 +18,8 @@ const FALLBACK_MODEL = {
   id: 'model-2',
   actualName: 'llama-3',
   providerId: 'groq',
-  inputPricePer1k: 0.1,
-  outputPricePer1k: 0.2,
+  inputPricePer1m: 100_000,
+  outputPricePer1m: 200_000,
 };
 
 function chunk(content: string, usage?: Record<string, number>) {
@@ -46,12 +46,8 @@ function build() {
     create: jest.fn().mockResolvedValue({ id: 'usage-1' }),
     finalize: jest.fn().mockResolvedValue(undefined),
   };
-  const quotas = {
-    checkAndReserve: jest
-      .fn()
-      .mockResolvedValue({ reserved: true, quotaId: 'q1', tokenRemaining: 1000 }),
-    finalize: jest.fn().mockResolvedValue(undefined),
-    refund: jest.fn().mockResolvedValue(undefined),
+  const pricing = {
+    calculateLlmCost: jest.fn().mockResolvedValue({ chargedCost: 200, chargedCredits: 2 }),
   };
   const runtime = { assertReady: jest.fn().mockResolvedValue({ provider: { id: 'openai' }, adapter: {} }), stream: jest.fn() };
   // Establishment picks the serving model and reports how many attempts it
@@ -78,14 +74,15 @@ function build() {
     access as never,
     runtime as never,
     conversations as never,
+    {} as never, // files (not exercised by these cases)
     userRepo as never,
     usage as never,
-    quotas as never,
+    pricing as never,
     failover as never,
     { isConfigured: () => true, search: jest.fn().mockResolvedValue({ query: '', sources: [], creditsUsed: 0, empty: true }) } as never,
   );
 
-  return { service, conversations, usage, quotas, failover, models, access, runtime };
+  return { service, conversations, usage, pricing, failover, models, access, runtime };
 }
 
 /** Drain an Observable of chat events into an array. */
@@ -124,7 +121,7 @@ describe('ChatService fallback (spec 006)', () => {
   });
 
   it('records the effective model and attempt count when a fallback served the request', async () => {
-    const { service, failover, runtime, usage } = build();
+    const { service, failover, runtime, usage, pricing } = build();
     failover.establish.mockResolvedValue({
       model: FALLBACK_MODEL,
       connection: {},
@@ -143,10 +140,11 @@ describe('ChatService fallback (spec 006)', () => {
     expect(usage.create).toHaveBeenCalledWith(
       expect.objectContaining({ modelId: 'model-2', providerId: 'groq', attempts: 3 }),
     );
-    // Cost is computed with the fallback's pricing, not the primary's.
+    // Cost is computed for the model that actually served (the fallback).
+    expect(pricing.calculateLlmCost).toHaveBeenCalledWith('model-2', 4, 2, 0);
     expect(usage.finalize).toHaveBeenCalledWith(
       'usage-1',
-      expect.objectContaining({ inputPricePer1k: 0.1, outputPricePer1k: 0.2, status: 'completed' }),
+      expect.objectContaining({ chargedCost: 200, chargedCredits: 2, status: 'completed' }),
     );
   });
 
@@ -202,8 +200,8 @@ describe('ChatService fallback (spec 006)', () => {
     });
   });
 
-  it('reports all_providers_unavailable, fails the message once, and refunds the quota', async () => {
-    const { service, failover, conversations, quotas, usage } = build();
+  it('reports all_providers_unavailable and fails the message exactly once', async () => {
+    const { service, failover, conversations, usage } = build();
     failover.establish.mockRejectedValue(
       new AllProvidersUnavailableError(
         [
@@ -236,7 +234,6 @@ describe('ChatService fallback (spec 006)', () => {
     });
     expect(conversations.appendMessage).toHaveBeenCalledTimes(1);
     expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'failed', '');
-    expect(quotas.refund).toHaveBeenCalledWith('q1', expect.any(Number));
     // A failed attempt is still accounted for, against the requested model.
     expect(usage.create).toHaveBeenCalledWith(
       expect.objectContaining({ modelId: 'model-1', attempts: 2 }),

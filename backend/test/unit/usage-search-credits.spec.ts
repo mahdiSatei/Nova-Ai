@@ -14,11 +14,11 @@ describe('UsageService search credits', () => {
   it('stores search credits passed to finalize', async () => {
     const { service, record } = build();
     await service.finalize('u1', {
-      promptTokens: 1,
-      completionTokens: 2,
+      inputTokens: 1,
+      outputTokens: 2,
       totalTokens: 3,
-      inputPricePer1k: 0,
-      outputPricePer1k: 0,
+      chargedCost: 0,
+      chargedCredits: 0,
       status: 'completed',
       searchCredits: 4,
     });
@@ -28,11 +28,11 @@ describe('UsageService search credits', () => {
   it('defaults search credits to zero', async () => {
     const { service, record } = build();
     await service.finalize('u1', {
-      promptTokens: 0,
-      completionTokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
       totalTokens: 0,
-      inputPricePer1k: 0,
-      outputPricePer1k: 0,
+      chargedCost: 0,
+      chargedCredits: 0,
       status: 'failed',
     });
     expect(record.searchCredits).toBe(0);

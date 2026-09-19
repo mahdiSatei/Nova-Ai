@@ -145,9 +145,9 @@ paths:
       summary: List the enabled models the caller is entitled to use
       description: |
         Returns every enabled model whose visibility the caller satisfies:
-        `public` for any authenticated user, `commercial` for users whose access
-        tier is `commercial`, and `private` for admins. Models the caller may
-        not use are never returned.
+        `public` for any authenticated user and `private` for admins. Models the
+        caller may not use are never returned. Spend is governed by the credit
+        wallet, not by a per-user access tier.
       security:
         - bearerAuth: []
       responses:

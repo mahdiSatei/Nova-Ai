@@ -9,7 +9,7 @@ import { ConversationsModule } from '../conversations/conversations.module';
 import { ModelsModule } from '../models/models.module';
 import { ProviderModule } from '../provider/provider.module';
 import { UsageModule } from '../usage/usage.module';
-import { QuotasModule } from '../quotas/quotas.module';
+import { BillingModule } from '../billing/billing.module';
 import { WebSearchModule } from '../web-search/web-search.module';
 import { FilesModule } from '../files/files.module';
 
@@ -20,7 +20,7 @@ import { FilesModule } from '../files/files.module';
     ModelsModule,
     ProviderModule,
     UsageModule,
-    QuotasModule,
+    BillingModule,
     WebSearchModule,
     FilesModule,
   ],

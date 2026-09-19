@@ -31,6 +31,10 @@ export interface CreateModelInput {
   providerId: string;
   visibility?: ModelVisibility;
   enabled?: boolean;
+  /** Cost per 1,000,000 input tokens in Toman. Defaults to 0 (free). */
+  inputPricePer1m?: number;
+  /** Cost per 1,000,000 output tokens in Toman. Defaults to 0 (free). */
+  outputPricePer1m?: number;
   /** Model used when this model's provider fails (spec 006). One hop only. */
   fallbackModelId?: string | null;
   /** Pin this model to a specific API key; null clears the pin. */
@@ -45,6 +49,10 @@ export interface UpdateModelInput {
   providerId?: string;
   visibility?: ModelVisibility;
   enabled?: boolean;
+  /** Cost per 1,000,000 input tokens in Toman. Absent leaves it untouched. */
+  inputPricePer1m?: number;
+  /** Cost per 1,000,000 output tokens in Toman. Absent leaves it untouched. */
+  outputPricePer1m?: number;
   /** `null` clears the fallback; absent leaves it untouched. */
   fallbackModelId?: string | null;
   /** `null` clears the preferred key; absent leaves it untouched. */
@@ -239,6 +247,8 @@ export class ModelsService {
       providerId: input.providerId,
       visibility: input.visibility ?? 'public',
       enabled,
+      inputPricePer1m: input.inputPricePer1m ?? 0,
+      outputPricePer1m: input.outputPricePer1m ?? 0,
       isDefault: false,
       fallbackModelId: input.fallbackModelId ?? null,
       preferredApiKeyId: input.preferredApiKeyId ?? null,
@@ -308,6 +318,12 @@ export class ModelsService {
     if (input.preferredApiKeyId !== undefined) {
       model.preferredApiKeyId = input.preferredApiKeyId;
     }
+    if (input.inputPricePer1m !== undefined) {
+      model.inputPricePer1m = input.inputPricePer1m;
+    }
+    if (input.outputPricePer1m !== undefined) {
+      model.outputPricePer1m = input.outputPricePer1m;
+    }
 
     const reasoningBase = readStoredReasoningConfig(model.reasoningConfig);
     const identityChanged =
@@ -348,7 +364,7 @@ export class ModelsService {
       if (!MODEL_VISIBILITIES.includes(input.visibility)) {
         throw new UnprocessableEntityException({
           code: 'validation_failed',
-          message: 'visibility must be one of public, commercial, private.',
+          message: 'visibility must be one of public, private.',
         });
       }
       // Invariant: the configured system default must stay usable by every
