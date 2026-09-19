@@ -89,10 +89,17 @@ export class AuthService {
    * Login: returns a generic 401 for any failure (wrong password,
    * unknown identifier, disabled account) so email/username
    * enumeration is impossible. `identifier` may be an email or a
-   * username.
+   * username. Normal login rejects admin accounts to prevent
+   * admin users from accessing the normal login endpoint.
    */
   async login(identifier: string, password: string): Promise<AuthResponseDto> {
     const user = await this.authenticate(identifier, password);
+    if (user.role === 'admin') {
+      throw new UnauthorizedException({
+        code: 'invalid_credentials',
+        message: 'The provided credentials were invalid.',
+      });
+    }
     return this.issueTokens(user);
   }
 

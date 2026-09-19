@@ -59,7 +59,7 @@ describe('Auth (e2e)', () => {
     const email = 'e2e-user@example.com';
 
     // 1. Register
-    const reg = await request(server).post('/v1/auth/register').send({ email, password });
+    const reg = await request(server).post('/v1/auth/register').send({ email, username: 'e2euser', password });
     expect(reg.status).toBe(201);
     expect(reg.body.accessToken).toMatch(/\./); // JWT-shaped
     expect(reg.body.refreshToken).toMatch(/\./);
@@ -67,13 +67,13 @@ describe('Auth (e2e)', () => {
     expect(reg.body.user.role).toBe('user');
 
     // 2. Login
-    const login = await request(server).post('/v1/auth/login').send({ email, password });
+    const login = await request(server).post('/v1/auth/login').send({ identifier: email, password });
     expect(login.status).toBe(200);
     const accessAfterLogin = login.body.accessToken;
     const refreshAfterLogin = login.body.refreshToken;
 
     // 3. Wrong password is generic 401 (no enumeration)
-    const wrong = await request(server).post('/v1/auth/login').send({ email, password: 'wrong-password-long-enough' });
+    const wrong = await request(server).post('/v1/auth/login').send({ identifier: email, password: 'wrong-password-long-enough' });
     expect(wrong.status).toBe(401);
     expect(wrong.body.code).toBe('invalid_credentials');
 
@@ -116,13 +116,13 @@ describe('Auth (e2e)', () => {
       const password = 'correct-horse-battery-staple';
 
       // Seed an admin directly (registration endpoint always creates role=user).
-      await request(server).post('/v1/auth/register').send({ email, password });
+      await request(server).post('/v1/auth/register').send({ email, username: 'e2eadmin', password });
       const ds = app.get(DataSource);
       await ds.getRepository('users').update({ email }, { role: 'admin' });
 
       const res = await request(server)
         .post('/v1/admin/auth/login')
-        .send({ email, password });
+        .send({ identifier: email, password });
       expect(res.status).toBe(200);
       expect(res.body.accessToken).toBeDefined();
       expect(res.body.user.email).toBe(email);
@@ -133,11 +133,11 @@ describe('Auth (e2e)', () => {
       const server = app.getHttpServer();
       const email = 'e2e-non-admin@example.com';
       const password = 'correct-horse-battery-staple';
-      await request(server).post('/v1/auth/register').send({ email, password }); // role=user
+      await request(server).post('/v1/auth/register').send({ email, username: 'e2eadmin', password }); // role=user
 
       const res = await request(server)
         .post('/v1/admin/auth/login')
-        .send({ email, password });
+        .send({ identifier: email, password });
       expect(res.status).toBe(401);
       expect(res.body.code).toBe('invalid_credentials');
       expect(res.body.message).toBe('The provided credentials were invalid.');
@@ -148,7 +148,7 @@ describe('Auth (e2e)', () => {
       const server = app.getHttpServer();
       const res = await request(server)
         .post('/v1/admin/auth/login')
-        .send({ email: 'ghost@example.com', password: 'whatever-12-chars' });
+        .send({ identifier: 'ghost@example.com', password: 'whatever-12-chars' });
       expect(res.status).toBe(401);
       expect(res.body.code).toBe('invalid_credentials');
     });
