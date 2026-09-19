@@ -270,7 +270,7 @@ watch(
         <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft">
           <PhChatCircleText class="size-4.5 text-primary" aria-hidden="true" />
         </span>
-        <span v-if="!rail" class="truncate text-sm font-semibold text-ink">چت‌بات چند مدله</span>
+        <span v-if="!rail" class="truncate text-sm font-semibold text-ink">Nova AI</span>
       </RouterLink>
       <!-- جمع‌کردن (حالت باز) / بازکردن (حالت ریل) -->
       <button
