@@ -1,6 +1,6 @@
-import { API_BASE, buildUrl, newRequestId, request, tokenStore, withStreamAuthRetry } from '@/api/http'
+import { API_BASE, buildUrl, newRequestId, request, withStreamAuthRetry } from '@/api/http'
 import { streamErrorMessage } from '@/utils/errors'
-import type { ChatRequest, SseDelta, SseError, SseStatus } from '@/types/api'
+import type { ChatRequest, CitationSource, SseCitations, SseDelta, SseError, SseStatus } from '@/types/api'
 
 export interface StreamStartInfo {
   conversationId: string
@@ -13,8 +13,10 @@ export interface StreamHandlers {
   onDone: () => void
   /** Stream-level error event, HTTP-level error, or network failure */
   onError: (err: { code: string; message: string }) => void
-  /** Backend is retrying or failing over before any token has been emitted (phase 6). */
-  onStatus?: (info: { phase: 'retrying'; attempt: number; maxAttempts: number }) => void
+  /** Backend status change: retry/failover (phase 6) or web-search lifecycle (phase 7). */
+  onStatus?: (info: SseStatus) => void
+  /** Web-search sources cited by the final answer (phase 7). */
+  onCitations?: (sources: CitationSource[]) => void
   /** Server assigns the real conversation + assistant message ids (new streams) */
   onStart?: (info: StreamStartInfo) => void
 }
@@ -94,17 +96,22 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
             return
           }
           if (eventName === 'status') {
-            // Phase 6: non-terminal progress event — the server is retrying
-            // or failing over before any token has been emitted.
+            // Phase 6/7: non-terminal progress event — retry/failover before
+            // the first token, or a web-search lifecycle phase.
             try {
               const parsed = JSON.parse(payload) as SseStatus
-              handlers.onStatus?.({
-                phase: 'retrying',
-                attempt: parsed.attempt,
-                maxAttempts: parsed.maxAttempts,
-              })
+              handlers.onStatus?.(parsed)
             } catch {
               /* ignore malformed status frame */
+            }
+            continue
+          }
+          if (eventName === 'citations') {
+            try {
+              const parsed = JSON.parse(payload) as SseCitations
+              if (Array.isArray(parsed.sources)) handlers.onCitations?.(parsed.sources)
+            } catch {
+              /* ignore malformed citations frame */
             }
             continue
           }
@@ -249,6 +256,15 @@ export function retryStream(
             handlers.onDone()
             return
           }
+          if (eventName === 'citations') {
+            try {
+              const parsed = JSON.parse(payload) as SseCitations
+              if (Array.isArray(parsed.sources)) handlers.onCitations?.(parsed.sources)
+            } catch {
+              /* ignore malformed citations frame */
+            }
+            continue
+          }
           if (eventName === 'error') {
             let parsed: Partial<SseError> = {}
             try {
@@ -380,6 +396,15 @@ export function resumeStream(
           if (eventName === 'done') {
             handlers.onDone()
             return
+          }
+          if (eventName === 'citations') {
+            try {
+              const parsed = JSON.parse(payload) as SseCitations
+              if (Array.isArray(parsed.sources)) handlers.onCitations?.(parsed.sources)
+            } catch {
+              /* ignore malformed citations frame */
+            }
+            continue
           }
           if (eventName === 'error') {
             let parsed: Partial<SseError> = {}

@@ -19,6 +19,8 @@ export interface FinalizeUsageInput {
   inputPricePer1k: number;
   outputPricePer1k: number;
   status: 'completed' | 'failed';
+  /** Web-search credits consumed during the request (Phase 7). */
+  searchCredits?: number;
 }
 
 export interface AdminUsageQuery {
@@ -85,6 +87,7 @@ export class UsageService {
     record.totalTokens = input.totalTokens;
     record.estimatedCost = cost;
     record.status = input.status;
+    record.searchCredits = input.searchCredits ?? 0;
     record.completedAt = new Date();
 
     await this.repo.save(record);

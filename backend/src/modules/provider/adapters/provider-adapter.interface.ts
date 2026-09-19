@@ -1,13 +1,40 @@
 import { Provider } from '../entities/provider.entity';
 
+export interface ProviderToolCall {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: string };
+}
+
+export interface ProviderToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
 export interface ProviderChatMessage {
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
+  /** Present on an assistant message that requested tools. */
+  toolCalls?: ProviderToolCall[];
+  /** Present on a `tool` result message; links it to the request. */
+  toolCallId?: string;
 }
 
 export interface ProviderStreamChunk {
   choices?: Array<{
-    delta?: { content?: string };
+    delta?: {
+      content?: string;
+      tool_calls?: Array<{
+        index: number;
+        id?: string;
+        type?: 'function';
+        function?: { name?: string; arguments?: string };
+      }>;
+    };
   }>;
   /** Present in the final chunk when the provider supplies usage data. */
   usage?: {
@@ -34,6 +61,7 @@ export interface ProviderAdapter {
     params: {
       model: string;
       messages: ProviderChatMessage[];
+      tools?: ProviderToolDefinition[];
     },
   ): Promise<AsyncIterable<ProviderStreamChunk>>;
 }

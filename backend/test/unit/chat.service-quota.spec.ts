@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ChatService } from '../../src/modules/chat/chat.service';
+import { WebSearchService } from '../../src/modules/web-search/web-search.service';
 import { ModelsService } from '../../src/modules/models/models.service';
 import { ModelAccessService } from '../../src/modules/models/model-access.service';
 import { ProviderRuntimeService } from '../../src/modules/provider/provider-runtime.service';
@@ -98,6 +99,10 @@ describe('ChatService quota preflight', () => {
           },
         },
         { provide: QuotaService, useValue: quotas },
+        {
+          provide: WebSearchService,
+          useValue: { isConfigured: () => true, search: jest.fn() },
+        },
       ],
     }).compile();
 

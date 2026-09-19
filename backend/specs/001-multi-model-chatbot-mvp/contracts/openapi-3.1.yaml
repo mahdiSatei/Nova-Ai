@@ -351,6 +351,30 @@ paths:
         disconnected client (its socket is gone), but the server-side
         work runs to the end. The user can read the persisted message
         via `GET /v1/conversations/:id` after generation completes.
+
+        **Web search (Phase 7)**: when `webSearch: true`, the assistant may
+        invoke the `web_search` tool. While it works, non-terminal progress
+        events are emitted on the same `status` event family:
+
+        ```
+        event: status
+        data: {"phase":"search_started","query":"…"}
+        event: status
+        data: {"phase":"search_completed","query":"…","sources":3,"credits":2}
+        event: status
+        data: {"phase":"retrieval_started","query":"…","sources":3}
+        event: status
+        data: {"phase":"retrieval_completed","query":"…","sources":3}
+        event: status
+        data: {"phase":"generating"}
+        ```
+
+        Before `event: done`, a `citations` event carries the sources that were
+        actually retrieved, each with a stable id (`S1`, `S2`, …) and its real
+        URL. The same list is persisted on the assistant message and returned by
+        `GET /v1/conversations/:id` as `citations`. Search/retrieval failures are
+        non-fatal: they are reported as a `search_completed` status with
+        `sources: 0` and the answer continues without web sources.
       security:
         - bearerAuth: []
       requestBody:
@@ -1811,6 +1835,13 @@ components:
           type: string
           minLength: 1
           maxLength: 32000
+        webSearch:
+          type: boolean
+          default: false
+          description: |
+            Optional. When true, the assistant MAY call the `web_search` tool
+            for this turn and the answer may carry citations. When false or
+            omitted, no search tool is offered and no search is performed.
 
     RetryRequest:
       type: object
@@ -1822,3 +1853,9 @@ components:
           description: |
             The id of the previous failed or cancelled assistant message
             to retry. The old message is retained in conversation history.
+        webSearch:
+          type: boolean
+          default: false
+          description: |
+            Optional. Retry with web search enabled, matching the client's
+            current toggle.

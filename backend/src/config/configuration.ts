@@ -37,6 +37,10 @@ export interface AppConfig {
   provider: {
     encryptionKeyBase64: string;
   };
+  webSearch: {
+    serpexApiKey: string;
+    serpexApiUrl: string;
+  };
 }
 
 export default (): AppConfig => ({
@@ -64,5 +68,9 @@ export default (): AppConfig => ({
   },
   provider: {
     encryptionKeyBase64: process.env.PROVIDER_ENCRYPTION_KEY ?? '',
+  },
+  webSearch: {
+    serpexApiKey: process.env.SERPEX_API_KEY ?? '',
+    serpexApiUrl: process.env.SERPEX_API_URL ?? 'https://api.serpex.dev',
   },
 });

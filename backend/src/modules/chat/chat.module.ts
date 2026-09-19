@@ -10,6 +10,7 @@ import { ModelsModule } from '../models/models.module';
 import { ProviderModule } from '../provider/provider.module';
 import { UsageModule } from '../usage/usage.module';
 import { QuotasModule } from '../quotas/quotas.module';
+import { WebSearchModule } from '../web-search/web-search.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { QuotasModule } from '../quotas/quotas.module';
     ProviderModule,
     UsageModule,
     QuotasModule,
+    WebSearchModule,
   ],
   controllers: [ChatController],
   providers: [ChatService],

@@ -10,6 +10,7 @@ import {
   AllProvidersUnavailableError,
 } from '../../src/modules/provider/provider-failover.service';
 import { ConversationsService } from '../../src/modules/conversations/conversations.service';
+import { WebSearchService } from '../../src/modules/web-search/web-search.service';
 import { User } from '../../src/modules/users/entities/user.entity';
 import { UsageService } from '../../src/modules/usage/usage.service';
 import { QuotaService } from '../../src/modules/quotas/quotas.service';
@@ -128,6 +129,10 @@ describe('ChatService', () => {
             finalize: jest.fn(async () => {}),
             refund: jest.fn(async () => {}),
           },
+        },
+        {
+          provide: WebSearchService,
+          useValue: { isConfigured: () => true, search: jest.fn() },
         },
       ],
     }).compile();
@@ -355,7 +360,7 @@ describe('ChatService', () => {
       // updateMessageStatus called once for 'streaming' (no content);
       // completion goes through the atomic completeIfStreaming write.
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith(expect.any(String), 'streaming');
-      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'Hello there!');
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'Hello there!', []);
 
       // First event is the start event with real ids.
       expect(events[0]).toEqual({
@@ -421,7 +426,7 @@ describe('ChatService', () => {
       // Status tracking: append with empty content, then complete atomically.
       expect(conversations.appendMessage).toHaveBeenCalledWith('conv-2', '');
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith(expect.any(String), 'streaming');
-      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'New answer');
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'New answer', []);
 
       // The turn's user message is persisted so it survives reloads.
       expect(conversations.appendUserMessage).toHaveBeenCalledWith('conv-2', 'Follow-up');
@@ -482,7 +487,7 @@ describe('ChatService', () => {
       await new Promise((r) => setTimeout(r, 200));
 
       // Assert: the FULL response was persisted via the atomic completion write.
-      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'Hello world');
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'Hello world', []);
     });
 
     it('emits no SSE events to the observer after the client has unsubscribed', async () => {
@@ -515,7 +520,7 @@ describe('ChatService', () => {
       expect(events.length).toBe(eventsBeforeDisconnect);
 
       // Persistence still happened via the atomic completion write.
-      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-2', 'abcd');
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-2', 'abcd', []);
     });
 
     it('persists the partial response if the provider errors mid-stream after the client disconnected', async () => {
@@ -605,7 +610,7 @@ describe('ChatService', () => {
       // streaming (no content), then the atomic completion write.
       expect(conversations.appendMessage).toHaveBeenCalledWith('conv-1', '');
       expect(conversations.updateMessageStatus).toHaveBeenCalledWith('msg-1', 'streaming');
-      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'hi');
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-1', 'hi', []);
     });
 
     // Phase 6: a failure while opening the stream is now an establishment
@@ -857,7 +862,7 @@ describe('ChatService', () => {
         messages: [{ role: 'user', content: 'hi' }],
       });
       // Completion goes through the atomic write.
-      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-new', 'retry works');
+      expect(conversations.completeIfStreaming).toHaveBeenCalledWith('msg-new', 'retry works', []);
     });
 
     it('rejects retrying a message that is not failed/cancelled', async () => {

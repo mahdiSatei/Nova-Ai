@@ -6,6 +6,7 @@ import {
   ProviderAdapter,
   ProviderChatMessage,
   ProviderStreamChunk,
+  ProviderToolDefinition,
 } from './provider-adapter.interface';
 import { NormalizedProviderError } from '../errors/normalized-provider.error';
 import { normalizeStreamError } from '../failure-classification';
@@ -88,7 +89,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
 
   async stream(
     provider: Provider,
-    params: { model: string; messages: ProviderChatMessage[] },
+    params: { model: string; messages: ProviderChatMessage[]; tools?: ProviderToolDefinition[] },
   ): Promise<AsyncIterable<ProviderStreamChunk>> {
     const apiKey = decrypt(provider.apiKeyEncrypted);
     const client = new OpenAI({ baseURL: provider.baseUrl, apiKey });
@@ -110,7 +111,24 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
 
     const streamPromise = client.chat.completions.create({
       model: params.model,
-      messages: params.messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+      messages: params.messages.map((m) => {
+        if (m.role === 'tool') {
+          return { role: 'tool' as const, content: m.content, tool_call_id: m.toolCallId ?? '' };
+        }
+        if (m.role === 'assistant' && m.toolCalls?.length) {
+          return {
+            role: 'assistant' as const,
+            content: m.content || null,
+            tool_calls: m.toolCalls.map((tc) => ({
+              id: tc.id,
+              type: 'function' as const,
+              function: tc.function,
+            })),
+          };
+        }
+        return { role: m.role, content: m.content } as OpenAI.Chat.Completions.ChatCompletionMessageParam;
+      }),
+      ...(params.tools?.length ? { tools: params.tools } : {}),
       stream: true,
       stream_options: { include_usage: true },
     });

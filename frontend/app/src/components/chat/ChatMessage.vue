@@ -9,12 +9,14 @@ import { computed, ref } from 'vue'
 import { PhRobot, PhCopy, PhCheck, PhHourglassMedium, PhWarning, PhArrowsClockwise, PhStop } from '@phosphor-icons/vue'
 import MarkdownRenderer from '@/components/chat/MarkdownRenderer.vue'
 import TypingIndicator from '@/components/chat/TypingIndicator.vue'
+import SearchActivity from '@/components/chat/SearchActivity.vue'
+import SourceCitations from '@/components/chat/SourceCitations.vue'
 import UserAvatar from '@/components/user/UserAvatar.vue'
 import { copyText } from '@/utils/clipboard'
 import { formatDateTime } from '@/utils/time'
 import { avatarValueFor } from '@/utils/avatar'
 import { useAuthStore } from '@/stores/auth'
-import type { MessageStatus } from '@/types/api'
+import type { CitationSource, MessageStatus, SearchPhase } from '@/types/api'
 
 const props = withDefaults(
   defineProps<{
@@ -27,7 +29,11 @@ const props = withDefaults(
     pending?: boolean
     status?: MessageStatus
     showRecovery?: boolean
-    recoveryStatus?: MessageStatus
+    recoveryStatus?: MessageStatus | 'idle' | null
+    /** فاز ۷ — منابع وبِ استنادشده. */
+    citations?: CitationSource[]
+    /** فاز ۷ — پیشرفت جستجو/بازیابی حین نسخه‌برداری. */
+    searchActivity?: { phase: SearchPhase; query?: string; sources?: number; credits?: number } | null
     onRetry?: (failedMessageId: string) => void
     onReconnect?: () => void
     onCancel?: () => void
@@ -85,6 +91,10 @@ function onCopy(): void {
         <MarkdownRenderer :source="content" :streaming="streaming" />
         <TypingIndicator v-if="streaming && !content" />
       </div>
+
+      <!-- فاز ۷ — پیشرفت جستجو و فهرست منابع -->
+      <SearchActivity v-if="!isUser && searchActivity && streaming" :activity="searchActivity" />
+      <SourceCitations v-if="!isUser && citations?.length" :sources="citations" />
 
       <!-- فوتر: زمان / وضعیت / کپی / اقدامات بازیابی -->
       <footer

@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { Conversation } from './conversation.entity';
 import { MessageStatus } from '../conversations.types';
+import type { CitationSource } from '../../web-search/web-search.types';
 
 @Entity({ name: 'messages' })
 @Index('idx_msg_conv_created', ['conversationId', 'createdAt'])
@@ -35,4 +36,8 @@ export class Message {
 
   @Column({ name: 'status', type: 'text', default: 'completed' })
   status!: MessageStatus;
+
+  /** Web-search sources cited by this assistant message (empty for normal turns). */
+  @Column({ name: 'citations', type: 'jsonb', default: () => "'[]'::jsonb" })
+  citations!: CitationSource[];
 }

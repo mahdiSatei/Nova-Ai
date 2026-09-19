@@ -9,6 +9,7 @@ import { Repository } from 'typeorm';
 import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
 import { MessageStatus } from './conversations.types';
+import type { CitationSource } from '../web-search/web-search.types';
 
 /**
  * Persistent ConversationsService backed by TypeORM.
@@ -237,10 +238,14 @@ export class ConversationsService {
    * returns false when the row was not in 'streaming' state (nothing
    * was written).
    */
-  async completeIfStreaming(messageId: string, content: string): Promise<boolean> {
+  async completeIfStreaming(
+    messageId: string,
+    content: string,
+    citations: CitationSource[] = [],
+  ): Promise<boolean> {
     const result = await this.messageRepo.update(
       { id: messageId, status: 'streaming' as MessageStatus },
-      { status: 'completed' as MessageStatus, content },
+      { status: 'completed' as MessageStatus, content, citations },
     );
     return (result.affected ?? 0) > 0;
   }

@@ -68,6 +68,7 @@ function build() {
     usage as never,
     quotas as never,
     failover as never,
+    { isConfigured: () => true, search: jest.fn().mockResolvedValue({ query: '', sources: [], creditsUsed: 0, empty: true }) } as never,
   );
 
   return { service, conversations, usage, quotas, failover, models, access };

@@ -19,6 +19,18 @@ import { UsageService } from '../usage/usage.service';
 import { QuotaService } from '../quotas/quotas.service';
 import { User } from '../users/entities/user.entity';
 import { ChatRequestDto } from './dto/chat-request.dto';
+import { WebSearchService } from '../web-search/web-search.service';
+import { WebSearchError } from '../web-search/web-search.errors';
+import { WEB_SEARCH_LIMITS } from '../web-search/web-search.constants';
+import type { CitationSource, WebSource } from '../web-search/web-search.types';
+import { ToolCallAccumulator } from './tool-call-accumulator';
+import { buildCitations, extractCitationIds } from './citations';
+import {
+  buildWebSearchToolOutput,
+  WEB_SEARCH_SYSTEM_INSTRUCTION,
+  WEB_SEARCH_TOOL,
+  WEB_SEARCH_TOOL_NAME,
+} from './web-search-prompt';
 
 /**
  * Event shapes emitted on the SSE stream.
@@ -46,13 +58,29 @@ export interface ChatErrorEvent {
   data: { code: string; message: string };
 }
 
+export type ChatStatusPhase =
+  | 'retrying'
+  | 'search_started'
+  | 'search_completed'
+  | 'retrieval_started'
+  | 'retrieval_completed'
+  | 'generating';
+
 export interface ChatStatusEvent {
   type: 'status';
   data: {
-    phase: 'retrying';
-    attempt: number;
-    maxAttempts: number;
+    phase: ChatStatusPhase;
+    attempt?: number;
+    maxAttempts?: number;
+    query?: string;
+    sources?: number;
+    credits?: number;
   };
+}
+
+export interface ChatCitationsEvent {
+  type: 'citations';
+  data: { sources: CitationSource[] };
 }
 
 export type ChatStreamEvent =
@@ -60,7 +88,8 @@ export type ChatStreamEvent =
   | ChatStartEvent
   | ChatDoneEvent
   | ChatErrorEvent
-  | ChatStatusEvent;
+  | ChatStatusEvent
+  | ChatCitationsEvent;
 
 /**
  * Loose message shape used internally.
@@ -76,7 +105,7 @@ interface ChatMessage {
 interface StreamState {
   fullResponse: string;
   subscribers: Set<(event: ChatStreamEvent) => void>;
-  providerStream: AsyncIterable<ProviderStreamChunk>;
+  providerStream?: AsyncIterable<ProviderStreamChunk>;
   abortController: AbortController;
   conversationId: string;
   assistantMessageId: string;
@@ -117,6 +146,7 @@ export class ChatService {
     private readonly usage: UsageService,
     private readonly quotas: QuotaService,
     private readonly failover: ProviderFailoverService,
+    private readonly webSearch: WebSearchService,
   ) {}
 
   /**
@@ -152,6 +182,7 @@ export class ChatService {
     userId: string,
     conversationId: string,
     failedMessageId: string,
+    webSearchEnabled = false,
   ): Observable<ChatStreamEvent> {
     return new Observable<ChatStreamEvent>((observer) => {
       let cancelled = false;
@@ -160,6 +191,7 @@ export class ChatService {
         userId,
         conversationId,
         failedMessageId,
+        webSearchEnabled,
         observer,
         () => !cancelled,
       );
@@ -600,7 +632,7 @@ export class ChatService {
         },
       });
 
-      await this.consumeAndFinalize({
+      await this.runToolLoop({
         conversationId,
         assistantMessageId,
         modelName: effectiveModel.actualName,
@@ -611,6 +643,7 @@ export class ChatService {
         quotaId,
         quotaReservedTokens,
         effectiveModel,
+        webSearchEnabled: dto.webSearch === true,
       });
     } catch (err) {
       this.logger.error(
@@ -645,10 +678,12 @@ export class ChatService {
   }
 
   /**
-   * Open the provider stream, register it for reconnects/cancellation,
-   * consume all tokens, and finalize the assistant message.
+   * Run the generation loop: open the provider stream, optionally execute
+   * bounded web-search tool calls, then finalize the assistant message with
+   * its content and citations. With web search disabled this performs exactly
+   * one provider call — the pre-Phase-7 behaviour.
    */
-  private async consumeAndFinalize(params: {
+  private async runToolLoop(params: {
     conversationId: string;
     assistantMessageId: string;
     modelName: string;
@@ -662,6 +697,7 @@ export class ChatService {
     quotaId: string | undefined;
     quotaReservedTokens: number;
     effectiveModel: Model;
+    webSearchEnabled: boolean;
   }): Promise<void> {
     const {
       conversationId,
@@ -674,12 +710,16 @@ export class ChatService {
       quotaId,
       quotaReservedTokens,
       effectiveModel,
+      webSearchEnabled,
     } = params;
 
     let fullResponse = '';
     let lastChunk: ProviderStreamChunk | undefined;
+    let searchCredits = 0;
 
     const abortController = new AbortController();
+    const sourcesByUrl = new Map<string, WebSource>();
+    const startedAt = Date.now();
 
     try {
       // Get the provider connection for the effective serving model.
@@ -688,20 +728,19 @@ export class ChatService {
           effectiveModel.id,
         );
 
-      const stream = await this.runtime.stream(
-        connection,
-        {
-          model: effectiveModel.actualName,
-          messages: providerMessages,
-        },
-      );
+      const tools = webSearchEnabled ? [WEB_SEARCH_TOOL] : undefined;
+      const messages: ProviderChatMessage[] = webSearchEnabled
+        ? [
+            { role: 'system', content: WEB_SEARCH_SYSTEM_INSTRUCTION },
+            ...providerMessages,
+          ]
+        : [...providerMessages];
 
       const state: StreamState = {
         fullResponse: '',
         subscribers: new Set([
           observer.next.bind(observer),
         ]),
-        providerStream: stream,
         abortController,
         conversationId,
         assistantMessageId,
@@ -736,32 +775,259 @@ export class ChatService {
       }
 
       try {
-        for await (const chunk of stream) {
-          lastChunk = chunk;
+        const maxIterations = webSearchEnabled
+          ? WEB_SEARCH_LIMITS.MAX_SEARCHES_PER_TURN
+          : 0;
 
-          const delta =
-            chunk.choices?.[0]?.delta?.content;
+        let searchCount = 0;
 
-          if (!delta) {
+        for (
+          let iteration = 0;
+          iteration <= maxIterations + 1;
+          iteration++
+        ) {
+          const stream = await this.runtime.stream(
+            connection,
+            tools
+              ? {
+                  model: effectiveModel.actualName,
+                  messages,
+                  tools,
+                }
+              : {
+                  model: effectiveModel.actualName,
+                  messages,
+                },
+          );
+
+          state.providerStream = stream;
+
+          const accumulator = new ToolCallAccumulator();
+
+          for await (const chunk of stream) {
+            lastChunk = chunk;
+
+            const delta = chunk.choices?.[0]?.delta;
+
+            if (delta?.tool_calls?.length) {
+              accumulator.push(delta.tool_calls);
+            }
+
+            if (!delta?.content) {
+              continue;
+            }
+
+            fullResponse += delta.content;
+            state.fullResponse += delta.content;
+
+            this.broadcast(state, {
+              data: { delta: delta.content },
+            });
+          }
+
+          if (!webSearchEnabled || !accumulator.hasCalls) {
+            break;
+          }
+
+          const call = accumulator.calls.find(
+            (candidate) =>
+              candidate.function.name ===
+              WEB_SEARCH_TOOL_NAME,
+          );
+
+          if (!call) {
+            break;
+          }
+
+          let query = '';
+
+          try {
+            query = String(
+              (
+                JSON.parse(
+                  call.function.arguments || '{}',
+                ) as { query?: unknown }
+              ).query ?? '',
+            );
+          } catch {
+            query = '';
+          }
+
+          if (!query.trim()) {
+            break;
+          }
+
+          messages.push({
+            role: 'assistant',
+            content: '',
+            toolCalls: accumulator.calls,
+          });
+
+          if (
+            searchCount >=
+            WEB_SEARCH_LIMITS.MAX_SEARCHES_PER_TURN
+          ) {
+            messages.push({
+              role: 'tool',
+              content:
+                'Web search limit reached for this turn. Answer using the information already gathered.',
+              toolCallId: call.id,
+            });
             continue;
           }
 
-          fullResponse += delta;
-          state.fullResponse += delta;
+          searchCount++;
 
           this.broadcast(state, {
-            data: { delta },
+            type: 'status',
+            data: { phase: 'search_started', query },
+          });
+
+          const remainingMs =
+            WEB_SEARCH_LIMITS.MAX_TOTAL_SEARCH_MS -
+            (Date.now() - startedAt);
+
+          let toolOutput: string;
+
+          if (remainingMs <= 0) {
+            this.broadcast(state, {
+              type: 'status',
+              data: {
+                phase: 'search_completed',
+                query,
+                sources: 0,
+                credits: 0,
+              },
+            });
+
+            toolOutput =
+              'Web search was skipped: the time budget for this turn was exhausted. Answer from what you already know.';
+          } else {
+            try {
+              const outcome =
+                await this.webSearch.search({
+                  query,
+                  startIndex:
+                    sourcesByUrl.size + 1,
+                  timeoutMs: Math.min(
+                    WEB_SEARCH_LIMITS.SEARCH_TIMEOUT_MS,
+                    remainingMs,
+                  ),
+                  signal: abortController.signal,
+                });
+
+              searchCredits += outcome.creditsUsed;
+
+              const added: WebSource[] = [];
+
+              for (const source of outcome.sources) {
+                if (
+                  sourcesByUrl.size >=
+                  WEB_SEARCH_LIMITS.MAX_SOURCES_PER_TURN
+                ) {
+                  break;
+                }
+                if (sourcesByUrl.has(source.url)) {
+                  continue;
+                }
+                sourcesByUrl.set(source.url, source);
+                added.push(source);
+              }
+
+              this.broadcast(state, {
+                type: 'status',
+                data: {
+                  phase: 'search_completed',
+                  query,
+                  sources: outcome.sources.length,
+                  credits: outcome.creditsUsed,
+                },
+              });
+
+              this.broadcast(state, {
+                type: 'status',
+                data: {
+                  phase: 'retrieval_started',
+                  query,
+                  sources: added.length,
+                },
+              });
+
+              toolOutput = buildWebSearchToolOutput(
+                outcome,
+                added,
+              );
+
+              this.broadcast(state, {
+                type: 'status',
+                data: {
+                  phase: 'retrieval_completed',
+                  query,
+                  sources: added.length,
+                },
+              });
+            } catch (searchErr) {
+              const searchError =
+                searchErr instanceof WebSearchError
+                  ? searchErr
+                  : new WebSearchError(
+                      'web_search_provider_error',
+                      'Web search failed.',
+                    );
+
+              this.logger.warn(
+                `Web search failed (${searchError.code}): ${searchError.message}`,
+              );
+
+              this.broadcast(state, {
+                type: 'status',
+                data: {
+                  phase: 'search_completed',
+                  query,
+                  sources: 0,
+                  credits: 0,
+                },
+              });
+
+              toolOutput = `Web search failed (${searchError.code}). Answer without web results and tell the user the search was unavailable.`;
+            }
+          }
+
+          messages.push({
+            role: 'tool',
+            content: toolOutput,
+            toolCallId: call.id,
           });
         }
+
+        if (webSearchEnabled) {
+          this.broadcast(state, {
+            type: 'status',
+            data: { phase: 'generating' },
+          });
+        }
+
+        const citations = buildCitations(
+          [...sourcesByUrl.values()],
+          extractCitationIds(fullResponse),
+        );
 
         // Only a still-streaming row may become completed.
         const completed =
           await this.conversations.completeIfStreaming(
             assistantMessageId,
             fullResponse,
+            citations,
           );
 
         if (completed) {
+          if (citations.length > 0) {
+            this.broadcast(state, {
+              type: 'citations',
+              data: { sources: citations },
+            });
+          }
+
           this.broadcast(state, {
             type: 'done',
             data: {},
@@ -795,6 +1061,7 @@ export class ChatService {
               outputPricePer1k:
                 effectiveModel.outputPricePer1k,
               status: 'completed',
+              searchCredits,
             })
             .catch((err) => {
               this.logger.warn(
@@ -890,6 +1157,7 @@ export class ChatService {
               outputPricePer1k:
                 effectiveModel.outputPricePer1k,
               status: 'failed',
+              searchCredits,
             })
             .catch((usageError) => {
               this.logger.warn(
@@ -923,6 +1191,7 @@ export class ChatService {
     userId: string,
     conversationId: string,
     failedMessageId: string,
+    webSearchEnabled: boolean,
     observer: {
       next: (event: ChatStreamEvent) => void;
       complete: () => void;
@@ -1078,7 +1347,7 @@ export class ChatService {
 
       // Retry currently does not reserve quota or create a usage record,
       // preserving the behavior of the existing implementation.
-      await this.consumeAndFinalize({
+      await this.runToolLoop({
         conversationId,
         assistantMessageId,
         modelName: model.actualName,
@@ -1089,6 +1358,7 @@ export class ChatService {
         quotaId: undefined,
         quotaReservedTokens: 0,
         effectiveModel: model,
+        webSearchEnabled,
       });
     } catch (err) {
       this.logger.error(

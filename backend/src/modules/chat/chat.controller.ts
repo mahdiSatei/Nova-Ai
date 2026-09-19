@@ -11,6 +11,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { ChatService, ChatStreamEvent } from './chat.service';
 import { ChatRequestDto } from './dto/chat-request.dto';
+import { RetryRequestDto } from './dto/retry-request.dto';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
@@ -100,9 +101,10 @@ export class ChatController {
   retry(
     @CurrentUser() user: AuthenticatedUser,
     @Param('conversationId') conversationId: string,
-    @Body() dto: { failedMessageId: string },
+    @Body() dto: RetryRequestDto,
   ): Observable<Record<string, unknown>> {
-    return this.chat.retryGenerationStream(user.id, conversationId, dto.failedMessageId)
+    return this.chat
+      .retryGenerationStream(user.id, conversationId, dto.failedMessageId, dto.webSearch === true)
       .pipe(map((e) => toSseMessage(e)));
   }
 }

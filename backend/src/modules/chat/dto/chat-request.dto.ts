@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 /**
  * Request body for POST /v1/chat/stream.
@@ -20,4 +20,9 @@ export class ChatRequestDto {
   @IsOptional()
   @IsString()
   modelId?: string;
+
+  /** Opt-in web search for this turn. Absent/false means no search tool is offered. */
+  @IsOptional()
+  @IsBoolean()
+  webSearch?: boolean;
 }

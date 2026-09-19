@@ -59,6 +59,15 @@ const MESSAGES: Record<string, string> = {
 
   // Stale conversation
   conversation_not_found: 'این گفتگو دیگر وجود ندارد (حذف شده است). می‌توانید گفتگوی جدیدی شروع کنید.',
+
+  // فاز ۷ — جستجوی وب
+  web_search_not_configured: 'جستجوی وب روی این سرور پیکربندی نشده است.',
+  web_search_auth_error: 'دسترسی جستجوی وب نامعتبر است. با مدیر سیستم تماس بگیرید.',
+  web_search_rate_limited: 'سرویس جستجوی وب شلوغ است. چند لحظه بعد دوباره تلاش کنید.',
+  web_search_insufficient_credits: 'اعتبار جستجوی وب کافی نیست.',
+  web_search_timeout: 'جستجوی وب زمان‌بر شد؛ پاسخ بدون منابع وب ادامه یافت.',
+  web_search_provider_error: 'جستجوی وب در دسترس نیست؛ پاسخ بدون منابع وب ادامه یافت.',
+  web_search_bad_response: 'پاسخ نامعتبر از سرویس جستجوی وب دریافت شد.',
 }
 
 const FALLBACK = 'خطایی رخ داد. لطفاً دوباره تلاش کنید.'

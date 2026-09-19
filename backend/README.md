@@ -129,6 +129,18 @@ See `validateEnv()` in `src/config/env.validation.ts` for the full list. Key var
 | `LOG_LEVEL` | info | Pino log level |
 | `LOG_DIR` | ./logs | Log file directory |
 | `PROVIDER_ENCRYPTION_KEY` | *(required)* | AES-256-GCM key for encrypting the provider API key |
+| `SERPEX_API_KEY` | *(empty)* | Serpex key for the Web Search tool. Optional; unset disables web search. Backend-only — never sent to the frontend. |
+| `SERPEX_API_URL` | https://api.serpex.dev | Serpex API base URL |
+
+## Web Search (Phase 7)
+
+Chat requests may set `webSearch: true` to let the assistant call a
+server-side `web_search` tool. Search runs through a provider-independent
+`WebSearchProvider`; Serpex is the only adapter in this phase. Set
+`SERPEX_API_KEY` to enable it. Retrieved sources are returned as SSE
+`status` / `citations` frames and persisted as `citations` JSONB on the
+assistant message; per-search credits are stored on `usage_records`. The key
+is never exposed to clients.
 
 ## Logs
 

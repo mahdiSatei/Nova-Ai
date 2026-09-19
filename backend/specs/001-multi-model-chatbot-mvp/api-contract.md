@@ -255,6 +255,42 @@ disconnected, whatever partial text was observed before the error is
 still persisted. The user sees the partial assistant message on
 return, not nothing.
 
+### 3.9 Web search lifecycle (Phase 7)
+
+`ChatRequest` and `RetryRequest` accept an optional boolean `webSearch`
+(default `false`). When `true`, the assistant may call the application's
+`web_search` tool (backed by a provider-independent `WebSearchProvider`;
+Serpex in this phase). While it works, non-terminal `event: status` frames
+are emitted:
+
+```
+event: status
+data: {"phase":"search_started","query":"…"}\n\n
+event: status
+data: {"phase":"search_completed","query":"…","sources":3,"credits":2}\n\n
+event: status
+data: {"phase":"retrieval_started","query":"…","sources":3}\n\n
+event: status
+data: {"phase":"retrieval_completed","query":"…","sources":3}\n\n
+event: status
+data: {"phase":"generating"}\n\n
+```
+
+Before `event: done`, a `citations` frame carries the sources that were
+actually retrieved:
+
+```
+event: citations
+data: {"sources":[{"id":"S1","title":"…","url":"https://…","snippet":"…"}]}\n\n
+```
+
+Source ids (`S1`, `S2`, …) are stable and server-assigned; citation URLs
+come only from the search pipeline, never from model text. The same list is
+persisted on the assistant message and returned by
+`GET /v1/conversations/:id` as `citations`. Search or retrieval failures are
+non-fatal — the answer continues without web sources and the failure is
+reflected in the `search_completed` frame (`sources: 0`).
+
 ---
 
 ## 4. Shared Schemas

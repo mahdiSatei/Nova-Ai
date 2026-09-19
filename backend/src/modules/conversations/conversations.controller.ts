@@ -22,6 +22,7 @@ import { Model } from '../models/entities/model.entity';
 import { PinConversationDto } from './dto/pin-conversation.dto';
 import { SetConversationModelDto } from './dto/set-conversation-model.dto';
 import { Logger } from '@nestjs/common';
+import type { CitationSource } from '../web-search/web-search.types';
 
 /**
  * Conversation history endpoints for end users.
@@ -70,7 +71,7 @@ export class ConversationsController {
   async get(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-  ): Promise<{ id: string; modelId: string; modelDisplayName: string | null; title: string | null; pinned: boolean; createdAt: string; updatedAt: string; messages: Array<{ id: string; role: string; content: string; createdAt: string; status: string }> }> {
+  ): Promise<{ id: string; modelId: string; modelDisplayName: string | null; title: string | null; pinned: boolean; createdAt: string; updatedAt: string;    messages: Array<{ id: string; role: string; content: string; createdAt: string; status: string; citations: CitationSource[] }> }> {
     const conv = await this.conversations.findById(id);
     this.logger.debug(`ConversationsController.get: userId=${user.id}, conversationId=${id}, found=${!!conv}, messageCount=${conv?.messages.length ?? 0}`);
     if (!conv) {
@@ -96,6 +97,7 @@ export class ConversationsController {
         content: m.content,
         createdAt: m.createdAt.toISOString(),
         status: m.status,
+        citations: m.citations ?? [],
       })),
     };
   }

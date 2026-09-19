@@ -5,7 +5,11 @@ import { Provider } from './entities/provider.entity';
 import { ProviderAdapter } from './adapters/provider-adapter.interface';
 import { ModelsService } from '../models/models.service';
 import { PROVIDER_ADAPTERS } from './provider.service';
-import { ProviderChatMessage, ProviderStreamChunk } from './adapters/provider-adapter.interface';
+import {
+  ProviderChatMessage,
+  ProviderStreamChunk,
+  ProviderToolDefinition,
+} from './adapters/provider-adapter.interface';
 
 export interface ProviderConnection {
   provider: Provider;
@@ -15,6 +19,7 @@ export interface ProviderConnection {
 export interface ChatProviderInput {
   model: string;
   messages: ProviderChatMessage[];
+  tools?: ProviderToolDefinition[];
 }
 
 @Injectable()

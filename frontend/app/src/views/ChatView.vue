@@ -3,7 +3,7 @@
 // states per FR-015 + BR-014: empty / no-models / streaming / error / success.
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { PhArrowsClockwise, PhSparkle, PhWarning, PhCaretDown, PhBrain, PhCode, PhBookOpenText, PhTranslate, PhMoon, PhSun } from '@phosphor-icons/vue'
+import { PhArrowsClockwise, PhSparkle, PhWarning, PhCaretDown, PhBrain, PhCode, PhBookOpenText, PhTranslate, PhMoon, PhSun, PhGlobeHemisphereWest } from '@phosphor-icons/vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import ModelPicker from '@/components/chat/ModelPicker.vue'
 import MessageList from '@/components/chat/MessageList.vue'
@@ -268,6 +268,23 @@ const suggestedPrompts = [
       </div>
 
       <div class="ms-auto flex items-center gap-1">
+        <!-- فاز ۷ — کلید جستجوی وب -->
+        <button
+          type="button"
+          class="inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+          :class="
+            chat.webSearchEnabled.value
+              ? 'border-primary/60 bg-primary-soft text-primary'
+              : 'border-line bg-surface/70 text-ink-muted hover:text-ink'
+          "
+          :aria-pressed="chat.webSearchEnabled.value"
+          :disabled="chat.inputDisabled.value"
+          :title="chat.webSearchEnabled.value ? 'جستجوی وب روشن است' : 'جستجوی وب خاموش است'"
+          @click="chat.setWebSearch(!chat.webSearchEnabled.value)"
+        >
+          <PhGlobeHemisphereWest class="size-3.5" aria-hidden="true" />
+          <span>جستجوی وب</span>
+        </button>
         <button
           type="button"
           class="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink focus-visible:text-ink"
@@ -363,6 +380,7 @@ const suggestedPrompts = [
           <MessageList
             :messages="chat.transcript.value"
             :generation="chat.generation.value"
+            :search-activity="chat.searchActivity.value"
             :on-retry="onRetry"
             :on-reconnect="onReconnect"
             :on-cancel="onStop"

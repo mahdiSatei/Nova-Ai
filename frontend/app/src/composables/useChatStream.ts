@@ -1,13 +1,21 @@
 // Composable مرکزی چت: dual state model — connection + generation.
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { streamChat, resumeStream, retryStream, cancelGeneration, type StreamHandlers } from '@/api/chat'
-import { getConversation, listConversations, setConversationModel } from '@/api/conversations'
+import { getConversation, setConversationModel } from '@/api/conversations'
 import { ApiError } from '@/api/http'
 import { streamErrorMessage } from '@/utils/errors'
-import type { MessagePublic } from '@/types/api'
+import type { CitationSource, MessagePublic, SearchPhase, SseStatus } from '@/types/api'
 
 const SESSION_KEY = 'mmcb.lastModelId'
 const CONVERSATION_KEY = 'mmcb.lastConversationId'
+const WEB_SEARCH_KEY = 'mmcb.webSearchEnabled'
+
+type SearchActivityState = {
+  phase: SearchPhase
+  query?: string
+  sources?: number
+  credits?: number
+}
 
 type ConnectionState = 'connected' | 'disconnected' | 'reconnecting'
 type GenerationState = 'idle' | 'streaming' | 'completed' | 'failed' | 'cancelled'
@@ -17,6 +25,7 @@ interface ActiveGeneration {
   assistantMessageId: string
   status: GenerationState
   content: string
+  citations?: CitationSource[]
 }
 
 function loadSavedModelId(): string | null {
@@ -30,6 +39,22 @@ function loadSavedModelId(): string | null {
 function saveModelId(id: string): void {
   try {
     sessionStorage.setItem(SESSION_KEY, id)
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadSavedWebSearch(): boolean {
+  try {
+    return sessionStorage.getItem(WEB_SEARCH_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function saveWebSearch(enabled: boolean): void {
+  try {
+    sessionStorage.setItem(WEB_SEARCH_KEY, enabled ? 'true' : 'false')
   } catch {
     /* ignore */
   }
@@ -52,6 +77,14 @@ export interface ChatStreamHandle {
   inputDisabled: import('vue').ComputedRef<boolean>
   /** Non-null while the server retries or fails over before the first token (فاز ۶). */
   retrying: import('vue').Ref<{ attempt: number; maxAttempts: number } | null>
+  /** Web Search preference for the next turn (فاز ۷). Disabled by default. */
+  webSearchEnabled: import('vue').Ref<boolean>
+  /** Live search/retrieval progress while a grounded answer is generating. */
+  searchActivity: import('vue').Ref<SearchActivityState | null>
+  /** Sources cited by the latest grounded answer. */
+  citations: import('vue').Ref<CitationSource[]>
+  connectionError: import('vue').Ref<{ code: string; message: string } | null>
+  setWebSearch: (value: boolean) => void
   setModel: (id: string | null) => Promise<void>
   loadConversation: (id: string) => Promise<void>
   resetConversation: () => void
@@ -59,8 +92,10 @@ export interface ChatStreamHandle {
   abort: () => void
   replaceSnapshot: (snapshot: string) => void
   cancel: () => Promise<void>
-  retry: () => Promise<void>
+  retry: (targetMessageId?: string) => Promise<void>
   reconnect: () => Promise<void>
+  loadSavedConversationId: () => string | null
+  clearSavedConversationId: () => void
 }
 
 export function useChatStream(): ChatStreamHandle {
@@ -77,9 +112,11 @@ export function useChatStream(): ChatStreamHandle {
   const conversationId = ref<string | null>(null)
   const selectedModelId = ref<string | null>(loadSavedModelId())
   const retrying = ref<{ attempt: number; maxAttempts: number } | null>(null)
+  const webSearchEnabled = ref<boolean>(loadSavedWebSearch())
+  const searchActivity = ref<SearchActivityState | null>(null)
+  const citations = ref<CitationSource[]>([])
 
   let controller: AbortController | null = null
-  let currentStreamConversationId: string | null = null
   let retryTimer: ReturnType<typeof setInterval> | null = null
   let retryCount = 0
   const MAX_RETRIES = 5
@@ -234,7 +271,6 @@ export function useChatStream(): ChatStreamHandle {
       const detail = await getConversation(convId)
       transcript.value = detail.messages
       conversationId.value = detail.id
-      currentStreamConversationId = detail.id
       saveConversationId(detail.id)
 
       const streamingMsg = detail.messages.find(
@@ -289,6 +325,42 @@ export function useChatStream(): ChatStreamHandle {
   function replaceSnapshot(snapshot: string): void {
     if (generation.value) {
       generation.value = { ...generation.value, content: snapshot }
+    }
+  }
+
+  // ── Web search (فاز ۷) ──────────────────────────────────────────────
+  function setWebSearch(value: boolean): void {
+    webSearchEnabled.value = value
+    saveWebSearch(value)
+  }
+
+  function applyStatus(info: SseStatus): void {
+    if (info.phase === 'retrying') {
+      retrying.value = { attempt: info.attempt ?? 1, maxAttempts: info.maxAttempts ?? 1 }
+    } else if (info.phase === 'generating') {
+      searchActivity.value = null
+    } else {
+      searchActivity.value = {
+        phase: info.phase,
+        query: info.query,
+        sources: info.sources,
+        credits: info.credits,
+      }
+    }
+  }
+
+  function applyCitations(sources: CitationSource[]): void {
+    citations.value = sources
+    if (generation.value) {
+      generation.value = { ...generation.value, citations: sources }
+    }
+    const idx = transcript.value.findIndex((m) => m.id === generation.value?.assistantMessageId)
+    if (idx !== -1) {
+      transcript.value = [
+        ...transcript.value.slice(0, idx),
+        { ...transcript.value[idx], citations: sources },
+        ...transcript.value.slice(idx + 1),
+      ]
     }
   }
 
@@ -395,7 +467,6 @@ export function useChatStream(): ChatStreamHandle {
         // transcript, cancel hits the right conversation, and the router can
         // update the URL — all before the first token arrives.
         conversationId.value = info.conversationId
-        currentStreamConversationId = info.conversationId
         saveConversationId(info.conversationId)
         if (generation.value && generation.value.assistantMessageId !== info.assistantMessageId) {
           const oldId = generation.value.assistantMessageId
@@ -416,9 +487,8 @@ export function useChatStream(): ChatStreamHandle {
         }
         touchStreamActivity()
       },
-      onStatus: (info) => {
-        retrying.value = { attempt: info.attempt, maxAttempts: info.maxAttempts }
-      },
+      onStatus: applyStatus,
+      onCitations: applyCitations,
       onDelta: (_delta: string, _isFirst: boolean) => {
         touchStreamActivity()
         if (!generation.value) return
@@ -438,6 +508,7 @@ export function useChatStream(): ChatStreamHandle {
       },
       onDone: async () => {
         retrying.value = null
+        searchActivity.value = null
         if (generation.value) {
           generation.value = { ...generation.value, status: 'completed' }
           // Mark the transcript message as completed so recovery UI clears.
@@ -459,6 +530,7 @@ export function useChatStream(): ChatStreamHandle {
       onError: (err) => {
         connectionError.value = err
         retrying.value = null
+        searchActivity.value = null
         if (generation.value) {
           if (err.code === 'generation_cancelled') {
             generation.value = { ...generation.value, status: 'cancelled' }
@@ -553,8 +625,8 @@ export function useChatStream(): ChatStreamHandle {
   // ── Resume stream ────────────────────────────────────────────────
   async function startResumeStream(
     convId: string,
-    assistantMsgId: string,
-    existingContent: string,
+    _assistantMsgId: string,
+    _existingContent: string,
   ): Promise<void> {
     // Use the dedicated resume endpoint — it subscribes to the
     // in-progress in-memory stream instead of creating a new generation.
@@ -641,13 +713,14 @@ export function useChatStream(): ChatStreamHandle {
     }
     console.debug('[useChatStream] loadConversation start', { id })
     connectionError.value = null
+    searchActivity.value = null
+    citations.value = []
     setConnected()
     try {
       const detail = await getConversation(id)
       console.debug('[useChatStream] loadConversation got detail', { messageCount: detail.messages.length, conversationId: detail.id })
       transcript.value = detail.messages
       conversationId.value = detail.id
-      currentStreamConversationId = detail.id
       saveConversationId(detail.id)
 
       // Sync the picker to the conversation's persisted model so reloading
@@ -703,12 +776,13 @@ export function useChatStream(): ChatStreamHandle {
     abort()
     transcript.value = []
     conversationId.value = null
-    currentStreamConversationId = null
     clearSavedConversationId()
     generation.value = null
     generationState.value = 'idle'
     connectionState.value = 'connected'
     connectionError.value = null
+    searchActivity.value = null
+    citations.value = []
   }
 
   // ── Send (FR-2, FR-3) ────────────────────────────────────────────
@@ -739,9 +813,10 @@ export function useChatStream(): ChatStreamHandle {
     generationState.value = 'idle'
     connectionError.value = null
     retrying.value = null
+    searchActivity.value = null
+    citations.value = []
 
     const targetConversationId = conversationId.value
-    currentStreamConversationId = targetConversationId
     if (targetConversationId) saveConversationId(targetConversationId)
 
     const handlers: StreamHandlers = {
@@ -751,7 +826,6 @@ export function useChatStream(): ChatStreamHandle {
         // transcript, cancel hits the right conversation, and the router can
         // update the URL — all before the first token arrives.
         conversationId.value = info.conversationId
-        currentStreamConversationId = info.conversationId
         saveConversationId(info.conversationId)
         if (generation.value && generation.value.assistantMessageId !== info.assistantMessageId) {
           const oldId = generation.value.assistantMessageId
@@ -772,9 +846,8 @@ export function useChatStream(): ChatStreamHandle {
         }
         touchStreamActivity()
       },
-      onStatus: (info) => {
-        retrying.value = { attempt: info.attempt, maxAttempts: info.maxAttempts }
-      },
+      onStatus: applyStatus,
+      onCitations: applyCitations,
       onDelta: (_delta: string, _isFirst: boolean) => {
         touchStreamActivity()
         if (!generation.value) return
@@ -794,6 +867,7 @@ export function useChatStream(): ChatStreamHandle {
       },
       onDone: async () => {
         retrying.value = null
+        searchActivity.value = null
         if (generation.value) {
           generation.value = { ...generation.value, status: 'completed' }
           // Mark the transcript message as completed so recovery UI clears.
@@ -815,6 +889,7 @@ export function useChatStream(): ChatStreamHandle {
       onError: (err) => {
         connectionError.value = err
         retrying.value = null
+        searchActivity.value = null
         if (generation.value) {
           if (err.code === 'generation_cancelled') {
             generation.value = { ...generation.value, status: 'cancelled' }
@@ -858,6 +933,7 @@ export function useChatStream(): ChatStreamHandle {
         conversationId: targetConversationId,
         modelId,
         message: trimmed,
+        webSearch: webSearchEnabled.value,
       },
       handlers,
     )
@@ -902,15 +978,6 @@ export function useChatStream(): ChatStreamHandle {
   }
 
   // ── Helpers ──────────────────────────────────────────────────────
-  async function findLatestConversationId(): Promise<string | null> {
-    try {
-      const page = await listConversations({ limit: 1 })
-      return page.items[0]?.id ?? null
-    } catch {
-      return null
-    }
-  }
-
   function saveConversationId(id: string | null): void {
     try {
       if (id) localStorage.setItem(CONVERSATION_KEY, id)
@@ -991,6 +1058,10 @@ export function useChatStream(): ChatStreamHandle {
     selectedModelId,
     inputDisabled,
     retrying,
+    webSearchEnabled,
+    searchActivity,
+    citations,
+    setWebSearch,
     setModel,
     loadConversation,
     resetConversation,

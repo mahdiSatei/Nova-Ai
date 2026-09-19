@@ -75,6 +75,10 @@ export class UsageRecord {
   @Column({ type: 'int', default: 1 })
   attempts!: number;
 
+  /** Serpex credits consumed by web searches during this request. */
+  @Column({ name: 'search_credits', type: 'int', default: 0 })
+  searchCredits!: number;
+
   @Column({ type: 'text', default: 'pending' })
   status!: 'pending' | 'completed' | 'failed';
 

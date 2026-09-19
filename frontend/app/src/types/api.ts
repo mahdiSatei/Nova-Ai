@@ -129,12 +129,28 @@ export interface ConversationSummary {
   updatedAt: string
 }
 
+export interface CitationSource {
+  id: string
+  title: string
+  url: string
+  snippet: string
+}
+
+export type SearchPhase =
+  | 'search_started'
+  | 'search_completed'
+  | 'retrieval_started'
+  | 'retrieval_completed'
+  | 'generating'
+
 export interface MessagePublic {
   id: string
   role: MessageRole
   content: string
   createdAt: string
   status: MessageStatus
+  /** فاز ۷ — منابع وبِ استنادشده در این پیام دستیار. */
+  citations?: CitationSource[]
 }
 
 export interface ConversationDetail extends ConversationSummary {
@@ -145,6 +161,8 @@ export interface ChatRequest {
   conversationId?: string | null
   modelId?: string | null
   message: string
+  /** فاز ۷ — جستجوی وب برای این نوبت. */
+  webSearch?: boolean
 }
 
 export interface SseDelta {
@@ -156,11 +174,19 @@ export interface SseError {
   message: string
 }
 
-/** فاز ۶ — تلاش مجدد ارائه‌دهنده پیش از ارسال اولین توکن. */
+/** فاز ۶/۷ — رویداد وضعیت: تلاش مجدد یا چرخهٔ جستجوی وب. */
 export interface SseStatus {
-  phase: 'retrying'
-  attempt: number
-  maxAttempts: number
+  phase: 'retrying' | SearchPhase
+  attempt?: number
+  maxAttempts?: number
+  query?: string
+  sources?: number
+  credits?: number
+}
+
+/** فاز ۷ — منابع نهایی پاسخ، پیش از رویداد done. */
+export interface SseCitations {
+  sources: CitationSource[]
 }
 
 export interface PaginatedQuery {

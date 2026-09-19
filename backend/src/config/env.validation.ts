@@ -71,6 +71,15 @@ export class EnvironmentVariables {
   @IsString()
   PROVIDER_ENCRYPTION_KEY = '';
 
+  /** Serpex web-search credential. Optional so the app boots when Web Search is disabled. */
+  @IsString()
+  @IsOptional()
+  SERPEX_API_KEY = '';
+
+  @IsString()
+  @IsOptional()
+  SERPEX_API_URL = 'https://api.serpex.dev';
+
   /** Optional; only required for the admin seed script. */
   @IsString()
   @IsOptional()

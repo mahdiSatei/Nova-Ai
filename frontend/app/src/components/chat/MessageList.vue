@@ -3,7 +3,7 @@
 // هر ردیف با ChatMessage رندر می‌شود (Markdown برای دستیار، حباب برای کاربر).
 import { computed } from 'vue'
 import ChatMessage from '@/components/chat/ChatMessage.vue'
-import type { MessagePublic, MessageStatus } from '@/types/api'
+import type { CitationSource, MessagePublic, MessageStatus, SearchPhase } from '@/types/api'
 
 type GenerationStatus = 'idle' | 'streaming' | 'completed' | 'failed' | 'cancelled'
 
@@ -13,7 +13,9 @@ const props = defineProps<{
   streamingText?: string
   isStreaming?: boolean
   /** Active generation for recovery UI */
-  generation?: { conversationId: string; assistantMessageId: string; status: GenerationStatus; content: string } | null
+  generation?: { conversationId: string; assistantMessageId: string; status: GenerationStatus; content: string; citations?: CitationSource[] } | null
+  /** فاز ۷ — پیشرفت جستجو/بازیابی. */
+  searchActivity?: { phase: SearchPhase; query?: string; sources?: number; credits?: number } | null
   onRetry?: (failedMessageId: string) => void
   onReconnect?: () => void
   onCancel?: () => void
@@ -31,6 +33,7 @@ interface Row {
   status: MessageStatus
   showRecovery: boolean
   recoveryStatus: GenerationStatus | null
+  citations?: CitationSource[]
 }
 
 const rows = computed<Row[]>(() => {
@@ -54,6 +57,7 @@ const rows = computed<Row[]>(() => {
       status: m.status,
       showRecovery: streamNeedsRecovery || m.status === 'failed' || m.status === 'cancelled',
       recoveryStatus: m.status as GenerationStatus,
+      citations: m.citations,
     })
   }
 
@@ -89,6 +93,7 @@ const rows = computed<Row[]>(() => {
       status: 'streaming',
       showRecovery: false,
       recoveryStatus: null,
+      citations: props.generation?.citations,
     })
   }
 
@@ -110,6 +115,8 @@ const rows = computed<Row[]>(() => {
       :status="row.status"
       :show-recovery="row.showRecovery"
       :recovery-status="row.recoveryStatus"
+      :citations="row.citations"
+      :search-activity="row.streaming ? searchActivity : null"
       :on-retry="onRetry"
       :on-reconnect="onReconnect"
       :on-cancel="onCancel"
