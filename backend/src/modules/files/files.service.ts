@@ -61,4 +61,12 @@ export class FilesService {
     record.status = status;
     await this.repo.save(record);
   }
+
+  findAllAdmin(limit = 20, offset = 0): Promise<FileRecord[]> {
+  return this.repo.find({
+      order: { createdAt: 'DESC' },
+      take: limit,
+      skip: offset
+    });
+  }
 }

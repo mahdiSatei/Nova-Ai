@@ -56,3 +56,20 @@ export function getConfig(): Promise<AppConfigPublic> {
 export function putConfig(body: AppConfigUpdateRequest): Promise<AppConfigPublic> {
   return request<AppConfigPublic>('/v1/admin/config', { method: 'PUT', body })
 }
+
+export interface AdminFileRecord {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  status: 'uploaded' | 'processing' | 'ready' | 'failed';
+  errorMessage: string | null;
+  createdAt: string;
+  userId: string;
+}
+
+export async function listAdminFiles(limit = 50, offset = 0): Promise<AdminFileRecord[]> {
+  return request<AdminFileRecord[]>(`/v1/admin/files`, {
+    query: { limit: String(limit), offset: String(offset) }
+  })
+}
