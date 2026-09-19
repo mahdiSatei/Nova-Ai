@@ -416,3 +416,15 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* در صورت پشتیبانی مرورگر برای انیمیشن پیش‌فرض View Transition */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.3s;
+}
+
+/* ترنزیشن نرم برای رنگ‌های اصلی تم */
+body {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}

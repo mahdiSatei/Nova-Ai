@@ -1,8 +1,6 @@
 <script setup lang="ts">
 // رندر Markdown پاسخ دستیار: کد با highlight.js + دکمه کپی، جدول/فهرست/بولد.
 // خروجی همیشه با DOMPurify پاک‌سازی می‌شود (متن از مدل LLM می‌آید).
-// کپی از طریق delegation روی pre انجام می‌شود؛ هیچ listener یا data-attr داخل
-// HTML تزریق‌شده نیست، پس سطح حمله‌ی جدیدی اضافه نمی‌شود.
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { Marked, type Tokens } from 'marked'
 import hljs from 'highlight.js/lib/common'
@@ -97,10 +95,37 @@ onBeforeUnmount(() => container.value?.removeEventListener('click', onClick))
 <template>
   <!-- caret استریم با ::after روی آخرین فرزند بلوکی نمایش داده می‌شود -->
   <!-- eslint-disable-next-line vue/no-v-html -- DOMPurify-sanitized above -->
-  <div ref="container" class="chat-md text-sm leading-relaxed" :class="{ 'md-streaming': streaming }" v-html="html" />
+  <div ref="container" dir="auto" class="chat-md text-sm leading-relaxed" :class="{ 'md-streaming': streaming }" v-html="html" />
 </template>
 
 <style>
+/* ─── تنظیمات هوشمند Bidi برای ترکیب متن فارسی و انگلیسی ─── */
+.chat-md {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+.chat-md p,
+.chat-md li,
+.chat-md h1,
+.chat-md h2,
+.chat-md h3,
+.chat-md h4,
+.chat-md h5,
+.chat-md h6,
+.chat-md blockquote {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+/* بلوک‌های کد همیشه باید چپ‌چین و LTR باشن تا سینتکس‌ها قاطی نشن */
+.chat-md pre,
+.chat-md code {
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: normal;
+}
+
 .chat-md.md-streaming > :last-child::after {
   content: '';
   display: inline-block;

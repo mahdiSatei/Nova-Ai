@@ -3,7 +3,7 @@
 // states per FR-015 + BR-014: empty / no-models / streaming / error / success.
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { PhArrowsClockwise, PhSparkle, PhWarning, PhCaretDown, PhBrain, PhCode, PhBookOpenText, PhTranslate, PhMoon, PhSun } from '@phosphor-icons/vue'
+import { PhArrowsClockwise, PhSparkle, PhWarning, PhCaretDown, PhBrain, PhCode, PhBookOpenText, PhTranslate, PhMoon, PhSun, PhLightbulb, PhCalculator, PhFlask, PhTerminal } from '@phosphor-icons/vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import ModelPicker from '@/components/chat/ModelPicker.vue'
 import MessageList from '@/components/chat/MessageList.vue'
@@ -42,6 +42,48 @@ const hasMessages = computed(
     chat.generation.value !== null,
 )
 
+// ✨ جملات رندوم برای عنوان خوش‌آمدگویی
+const welcomeHeadlines = [
+  'چطور می‌تونم کمکت کنم؟',
+  'امروز روی چه پروژه‌ای کار می‌کنیم؟',
+  'سوالی داری؟ از من بپرس!',
+  'آماده‌ام تا با هم ایده پردازی کنیم.',
+  'چه کمکی از دست من برمی‌آید؟',
+  'امروز دوست داری درباره چی صحبت کنیم؟'
+]
+
+const randomHeadline = ref('چطور می‌تونم کمکت کنم؟')
+
+function randomizeHeadline() {
+  const randomIndex = Math.floor(Math.random() * welcomeHeadlines.length)
+  randomHeadline.value = welcomeHeadlines[randomIndex]!
+}
+
+// آرایه‌ای جامع از پرامپت‌های پیشنهادی برای انتخاب رندوم
+const allPrompts = [
+  { icon: PhSparkle, text: 'یک توضیح کوتاه از هوش مصنوعی بده.' },
+  { icon: PhCode, text: 'یک تابع پایتونی برای بررسی اعداد اول بنویس.' },
+  { icon: PhBookOpenText, text: 'چه فرقی بین REST و GraphQL هست؟' },
+  { icon: PhTranslate, text: 'یک شعر کوتاه درباره تهران بنویس.' },
+  { icon: PhLightbulb, text: 'چطور می‌تونم تمرکز خودم رو موقع برنامه‌نویسی بالا ببرم؟' },
+  { icon: PhCalculator, text: 'مزایای استفاده از معماری میکروسرویس چیست؟' },
+  { icon: PhFlask, text: 'تفاوت بین متد GET و POST در ای‌پیز چیست؟' },
+  { icon: PhTerminal, text: 'چند دستور کاربردی گیت (Git) برای رفع تداخلات نام ببرید.' },
+]
+
+// انتخاب رندوم ۴ پرامپت در هر بار لود صفحه
+const suggestedPrompts = ref<typeof allPrompts>([])
+
+function randomizePrompts() {
+  const shuffled = [...allPrompts].sort(() => 0.5 - Math.random())
+  suggestedPrompts.value = shuffled.slice(0, 4)
+}
+
+function refreshWelcomeState() {
+  randomizeHeadline()
+  randomizePrompts()
+}
+
 function resolvedId(): string | undefined {
   const raw = props.id ?? (route.params.id as string | undefined)
   return typeof raw === 'string' && raw.length > 0 ? raw : undefined
@@ -74,6 +116,7 @@ watch(
 )
 
 onMounted(async () => {
+  refreshWelcomeState() // انتخاب متن و پرامپت رندوم در شروع
   console.debug('[ChatView] onMounted start', { routeName: route.name, resolvedId: resolvedId(), propsId: props.id })
   await models.load(true)
   if (!chat.selectedModelId.value) {
@@ -83,14 +126,11 @@ onMounted(async () => {
     chat.setModel(models.defaultModelId ?? models.items[0]?.id ?? null)
   }
 
-  // Load conversation after models are ready and props are resolved
   const id = resolvedId()
   console.debug('[ChatView] onMounted resolvedId', { id })
 
   if (id) {
     await chat.loadConversation(id)
-    // The conversation was deleted (404): loadConversation already reset
-    // state and set the banner — just move the URL back to new-chat.
     if (chat.connectionError.value?.code === 'conversation_not_found') {
       void router.replace({ name: 'chat' })
     }
@@ -109,15 +149,11 @@ onMounted(async () => {
   scrollToBottom(false)
 })
 
-// Handle route changes after initial load (e.g., navigating between conversations)
 watch(
   () => resolvedId(),
   async (id) => {
     console.debug('[ChatView] route watch resolvedId', { id })
     if (id) {
-      // If we're already streaming this conversation (the id was just
-      // adopted via the SSE start event), only sync the URL — reloading
-      // would tear down and re-subscribe the live stream.
       if (chat.generationState.value === 'streaming' && chat.generation.value?.conversationId === id) {
         return
       }
@@ -127,8 +163,7 @@ watch(
       }
     }
     else {
-      // Returning to /chat right after a stale-conversation 404: the
-      // banner was just set — don't wipe it with a full reset.
+      refreshWelcomeState() // رندوم کردن دوباره هنگام بازگشت به صفحه چت جدید
       if (chat.connectionError.value?.code !== 'conversation_not_found') {
         chat.resetConversation()
       }
@@ -156,6 +191,7 @@ watch(
 watch(newChatTick, () => {
   if (resolvedId() || route.name !== 'chat') return
   inputText.value = ''
+  refreshWelcomeState() // رندوم کردن دوباره با کلیک روی گفتگوی جدید
   chat.resetConversation()
 })
 
@@ -164,7 +200,6 @@ async function onSubmit(): Promise<void> {
   if (!text.trim() || chat.inputDisabled.value) return
   if (!resolvedId()) justStartedConversation.value = true
   
-  // نگه‌داشتن فایل قبل از پاک شدن ورودی
   const fileToAttach = attachedFile.value
   const fileId = fileToAttach?.id ?? null
   
@@ -172,7 +207,6 @@ async function onSubmit(): Promise<void> {
   attachedFile.value = null
   pinnedToBottom.value = true
 
-  // ✨ ارسال fileId به همراه مشخصات فایل
   await chat.send(text, { fileId, file: fileToAttach })
 }
 
@@ -192,13 +226,6 @@ function useSuggestedPrompt(text: string): void {
   inputText.value = text
   nextTick(() => scrollToBottom())
 }
-
-const suggestedPrompts = [
-  { icon: PhSparkle, text: 'یک توضیح کوتاه از هوش مصنوعی بده.' },
-  { icon: PhCode, text: 'یک تابع پایتونی برای بررسی اعداد اول بنویس.' },
-  { icon: PhBookOpenText, text: 'چه فرقی بین REST و GraphQL هست؟' },
-  { icon: PhTranslate, text: 'یک شعر کوتاه درباره تهران بنویس.' },
-]
 </script>
 
 <template>
@@ -303,7 +330,7 @@ const suggestedPrompts = [
             </div>
             <div>
               <h1 class="text-xl font-bold text-ink sm:text-2xl">
-                {{ noModels ? 'چت هنوز آماده نیست' : 'چطور می‌تونم کمکت کنم؟' }}
+                {{ noModels ? 'چت هنوز آماده نیست' : randomHeadline }}
               </h1>
               <p class="mt-1.5 text-sm text-ink-muted">
                 {{
