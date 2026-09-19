@@ -50,8 +50,8 @@ export function validateLocalFile(file: File): void {
 }
 
 export function formatFileSize(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} مگابایت`
-  return `${Math.max(1, Math.round(bytes / 1024))} کیلوبایت`
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
 
 async function readError(res: Response): Promise<{ code: string; message: string }> {
