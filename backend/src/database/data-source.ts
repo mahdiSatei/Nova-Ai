@@ -13,13 +13,13 @@ import { Conversation } from '../modules/conversations/entities/conversation.ent
 import { Message } from '../modules/conversations/entities/message.entity';
 import { Quota } from '../modules/quotas/entities/quota.entity';
 import { QuotaRule } from '../modules/quotas/entities/quota-rule.entity';
+import { FileRecord } from '../modules/files/entities/file.entity';
 
 // Load .env if present so CLI scripts (migration:run etc.) see the same
 // environment variables as the running app.
 loadDotenv({ path: join(process.cwd(), '.env') });
 
 function buildPostgresUrl(): string {
-  // Prefer individual connection vars; fall back to POSTGRES_URL if provided.
   if (process.env.POSTGRES_URL) {
     return process.env.POSTGRES_URL;
   }
@@ -31,13 +31,40 @@ function buildPostgresUrl(): string {
   return `postgres://${user}:${password}@${host}:${port}/${db}`;
 }
 
-export const dataSourceOptions: DataSourceOptions = {
-  type: 'postgres',
-  url: buildPostgresUrl(),
-  entities: [User, RefreshToken, CentralProvider, Provider, ProviderApiKey, Model, AppConfig, Conversation, Message, Quota, QuotaRule],
-  migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
-  synchronize: false,
-  logging: process.env.NODE_ENV === 'development',
-};
+const driver = process.env.DB_DRIVER ?? 'postgres';
+
+const entities = [
+  User,
+  RefreshToken,
+  CentralProvider,
+  Provider,
+  ProviderApiKey,
+  Model,
+  AppConfig,
+  Conversation,
+  Message,
+  Quota,
+  QuotaRule,
+  FileRecord,
+];
+
+export const dataSourceOptions: DataSourceOptions =
+  driver === 'postgres'
+    ? {
+        type: 'postgres',
+        url: buildPostgresUrl(),
+        entities,
+        migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
+        synchronize: false,
+        logging: process.env.NODE_ENV === 'development',
+      }
+    : {
+        type: 'sqlite',
+        database: process.env.SQLITE_FILE ?? './data/app.sqlite',
+        entities,
+        migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
+        synchronize: false,
+        logging: process.env.NODE_ENV === 'development',
+      };
 
 export default new DataSource(dataSourceOptions);

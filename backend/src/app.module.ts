@@ -2,9 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule, type TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { LoggerModule } from 'nestjs-pino';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
+import { LoggerModule } from 'nestjs-pino';
 const migrationsGlob = join(__dirname, 'database', 'migrations', '*.{ts,js}');
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -19,13 +19,16 @@ import { Model } from './modules/models/entities/model.entity';
 import { AppConfig as AppConfigEntity } from './modules/app-config/entities/app-config.entity';
 import { Conversation } from './modules/conversations/entities/conversation.entity';
 import { Message } from './modules/conversations/entities/message.entity';
+import { FileRecord } from './modules/files/entities/file.entity';
 import { ChatModule } from './modules/chat/chat.module';
+import { FilesModule } from './modules/files/files.module';
 import { ModelsModule } from './modules/models/models.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { HealthModule } from './modules/health/health.module';
 import { ProviderModule } from './modules/provider/provider.module';
 import { AppConfigModule } from './modules/app-config/app-config.module';
+import { BullModule } from '@nestjs/bullmq';
 
 @Module({
   imports: [
@@ -59,7 +62,7 @@ import { AppConfigModule } from './modules/app-config/app-config.module';
                     frequency: 'daily',
                     mkdir: true,
                     dateFormat: 'yyyy-MM-dd',
-                    extension: '.log',
+                    extension: '.jsonl',
                   },
                   level,
                 },
@@ -101,6 +104,16 @@ import { AppConfigModule } from './modules/app-config/app-config.module';
         };
       },
     }),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<AppConfig, true>) => ({
+        connection: {
+          host: config.get('redis.host', { infer: true }),
+          port: config.get('redis.port', { infer: true }),
+        },
+      }),
+    }),
     TypeOrmModule.forFeature([
       User,
       RefreshToken,
@@ -109,8 +122,10 @@ import { AppConfigModule } from './modules/app-config/app-config.module';
       AppConfigEntity,
       Conversation,
       Message,
+      FileRecord,
     ]),
     ChatModule,
+    FilesModule,
     ModelsModule,
     AuthModule,
     UsersModule,

@@ -1,151 +1,3 @@
-import { request } from '@/api/http'
-import type {
-  AdminUser,
-  AdminUserList,
-  AppConfigPublic,
-  AppConfigUpdateRequest,
-  UserAccessTier,
-  ProviderAdmin,
-  ProviderList,
-  ProviderUpdateRequest,
-  ModelAdmin,
-  ModelList,
-  ModelUpsertRequest,
-  PaginatedQuery,
-  UsageReport,
-} from '@/types/api'
-
-export function listProviders(): Promise<ProviderList> {
-  return request<ProviderList>('/v1/admin/providers')
-}
-
-export function getProvider(id?: string): Promise<ProviderAdmin> {
-  const providerId = id ?? 'central'
-  return request<ProviderAdmin>(`/v1/admin/providers/${providerId}`)
-}
-
-export function updateProvider(id: string, body: ProviderUpdateRequest): Promise<ProviderAdmin> {
-  return request<ProviderAdmin>(`/v1/admin/providers/${id}`, { method: 'PATCH', body })
-}
-
-export function createProvider(body: {
-  id: string
-  name: string
-  type: 'openai-compatible'
-  baseUrl: string
-  apiKey: string
-}): Promise<ProviderAdmin> {
-  return request<ProviderAdmin>('/v1/admin/providers', { method: 'POST', body })
-}
-
-// ── API Key Management ──────────────────────────────────────────────────────
-
-export interface ApiKeyAdmin {
-  id: string
-  label: string
-  isActive: boolean
-  lastValidatedAt: string | null
-  failureCount: number
-  createdAt: string
-  updatedAt: string
-}
-
-export function listApiKeys(providerId: string): Promise<ApiKeyAdmin[]> {
-  return request<ApiKeyAdmin[]>(`/v1/admin/providers/${providerId}/api-keys`)
-}
-
-export function addApiKey(
-  providerId: string,
-  body: { label: string; apiKey: string; isActive?: boolean },
-): Promise<ApiKeyAdmin> {
-  return request<ApiKeyAdmin>(`/v1/admin/providers/${providerId}/api-keys`, {
-    method: 'POST',
-    body,
-  })
-}
-
-export function updateApiKey(
-  providerId: string,
-  keyId: string,
-  body: { label?: string; apiKey?: string; isActive?: boolean },
-): Promise<ApiKeyAdmin> {
-  return request<ApiKeyAdmin>(`/v1/admin/providers/${providerId}/api-keys/${keyId}`, {
-    method: 'PATCH',
-    body,
-  })
-}
-
-export function deleteApiKey(providerId: string, keyId: string): Promise<void> {
-  return request<void>(`/v1/admin/providers/${providerId}/api-keys/${keyId}`, {
-    method: 'DELETE',
-  })
-}
-
-export function validateApiKey(
-  providerId: string,
-  keyId: string,
-): Promise<ApiKeyAdmin> {
-  return request<ApiKeyAdmin>(
-    `/v1/admin/providers/${providerId}/api-keys/${keyId}/validate`,
-    { method: 'POST' },
-  )
-}
-
-export function listAdminModels(query: PaginatedQuery = {}): Promise<ModelList<ModelAdmin>> {
-  return request<ModelList<ModelAdmin>>('/v1/admin/models', { query: { ...query } })
-}
-
-export function createModel(body: Required<Pick<ModelUpsertRequest, 'displayName' | 'actualName'>> & ModelUpsertRequest): Promise<ModelAdmin> {
-  return request<ModelAdmin>('/v1/admin/models', { method: 'POST', body })
-}
-
-export function updateModel(id: string, body: ModelUpsertRequest): Promise<ModelAdmin> {
-  return request<ModelAdmin>(`/v1/admin/models/${id}`, { method: 'PATCH', body })
-}
-
-/** فاز ۸ — اجرای مجدد کشف خودکار توان استدلال مدل. */
-export function discoverModelReasoning(id: string): Promise<ModelAdmin> {
-  return request<ModelAdmin>(`/v1/admin/models/${id}/reasoning/discover`, { method: 'POST' })
-}
-
-export interface DeleteModelMigrationResult {
-  deleted: true
-  migrated: {
-    conversations: number
-    users: number
-    defaultSwitched: boolean
-  }
-}
-
-export function deleteModel(
-  id: string,
-  migrateTo?: string | null,
-): Promise<DeleteModelMigrationResult | undefined> {
-  return request<DeleteModelMigrationResult | undefined>(`/v1/admin/models/${id}`, {
-    method: 'DELETE',
-    query: migrateTo ? { migrateTo } : undefined,
-  })
-}
-
-// ── فاز ۳: سطح دسترسی کاربران ─────────────────────────────────────────────
-
-export function listAdminUsers(
-  query: { query?: string; limit?: number; offset?: number } = {},
-): Promise<AdminUserList> {
-  return request<AdminUserList>('/v1/admin/users', { query: { ...query } })
-}
-
-export function setUserAccessTier(id: string, accessTier: UserAccessTier): Promise<AdminUser> {
-  return request<AdminUser>(`/v1/admin/users/${id}/access-tier`, {
-    method: 'PATCH',
-    body: { accessTier },
-  })
-}
-
-export function getConfig(): Promise<AppConfigPublic> {
-  return request<AppConfigPublic>('/v1/admin/config')
-}
-
 export function putConfig(body: AppConfigUpdateRequest): Promise<AppConfigPublic> {
   return request<AppConfigPublic>('/v1/admin/config', { method: 'PUT', body })
 }
@@ -163,4 +15,30 @@ export function listAdminUsage(query: {
   offset?: number
 } = {}): Promise<UsageReport> {
   return request<UsageReport>('/v1/admin/usage', { query: { ...query } })
+}
+
+export interface AdminFileRecord {
+  id: string
+  originalName: string
+  mimeType: string
+  size: number
+  status: 'UPLOADED' | 'PROCESSING' | 'READY' | 'FAILED'
+  errorMessage: string | null
+  createdAt: string
+  userId: string
+  username: string // فیلد جدید
+}
+
+export async function listAdminFiles(
+  limit = 50,
+  offset = 0,
+  filters: { status?: string; mimeType?: string; userId?: string } = {},
+): Promise<{ items: AdminFileRecord[]; total: number }> {
+  return request<{ items: AdminFileRecord[]; total: number }>('/v1/admin/files', {
+    query: {
+      limit: String(limit),
+      offset: String(offset),
+      ...filters,
+    },
+  })
 }

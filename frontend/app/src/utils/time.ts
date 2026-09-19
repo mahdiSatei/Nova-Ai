@@ -3,6 +3,7 @@
 // `Intl` is built-in; no dependency needed.
 const FORMATTER = new Intl.DateTimeFormat('fa-IR', {
   calendar: 'persian',
+  timeZone: 'Asia/Tehran', // ✨ اجبار ساعت به وقت تهران
   year: 'numeric',
   month: 'short',
   day: 'numeric',

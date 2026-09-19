@@ -41,6 +41,19 @@ export interface AppConfig {
     serpexApiKey: string;
     serpexApiUrl: string;
   };
+  storage: {
+    endpoint: string;
+    port: number;
+    useSSL: boolean;
+    accessKey: string;
+    secretKey: string;
+    bucket: string;
+    presignExpirySec: number;
+  };
+  redis: {
+    host: string;
+    port: number;
+  };
 }
 
 export default (): AppConfig => ({
@@ -72,5 +85,18 @@ export default (): AppConfig => ({
   webSearch: {
     serpexApiKey: process.env.SERPEX_API_KEY ?? '',
     serpexApiUrl: process.env.SERPEX_API_URL ?? 'https://api.serpex.dev',
+  },
+  storage: {
+    endpoint: process.env.STORAGE_ENDPOINT ?? 'localhost',
+    port: Number(process.env.STORAGE_PORT ?? 9000),
+    useSSL: (process.env.STORAGE_USE_SSL ?? 'false') === 'true',
+    accessKey: process.env.STORAGE_ACCESS_KEY ?? 'minioadmin',
+    secretKey: process.env.STORAGE_SECRET_KEY ?? 'minioadminpassword',
+    bucket: process.env.STORAGE_BUCKET ?? 'chat-files',
+    presignExpirySec: Number(process.env.STORAGE_PRESIGN_EXPIRY_SEC ?? 604800),
+  },
+  redis: {
+    host: process.env.REDIS_HOST ?? 'localhost',
+    port: Number(process.env.REDIS_PORT ?? 6379),
   },
 });

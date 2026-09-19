@@ -1,5 +1,4 @@
-import OpenAI from 'openai';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+
 import { Observable } from 'rxjs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -19,6 +18,8 @@ import { UsageService } from '../usage/usage.service';
 import { QuotaService } from '../quotas/quotas.service';
 import { User } from '../users/entities/user.entity';
 import { ChatRequestDto } from './dto/chat-request.dto';
+import { FilesService } from '../files/files.service';
+import { FileStatus } from '../files/entities/file.entity';
 import { WebSearchService } from '../web-search/web-search.service';
 import { WebSearchError } from '../web-search/web-search.errors';
 import { WEB_SEARCH_LIMITS } from '../web-search/web-search.constants';
@@ -160,6 +161,7 @@ export class ChatService {
     private readonly access: ModelAccessService,
     private readonly runtime: ProviderRuntimeService,
     private readonly conversations: ConversationsService,
+    private readonly files: FilesService,
 
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
@@ -353,6 +355,58 @@ export class ChatService {
         );
       }
 
+      // ── resolve attachment ─────────────────────────────────────────────
+      // Validate the file before persisting the user message so a failed
+      // attachment cannot leave an unusable message in the conversation.
+      let finalUserContent = dto.message;
+      let validFileId: string | null = null;
+
+      if (dto.fileId && dto.fileId.trim().length > 0) {
+        const file = await this.files.findOwned(dto.fileId, userId);
+
+        if (!file) {
+          return this.failStream(
+            observer,
+            isActive,
+            'file_not_found',
+            'Attached file was not found.',
+          );
+        }
+
+        if (
+          file.status === FileStatus.UPLOADED ||
+          file.status === FileStatus.PROCESSING
+        ) {
+          return this.failStream(
+            observer,
+            isActive,
+            'file_processing',
+            'فایل هنوز در حال پردازش است. لطفاً چند لحظه بعد پیام را ارسال کنید.',
+          );
+        }
+
+        if (file.status === FileStatus.FAILED) {
+          return this.failStream(
+            observer,
+            isActive,
+            'file_unreadable',
+            file.errorMessage || 'پردازش فایل پیوست با خطا مواجه شد.',
+          );
+        }
+
+        if (file.status === FileStatus.READY) {
+          validFileId = file.id;
+
+          if (file.extractedText) {
+            const context =
+              `[Attached file: ${file.originalName} (${file.mimeType})]\n` +
+              `${file.extractedText}\n` +
+              `[/Attached file]\n\n`;
+            finalUserContent = `${context}${dto.message}`;
+          }
+        }
+      }
+
       // ── resolve model ──────────────────────────────────────────────────
 
       let model: Model | null = null;
@@ -473,6 +527,7 @@ export class ChatService {
         await this.conversations.appendUserMessage(
           conversationId,
           dto.message,
+          validFileId,
         );
       } else {
         const conversation =
@@ -480,6 +535,7 @@ export class ChatService {
             userId,
             modelId: model.id,
             userMessage: dto.message,
+            fileId: validFileId,
           });
 
         conversationId = conversation.id;
@@ -502,7 +558,7 @@ export class ChatService {
         ...priorTurns,
         {
           role: 'user',
-          content: dto.message,
+          content: finalUserContent,
         },
       ];
 

@@ -1,6 +1,15 @@
-export type Role = 'user' | 'admin'
-export type MessageRole = 'user' | 'assistant'
-export type MessageStatus = 'pending' | 'streaming' | 'completed' | 'failed' | 'cancelled'
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+} from 'typeorm'
+import { Conversation } from './conversation.entity'
+import { FileRecord } from '../../files/entities/file.entity'
+import { MessageStatus } from '../conversations.types'
 
 /** فاز ۳ — سطح دسترسی مدل و کاربر. */
 export type ModelVisibility = 'public' | 'commercial' | 'private'
@@ -17,34 +26,38 @@ export interface UserPublic {
   lastLoginAt?: string | null
 }
 
-export interface AuthResponse {
-  user: UserPublic
-  accessToken: string
-  refreshToken: string
-  expiresIn: number
-}
+@Entity({ name: 'messages' })
+@Index('idx_msg_conv_created', ['conversationId', 'createdAt'])
+@Index('idx_msg_conv_status', ['conversationId', 'status'])
+export class Message {
+  @PrimaryGeneratedColumn('uuid')
+  id!: string
 
-export interface RegisterRequest {
-  username: string
-  email: string
-  password: string
-}
+  @Column({ name: 'conversation_id', type: 'text' })
+  conversationId!: string
 
-export interface LoginRequest {
-  identifier: string
-  password: string
-}
+  @ManyToOne(() => Conversation, (c) => c.messages, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'conversation_id' })
+  conversation!: Conversation
 
-export interface ErrorDetail {
-  field: string
-  message: string
-}
+  @Column({ name: 'file_id', type: 'text', nullable: true })
+  fileId!: string | null
 
-export interface ApiErrorBody {
-  code: string
-  message: string
-  details?: ErrorDetail[] | Record<string, unknown>
-  requestId: string
+  @ManyToOne(() => FileRecord, { nullable: true, eager: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'file_id' })
+  file!: FileRecord | null
+
+  @Column({ type: 'text' })
+  role!: 'user' | 'assistant'
+
+  @Column({ type: 'text' })
+  content!: string
+
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt!: Date
+
+  @Column({ name: 'status', type: 'text', default: 'completed' })
+  status!: MessageStatus
 }
 
 /** فاز ۸ — توان استدلال مؤثر مدل (ناشناخته در سمت سرور به «پشتیبانی نمی‌شود» تبدیل می‌شود). */

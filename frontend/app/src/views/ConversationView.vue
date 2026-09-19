@@ -1,17 +1,15 @@
 <script setup lang="ts">
-// ConversationView: فقط خواندنی — ترنسکریپت کامل + ادامه گفتگو + حذف.
+// ConversationView: فقط خواندنی — ترنسکریپت کامل + ادامه گفتگو.
 // «ادامه گفتگو» کاربر را به /chat/c/:id می‌برد تا بتواند پیام بعدی را بفرستد.
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { PhArrowRight, PhTrash, PhWarningCircle } from '@phosphor-icons/vue'
+import { PhArrowRight, PhWarningCircle } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
-import ConfirmModal from '@/components/ConfirmModal.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import MessageList from '@/components/chat/MessageList.vue'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
-import { getConversation, deleteConversation } from '@/api/conversations'
-import { useChatStream } from '@/composables/useChatStream'
+import { getConversation } from '@/api/conversations'
 import { useModelsStore } from '@/stores/models'
 import { formatDateTime } from '@/utils/time'
 import type { ConversationDetail } from '@/types/api'
@@ -20,52 +18,41 @@ const props = defineProps<{ id: string }>()
 
 const router = useRouter()
 const models = useModelsStore()
-// Only for the localStorage id helpers — no stream state is touched here.
-const chat = useChatStream()
 
 const conversation = ref<ConversationDetail | null>(null)
 const loading = ref(true)
 const error = ref<ApiError | null>(null)
-const deleting = ref(false)
-const confirmOpen = ref(false)
 
 const modelAvailable = computed(() => {
   if (!conversation.value) return false
+
   const m = models.byId(conversation.value.modelId)
-  return Boolean(m) // پیام‌ها خواندنی هستند حتی اگر مدل disable شده باشد
+
+  // پیام‌ها خواندنی هستند حتی اگر مدل disable شده باشد.
+  return Boolean(m)
 })
 
 onMounted(async () => {
   loading.value = true
   error.value = null
+
   try {
     await models.load()
     conversation.value = await getConversation(props.id)
   } catch (err) {
-    if (err instanceof ApiError) error.value = err
+    if (err instanceof ApiError) {
+      error.value = err
+    }
   } finally {
     loading.value = false
   }
 })
 
-async function onConfirmDelete(): Promise<void> {
-  deleting.value = true
-  try {
-    await deleteConversation(props.id)
-    // Keep the persisted last-conversation id from pointing at a deleted
-    // row — otherwise the next reload 404-loops on it.
-    if (chat.loadSavedConversationId() === props.id) chat.clearSavedConversationId()
-    await router.push({ name: 'chat' })
-  } catch (err) {
-    if (err instanceof ApiError) error.value = err
-  } finally {
-    deleting.value = false
-    confirmOpen.value = false
-  }
-}
-
 function onContinue(): void {
-  void router.push({ name: 'chat-conversation', params: { id: props.id } })
+  void router.push({
+    name: 'chat-conversation',
+    params: { id: props.id },
+  })
 }
 </script>
 
@@ -83,63 +70,89 @@ function onContinue(): void {
         :request-id="error.requestId"
         :show-code="true"
       />
-      <BaseButton variant="secondary" size="sm" class="self-start" @click="router.back()">
+
+      <BaseButton
+        variant="secondary"
+        size="sm"
+        class="self-start"
+        @click="router.back()"
+      >
         بازگشت
       </BaseButton>
     </template>
 
     <template v-else-if="conversation">
-      <header class="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 shadow-sm">
+      <header
+        class="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 shadow-sm"
+      >
         <div class="min-w-0 flex-1">
           <p class="truncate text-sm font-semibold">
             {{ conversation.title?.trim() || 'بدون عنوان' }}
           </p>
+
           <p class="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
-            <span>مدل: {{ models.displayName(conversation.modelId, '—') }}</span>
+            <span>
+              مدل: {{ models.displayName(conversation.modelId, '—') }}
+            </span>
+
             <span aria-hidden="true">·</span>
-            <span>ایجاد: {{ formatDateTime(conversation.createdAt) }}</span>
+
+            <span>
+              ایجاد: {{ formatDateTime(conversation.createdAt) }}
+            </span>
+
             <span aria-hidden="true">·</span>
-            <span>به‌روزرسانی: {{ formatDateTime(conversation.updatedAt) }}</span>
+
+            <span>
+              به‌روزرسانی: {{ formatDateTime(conversation.updatedAt) }}
+            </span>
           </p>
         </div>
-        <BaseButton variant="danger" size="sm" @click="confirmOpen = true">
-          <PhTrash class="size-4" aria-hidden="true" />
-          <span>حذف گفتگو</span>
-        </BaseButton>
       </header>
 
       <div
         v-if="!modelAvailable"
         class="flex items-start gap-2 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-xs text-ink"
       >
-        <PhWarningCircle class="mt-0.5 size-4 shrink-0 text-accent" aria-hidden="true" />
+        <PhWarningCircle
+          class="mt-0.5 size-4 shrink-0 text-accent"
+          aria-hidden="true"
+        />
+
         <p>
-          مدل این گفتگو دیگر در دسترس نیست. ترنسکریپت همچنان قابل مشاهده است؛ برای ادامه، یک گفتگوی جدید شروع کنید.
+          مدل این گفتگو دیگر در دسترس نیست. ترنسکریپت همچنان قابل مشاهده است؛
+          برای ادامه، یک گفتگوی جدید شروع کنید.
         </p>
       </div>
 
-      <div class="flex min-h-[24rem] flex-col rounded-card border border-line bg-surface/60">
+      <div
+        class="flex min-h-[24rem] flex-col rounded-card border border-line bg-surface/60"
+      >
         <div class="flex-1 px-4">
           <MessageList :messages="conversation.messages" />
         </div>
-        <div class="flex items-center justify-between gap-2 border-t border-line bg-surface/40 px-4 py-3">
-          <p class="text-xs text-ink-muted">ارسال پیام جدید در ادامه گفتگو</p>
-          <BaseButton variant="primary" size="sm" :disabled="!modelAvailable" @click="onContinue">
-            <PhArrowRight class="flip-rtl size-4" aria-hidden="true" />
+
+        <div
+          class="flex items-center justify-between gap-2 border-t border-line bg-surface/40 px-4 py-3"
+        >
+          <p class="text-xs text-ink-muted">
+            ارسال پیام جدید در ادامه گفتگو
+          </p>
+
+          <BaseButton
+            variant="primary"
+            size="sm"
+            :disabled="!modelAvailable"
+            @click="onContinue"
+          >
+            <PhArrowRight
+              class="flip-rtl size-4"
+              aria-hidden="true"
+            />
             <span>ادامه گفتگو</span>
           </BaseButton>
         </div>
       </div>
     </template>
-
-    <ConfirmModal
-      :open="confirmOpen"
-      title="حذف گفتگو"
-      description="این گفتگو و تمام پیام‌های آن برای همیشه حذف می‌شوند. این عملیات قابل بازگشت نیست."
-      confirm-label="حذف"
-      :busy="deleting"
-      @update:open="(v: boolean) => (confirmOpen = v)"
-      @confirm="onConfirmDelete"
-    />
   </section>
 </template>

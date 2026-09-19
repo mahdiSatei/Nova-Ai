@@ -70,6 +70,7 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
         handlers.onError({ code, message: streamErrorMessage(code, serverMessage) })
         return
       }
+
       if (!res.body) {
         handlers.onError({
           code: 'no_stream',
@@ -95,16 +96,19 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
 
           let eventName = 'message'
           const dataLines: string[] = []
+
           for (const line of rawEvent.split('\n')) {
             if (line.startsWith('event:')) eventName = line.slice(6).trim()
             else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
           }
+
           const payload = dataLines.join('\n')
 
           if (eventName === 'done') {
             handlers.onDone()
             return
           }
+
           if (eventName === 'status') {
             // Phase 6/7: non-terminal progress event — retry/failover before
             // the first token, or a web-search lifecycle phase.
@@ -116,24 +120,31 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
             }
             continue
           }
+
           if (eventName === 'citations') {
             try {
               const parsed = JSON.parse(payload) as SseCitations
-              if (Array.isArray(parsed.sources)) handlers.onCitations?.(parsed.sources)
+              if (Array.isArray(parsed.sources)) {
+                handlers.onCitations?.(parsed.sources)
+              }
             } catch {
               /* ignore malformed citations frame */
             }
             continue
           }
+
           if (eventName === 'reasoning_delta') {
             try {
               const parsed = JSON.parse(payload) as SseReasoningDelta
-              if (typeof parsed.delta === 'string') handlers.onReasoningDelta?.(parsed.delta, false)
+              if (typeof parsed.delta === 'string') {
+                handlers.onReasoningDelta?.(parsed.delta, false)
+              }
             } catch {
               /* ignore malformed reasoning frame */
             }
             continue
           }
+
           if (eventName === 'error') {
             let parsed: Partial<SseError> = {}
             try {
@@ -141,6 +152,7 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
             } catch {
               /* malformed payload */
             }
+
             const code = parsed.code ?? 'stream_error'
             handlers.onError({
               code,
@@ -148,6 +160,7 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
             })
             return
           }
+
           if (eventName === 'start') {
             let startInfo: Partial<StreamStartInfo> = {}
             try {
@@ -155,6 +168,7 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
             } catch {
               /* malformed payload */
             }
+
             if (startInfo.conversationId && startInfo.assistantMessageId) {
               handlers.onStart?.({
                 conversationId: startInfo.conversationId,
@@ -163,22 +177,28 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
             }
             continue
           }
+
           if (payload) {
             try {
               const parsed = JSON.parse(payload) as SseDelta
-              if (typeof parsed.delta === 'string') handlers.onDelta(parsed.delta, false)
+              if (typeof parsed.delta === 'string') {
+                handlers.onDelta(parsed.delta, false)
+              }
             } catch {
               /* ignore malformed data frame */
             }
           }
         }
       }
+
       // Stream closed without an explicit done/error event.
       handlers.onDone()
     } catch (err) {
       if (controller.signal.aborted) return
+
       const fallback =
         err instanceof Error && err.message ? err.message : undefined
+
       handlers.onError({
         code: 'network_error',
         message: streamErrorMessage('network_error', fallback),
@@ -192,10 +212,15 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
 /**
  * POST /v1/chat/:conversationId/cancel — cancel the active generation.
  */
-export async function cancelGeneration(conversationId: string): Promise<{ messageId: string; status: string }> {
-  return request<{ messageId: string; status: string }>(`/v1/chat/${conversationId}/cancel`, {
-    method: 'POST',
-  })
+export async function cancelGeneration(
+  conversationId: string,
+): Promise<{ messageId: string; status: string }> {
+  return request<{ messageId: string; status: string }>(
+    `/v1/chat/${conversationId}/cancel`,
+    {
+      method: 'POST',
+    },
+  )
 }
 
 /**
@@ -219,7 +244,9 @@ export function retryStream(
           Accept: 'text/event-stream',
           'X-Request-ID': newRequestId(),
         }
+
         if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+
         return fetch(buildUrl(`/v1/chat/${conversationId}/retry`), {
           method: 'POST',
           headers,
@@ -234,11 +261,13 @@ export function retryStream(
           signal: controller.signal,
         })
       })
+
       if (!res) return
 
       if (!res.ok) {
         let code = 'unknown_error'
         let serverMessage = `Request failed with status ${res.status}`
+
         try {
           const errBody = await res.json()
           code = errBody.code ?? code
@@ -246,9 +275,14 @@ export function retryStream(
         } catch {
           /* non-JSON error body */
         }
-        handlers.onError({ code, message: streamErrorMessage(code, serverMessage) })
+
+        handlers.onError({
+          code,
+          message: streamErrorMessage(code, serverMessage),
+        })
         return
       }
+
       if (!res.body) {
         handlers.onError({
           code: 'no_stream',
@@ -264,6 +298,7 @@ export function retryStream(
       while (true) {
         const { value, done: eof } = await reader.read()
         if (eof) break
+
         buffer += decoder.decode(value, { stream: true })
 
         let sep: number
@@ -273,55 +308,70 @@ export function retryStream(
 
           let eventName = 'message'
           const dataLines: string[] = []
+
           for (const line of rawEvent.split('\n')) {
             if (line.startsWith('event:')) eventName = line.slice(6).trim()
             else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
           }
+
           const payload = dataLines.join('\n')
 
           if (eventName === 'done') {
             handlers.onDone()
             return
           }
+
           if (eventName === 'citations') {
             try {
               const parsed = JSON.parse(payload) as SseCitations
-              if (Array.isArray(parsed.sources)) handlers.onCitations?.(parsed.sources)
+              if (Array.isArray(parsed.sources)) {
+                handlers.onCitations?.(parsed.sources)
+              }
             } catch {
               /* ignore malformed citations frame */
             }
             continue
           }
+
           if (eventName === 'reasoning_delta') {
             try {
               const parsed = JSON.parse(payload) as SseReasoningDelta
-              if (typeof parsed.delta === 'string') handlers.onReasoningDelta?.(parsed.delta, false)
+              if (typeof parsed.delta === 'string') {
+                handlers.onReasoningDelta?.(parsed.delta, false)
+              }
             } catch {
               /* ignore malformed reasoning frame */
             }
             continue
           }
+
           if (eventName === 'error') {
             let parsed: Partial<SseError> = {}
+
             try {
               parsed = JSON.parse(payload) as SseError
             } catch {
               /* malformed payload */
             }
+
             const code = parsed.code ?? 'stream_error'
+
             handlers.onError({
               code,
               message: streamErrorMessage(code, parsed.message),
             })
             return
           }
+
           if (eventName === 'start') {
             let startInfo: Partial<StreamStartInfo> = {}
+
             try {
               startInfo = JSON.parse(payload) as Partial<StreamStartInfo>
             } catch {
               /* malformed payload */
             }
+
             if (startInfo.conversationId && startInfo.assistantMessageId) {
               handlers.onStart?.({
                 conversationId: startInfo.conversationId,
@@ -330,22 +380,28 @@ export function retryStream(
             }
             continue
           }
+
           if (payload) {
             try {
               const parsed = JSON.parse(payload) as SseDelta
-              if (typeof parsed.delta === 'string') handlers.onDelta(parsed.delta, false)
+              if (typeof parsed.delta === 'string') {
+                handlers.onDelta(parsed.delta, false)
+              }
             } catch {
               /* ignore malformed data frame */
             }
           }
         }
       }
+
       // Stream closed without an explicit done/error event.
       handlers.onDone()
     } catch (err) {
       if (controller.signal.aborted) return
+
       const fallback =
         err instanceof Error && err.message ? err.message : undefined
+
       handlers.onError({
         code: 'network_error',
         message: streamErrorMessage('network_error', fallback),
@@ -375,18 +431,22 @@ export function resumeStream(
           Accept: 'text/event-stream',
           'X-Request-ID': newRequestId(),
         }
+
         if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+
         return fetch(buildUrl(`/v1/chat/${conversationId}/resume`), {
           method: 'POST',
           headers,
           signal: controller.signal,
         })
       })
+
       if (!res) return
 
       if (!res.ok) {
         let code = 'unknown_error'
         let serverMessage = `Request failed with status ${res.status}`
+
         try {
           const errBody = await res.json()
           code = errBody.code ?? code
@@ -394,9 +454,14 @@ export function resumeStream(
         } catch {
           /* non-JSON error body */
         }
-        handlers.onError({ code, message: streamErrorMessage(code, serverMessage) })
+
+        handlers.onError({
+          code,
+          message: streamErrorMessage(code, serverMessage),
+        })
         return
       }
+
       if (!res.body) {
         handlers.onError({
           code: 'no_stream',
@@ -415,6 +480,7 @@ export function resumeStream(
       while (!done) {
         const { value, done: eof } = await reader.read()
         if (eof) break
+
         buffer += decoder.decode(value, { stream: true })
 
         let sep: number
@@ -424,28 +490,35 @@ export function resumeStream(
 
           let eventName = 'message'
           const dataLines: string[] = []
+
           for (const line of rawEvent.split('\n')) {
             if (line.startsWith('event:')) eventName = line.slice(6).trim()
             else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
           }
+
           const payload = dataLines.join('\n')
 
           if (eventName === 'done') {
             handlers.onDone()
             return
           }
+
           if (eventName === 'citations') {
             try {
               const parsed = JSON.parse(payload) as SseCitations
-              if (Array.isArray(parsed.sources)) handlers.onCitations?.(parsed.sources)
+              if (Array.isArray(parsed.sources)) {
+                handlers.onCitations?.(parsed.sources)
+              }
             } catch {
               /* ignore malformed citations frame */
             }
             continue
           }
+
           if (eventName === 'reasoning_delta') {
             try {
               const parsed = JSON.parse(payload) as SseReasoningDelta
+
               if (typeof parsed.delta === 'string') {
                 // As with answer text, the first reasoning frame on resume is
                 // the full accumulated summary, so it replaces what the client
@@ -459,23 +532,29 @@ export function resumeStream(
             }
             continue
           }
+
           if (eventName === 'error') {
             let parsed: Partial<SseError> = {}
+
             try {
               parsed = JSON.parse(payload) as SseError
             } catch {
               /* malformed payload */
             }
+
             const code = parsed.code ?? 'stream_error'
+
             handlers.onError({
               code,
               message: streamErrorMessage(code, parsed.message),
             })
             return
           }
+
           if (payload) {
             try {
               const parsed = JSON.parse(payload) as SseDelta
+
               if (typeof parsed.delta === 'string') {
                 // First delta from resume is the full accumulated text from the
                 // backend — replace current content rather than append to avoid
@@ -493,12 +572,15 @@ export function resumeStream(
           }
         }
       }
+
       // Stream closed without an explicit done/error event.
       handlers.onDone()
     } catch (err) {
       if (controller.signal.aborted) return
+
       const fallback =
         err instanceof Error && err.message ? err.message : undefined
+
       handlers.onError({
         code: 'network_error',
         message: streamErrorMessage('network_error', fallback),

@@ -8,6 +8,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Conversation } from './conversation.entity';
+import { FileRecord } from '../../files/entities/file.entity';
 import { MessageStatus } from '../conversations.types';
 import type { CitationSource } from '../../web-search/web-search.types';
 
@@ -25,6 +26,17 @@ export class Message {
   @JoinColumn({ name: 'conversation_id' })
   conversation!: Conversation;
 
+  @Column({ name: 'file_id', type: 'text', nullable: true })
+  fileId!: string | null;
+
+  @ManyToOne(() => FileRecord, {
+    nullable: true,
+    eager: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'file_id' })
+  file!: FileRecord | null;
+
   @Column({ type: 'text' })
   role!: 'user' | 'assistant';
 
@@ -38,11 +50,19 @@ export class Message {
   status!: MessageStatus;
 
   /** Web-search sources cited by this assistant message (empty for normal turns). */
-  @Column({ name: 'citations', type: 'jsonb', default: () => "'[]'::jsonb" })
+  @Column({
+    name: 'citations',
+    type: 'jsonb',
+    default: () => "'[]'::jsonb",
+  })
   citations!: CitationSource[];
 
   /** True when the user enabled reasoning for this turn. */
-  @Column({ name: 'reasoning_enabled', type: 'boolean', default: false })
+  @Column({
+    name: 'reasoning_enabled',
+    type: 'boolean',
+    default: false,
+  })
   reasoningEnabled!: boolean;
 
   /**

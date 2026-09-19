@@ -10,6 +10,7 @@ import {
   PhSignOut,
   PhChatsCircle,
   PhUserGear,
+  PhGear,
 } from '@phosphor-icons/vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import ConversationGroups from '@/components/chat/ConversationGroups.vue'
@@ -188,21 +189,24 @@ function startDelete(id: string): void {
 async function onConfirmDelete(): Promise<void> {
   const id = deletingId.value
   if (!id) return
+
   deleteBusy.value = true
+
   try {
     await deleteConversation(id)
     items.value = items.value.filter((c) => c.id !== id)
     deletingId.value = null
+
     // Keep the persisted last-conversation id from pointing at a deleted
     // row — otherwise the next reload 404-loops on it.
     if (chat.loadSavedConversationId() === id) chat.clearSavedConversationId()
+
     if (activeId.value === id) {
       closeMobile()
       emit('navigate')
       await router.push({ name: 'chat' })
     }
   } catch {
-    /* surface by refreshing; deleted row simply remains if the call failed */
     await refresh()
   } finally {
     deleteBusy.value = false
@@ -211,26 +215,25 @@ async function onConfirmDelete(): Promise<void> {
 
 onMounted(refresh)
 
-// بستن فلای‌اوت با کلیک بیرون یا Esc (لمسی/کیبورد)
 function bindFlyoutDismiss(): void {
   document.addEventListener('pointerdown', onDocPointerDown)
   document.addEventListener('keydown', onFlyoutKeydown)
   document.addEventListener('pointerdown', onDocPointerDownUserMenu)
 }
+
 function unbindFlyoutDismiss(): void {
   document.removeEventListener('pointerdown', onDocPointerDown)
   document.removeEventListener('keydown', onFlyoutKeydown)
   document.removeEventListener('pointerdown', onDocPointerDownUserMenu)
 }
+
 onMounted(bindFlyoutDismiss)
 onUnmounted(unbindFlyoutDismiss)
 
-// وقتی ریل بسته شد، فلای‌اوت را ببند.
 watch(rail, (open) => {
   if (!open) closeFlyout()
 })
 
-// بستن منوی کاربر هنگام ناوبری
 watch(
   () => route.fullPath,
   () => {
@@ -238,7 +241,6 @@ watch(
   },
 )
 
-// بعد از بازگشت به /chat یا تغییر گفتگو، لیست را تازه نگه دار.
 watch(
   () => [route.name, activeId.value],
   () => {
@@ -270,9 +272,9 @@ watch(
         <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft">
           <PhChatCircleText class="size-4.5 text-primary" aria-hidden="true" />
         </span>
-        <span v-if="!rail" class="truncate text-sm font-semibold text-ink">چت‌بات چند مدله</span>
+        <span v-if="!rail" class="truncate text-sm font-semibold text-ink">Nova AI</span>
       </RouterLink>
-      <!-- جمع‌کردن (حالت باز) / بازکردن (حالت ریل) -->
+
       <button
         type="button"
         class="ms-auto hidden size-8 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink lg:inline-flex"
@@ -281,6 +283,7 @@ watch(
       >
         <PhList class="size-4" aria-hidden="true" />
       </button>
+
       <button
         type="button"
         class="ms-auto size-8 inline-flex cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink lg:hidden"
@@ -351,6 +354,7 @@ watch(
       <div v-if="loading && items.length === 0" class="flex flex-col gap-1.5 px-1">
         <div v-for="i in 5" :key="i" class="h-9 animate-pulse rounded-lg bg-elevated" />
       </div>
+
       <ConversationGroups
         v-else
         :items="items"
@@ -362,20 +366,9 @@ watch(
       />
     </nav>
 
-    <!-- فوتر: حالت مدیر، کاربر (منوی پروفایل/خروج) -->
+    <!-- فوتر: فقط منوی کاربر (پروفایل / تنظیمات مدیر / خروج) -->
     <div class="mt-auto shrink-0 border-t border-line/70 p-2">
-      <RouterLink
-        v-if="auth.isAdmin"
-        to="/admin/provider"
-        class="flex h-9 cursor-pointer items-center justify-center gap-2 rounded-lg text-[13px] text-ink-muted transition-colors hover:bg-hover hover:text-ink lg:justify-start"
-        @click="closeMobile"
-      >
-        <span class="min-w-9 flex justify-center"><PhList class="size-4" aria-hidden="true" /></span>
-        <span v-if="!rail">حالت مدیر</span>
-      </RouterLink>
-
-      <!-- ردیف کاربر + منو -->
-      <div ref="userMenuRoot" class="relative mt-1">
+      <div ref="userMenuRoot" class="relative">
         <button
           type="button"
           class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1.5 text-start transition-colors hover:bg-hover"
@@ -388,14 +381,19 @@ watch(
           <span class="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-elevated">
             <UserAvatar :value="auth.user ? avatarValueFor(auth.user) : 'anonymous'" :size="28" />
           </span>
-          <span v-if="!rail" class="min-w-0 flex-1 truncate text-xs text-ink-muted" :dir="auth.user?.displayName ? undefined : 'ltr'">
+
+          <span
+            v-if="!rail"
+            class="min-w-0 flex-1 truncate text-xs text-ink-muted"
+            :dir="auth.user?.displayName ? undefined : 'ltr'"
+          >
             {{ profileLabel }}
           </span>
         </button>
 
         <div
           v-if="userMenuOpen"
-          class="absolute bottom-full start-0 z-50 mb-2 w-48 rounded-xl border border-line bg-surface p-1.5 shadow-2xl"
+          class="absolute bottom-full start-0 z-50 mb-2 w-52 rounded-xl border border-line bg-surface p-1.5 shadow-2xl"
           role="menu"
           @keydown="onUserMenuKeydown"
         >
@@ -408,9 +406,22 @@ watch(
             <PhUserGear class="size-4 shrink-0" aria-hidden="true" />
             <span>ویرایش پروفایل</span>
           </button>
+
+          <!-- ✨ تنظیمات مدیر: فقط برای کاربران ادمین نمایش داده می‌شود -->
+          <RouterLink
+            v-if="auth.isAdmin"
+            to="/admin/provider"
+            class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-ink transition-colors hover:bg-hover"
+            role="menuitem"
+            @click="userMenuOpen = false"
+          >
+            <PhGear class="size-4 shrink-0 text-accent" aria-hidden="true" />
+            <span>تنظیمات مدیر</span>
+          </RouterLink>
+
           <button
             type="button"
-            class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-start text-sm text-danger transition-colors hover:bg-danger-soft"
+            class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start text-sm text-danger transition-colors hover:bg-danger-soft"
             role="menuitem"
             @click="onMenuSignOut"
           >

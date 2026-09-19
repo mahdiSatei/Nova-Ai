@@ -1,6 +1,4 @@
 <script setup lang="ts">
-// لیست ترنسکریپت: پیام‌های قطعی + پیام کاربر pending + بافر در حال استریم.
-// هر ردیف با ChatMessage رندر می‌شود (Markdown برای دستیار، حباب برای کاربر).
 import { computed } from 'vue'
 import ChatMessage from '@/components/chat/ChatMessage.vue'
 import type { CitationSource, MessagePublic, MessageStatus, SearchPhase } from '@/types/api'
@@ -36,6 +34,7 @@ interface Row {
   createdAt: string | null
   streaming: boolean
   pending: boolean
+  file?: MessagePublic['file'] | null
   status: MessageStatus
   showRecovery: boolean
   recoveryStatus: GenerationStatus | null
@@ -66,6 +65,7 @@ const rows = computed<Row[]>(() => {
       createdAt: m.createdAt,
       streaming: isActiveStreaming,
       pending: false,
+      file: m.file, // ✨ فایل پیوست پیام
       status: m.status,
       showRecovery: streamNeedsRecovery || m.status === 'failed' || m.status === 'cancelled',
       recoveryStatus: m.status as GenerationStatus,
@@ -87,6 +87,7 @@ const rows = computed<Row[]>(() => {
       createdAt: props.pendingUser.createdAt,
       streaming: false,
       pending: Boolean(props.isStreaming),
+      file: props.pendingUser.file, // ✨ فایل پیوست پیام موقت
       status: 'completed',
       showRecovery: false,
       recoveryStatus: null,
@@ -137,6 +138,7 @@ const rows = computed<Row[]>(() => {
       :created-at="row.createdAt"
       :streaming="row.streaming"
       :pending="row.pending"
+      :file="row.file"
       :status="row.status"
       :show-recovery="row.showRecovery"
       :recovery-status="row.recoveryStatus"

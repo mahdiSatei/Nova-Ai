@@ -11,6 +11,7 @@ import { ProviderModule } from '../provider/provider.module';
 import { UsageModule } from '../usage/usage.module';
 import { QuotasModule } from '../quotas/quotas.module';
 import { WebSearchModule } from '../web-search/web-search.module';
+import { FilesModule } from '../files/files.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { WebSearchModule } from '../web-search/web-search.module';
     UsageModule,
     QuotasModule,
     WebSearchModule,
+    FilesModule,
   ],
   controllers: [ChatController],
   providers: [ChatService],
