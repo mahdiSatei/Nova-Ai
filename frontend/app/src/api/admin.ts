@@ -68,8 +68,16 @@ export interface AdminFileRecord {
   userId: string;
 }
 
-export async function listAdminFiles(limit = 50, offset = 0): Promise<AdminFileRecord[]> {
+export async function listAdminFiles(
+  limit = 50,
+  offset = 0,
+  filters: { status?: string; mimeType?: string; userId?: string } = {}
+): Promise<AdminFileRecord[]> {
   return request<AdminFileRecord[]>(`/v1/admin/files`, {
-    query: { limit: String(limit), offset: String(offset) }
+    query: {
+      limit: String(limit),
+      offset: String(offset),
+      ...filters,
+    }
   })
 }

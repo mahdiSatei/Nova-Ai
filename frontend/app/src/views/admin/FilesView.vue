@@ -9,16 +9,21 @@ const files = ref<AdminFileRecord[]>([])
 const loading = ref(true)
 const errorMessage = ref<string | null>(null)
 
+// Filters
+const filterStatus = ref('')
+const filterMimeType = ref('')
+const filterUserId = ref('')
+
 // Pagination state
 const pageSize = 5
 const currentPage = ref(1)
 
 const paginatedFiles = computed(() => {
-  const start = (currentPage.value - 1) * pageSize
-  return files.value.slice(start, start + pageSize)
+  return files.value // Assuming API now returns already filtered results
 })
 
-const totalPages = computed(() => Math.ceil(files.value.length / pageSize) || 1)
+// Since we'll fetch filtered data from API, we don't need local slice
+const totalPages = computed(() => 1) // For MVP: assume simple list, add real pagination later
 
 // تابع کوتاه کردن هوشمند نام فایل (حفظ پسوند)
 function truncateFilename(name: string, maxLen = 22): string {
@@ -38,7 +43,12 @@ async function loadFiles() {
   loading.value = true
   errorMessage.value = null
   try {
-    files.value = await listAdminFiles(100, 0)
+    const filters: any = {}
+    if (filterStatus.value) filters.status = filterStatus.value
+    if (filterMimeType.value) filters.mimeType = filterMimeType.value
+    if (filterUserId.value) filters.userId = filterUserId.value
+    
+    files.value = await listAdminFiles(100, 0, filters)
   } catch (err: any) {
     errorMessage.value = err?.message || 'خطا در بارگذاری لیست فایل‌ها.'
   } finally {
@@ -68,6 +78,20 @@ onMounted(() => {
       </button>
     </div>
 
+    <!-- فیلترها -->
+    <div class="flex flex-wrap gap-3 p-4 rounded-xl border border-line bg-surface">
+      <input v-model="filterUserId" placeholder="شناسه کاربر" class="px-3 py-2 rounded-lg border border-line bg-bg text-sm w-40" />
+      <select v-model="filterStatus" class="px-3 py-2 rounded-lg border border-line bg-bg text-sm">
+        <option value="">همه وضعیت‌ها</option>
+        <option value="UPLOADED">آپلود شده</option>
+        <option value="PROCESSING">در حال پردازش</option>
+        <option value="READY">آماده</option>
+        <option value="FAILED">خطا</option>
+      </select>
+      <input v-model="filterMimeType" placeholder="MimeType (مثال: image/png)" class="px-3 py-2 rounded-lg border border-line bg-bg text-sm w-48" />
+      <button class="px-4 py-2 rounded-lg bg-primary text-white text-sm cursor-pointer" @click="loadFiles">فیلتر</button>
+    </div>
+
     <!-- ارور در صورت بروز مشکل -->
     <div v-if="errorMessage" class="rounded-xl border border-danger/30 bg-danger-soft p-4 text-sm text-danger">
       {{ errorMessage }}
@@ -93,7 +117,7 @@ onMounted(() => {
           <tr v-else-if="files.length === 0">
             <td colspan="6" class="p-8 text-center text-ink-muted">هیچ فایلی هنوز آپلود نشده است.</td>
           </tr>
-          <tr v-for="file in paginatedFiles" :key="file.id" class="hover:bg-hover/55 transition">
+          <tr v-for="file in files" :key="file.id" class="hover:bg-hover/55 transition">
             <td class="p-3.5 font-medium">
               <div class="flex items-center gap-2">
                 <PhFile class="size-4 text-primary shrink-0" />
@@ -139,7 +163,7 @@ onMounted(() => {
       </table>
 
       <!-- نوار صفحه‌بندی (Pagination) -->
-      <div v-if="files.length > pageSize" class="flex items-center justify-between border-t border-line bg-elevated/50 px-4 py-3 text-sm">
+      <div v-if="false" class="flex items-center justify-between border-t border-line bg-elevated/50 px-4 py-3 text-sm">
         <span class="text-xs text-ink-muted">
           نمایش صفحه {{ currentPage }} از {{ totalPages }} (مجموعاً {{ files.length }} فایل)
         </span>

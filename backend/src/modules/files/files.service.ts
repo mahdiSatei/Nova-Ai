@@ -62,11 +62,21 @@ export class FilesService {
     await this.repo.save(record);
   }
 
-  findAllAdmin(limit = 20, offset = 0): Promise<FileRecord[]> {
-  return this.repo.find({
+  findAllAdmin(
+    limit = 20,
+    offset = 0,
+    filters?: { status?: FileStatus; mimeType?: string; userId?: string },
+  ): Promise<FileRecord[]> {
+    const where: any = {};
+    if (filters?.status) where.status = filters.status;
+    if (filters?.mimeType) where.mimeType = filters.mimeType;
+    if (filters?.userId) where.userId = filters.userId;
+
+    return this.repo.find({
+      where,
       order: { createdAt: 'DESC' },
       take: limit,
-      skip: offset
+      skip: offset,
     });
   }
 }
