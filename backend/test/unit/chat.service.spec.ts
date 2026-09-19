@@ -4,6 +4,8 @@ import { ChatService, ChatDeltaEvent, ChatDoneEvent, ChatErrorEvent } from '../.
 import { ModelsService } from '../../src/modules/models/models.service';
 import { OpenAICompatibleClient } from '../../src/modules/chat/provider/openai-compatible.client';
 import { ConversationsService } from '../../src/modules/conversations/conversations.service';
+import { FilesService } from '../../src/modules/files/files.service';
+import { FileContentService, FileParseError } from '../../src/modules/files/file-content.service';
 import { User } from '../../src/modules/users/entities/user.entity';
 
 describe('ChatService', () => {
@@ -29,6 +31,12 @@ describe('ChatService', () => {
   let userRepo: {
     update: jest.Mock;
   };
+  let files: {
+    findOwned: jest.Mock;
+  };
+  let fileContent: {
+    buildAttachmentContext: jest.Mock;
+  };
 
   beforeEach(async () => {
     models = { resolveActiveModel: jest.fn() };
@@ -48,6 +56,8 @@ describe('ChatService', () => {
       cancelGeneration: jest.fn(),
     };
     userRepo = { update: jest.fn() };
+    files = { findOwned: jest.fn() };
+    fileContent = { buildAttachmentContext: jest.fn() };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -55,6 +65,8 @@ describe('ChatService', () => {
         { provide: ModelsService, useValue: models },
         { provide: OpenAICompatibleClient, useValue: providerClient },
         { provide: ConversationsService, useValue: conversations },
+        { provide: FilesService, useValue: files },
+        { provide: FileContentService, useValue: fileContent },
         { provide: getRepositoryToken(User), useValue: userRepo },
       ],
     }).compile();
@@ -236,6 +248,103 @@ describe('ChatService', () => {
 
       // The turn's user message is persisted so it survives reloads.
       expect(conversations.appendUserMessage).toHaveBeenCalledWith('conv-2', 'Follow-up');
+    });
+  });
+
+  // ─── file attachments (Phase 3) ───────────────────────────────────────
+
+  describe('file attachment', () => {
+    const setupStream = () => {
+      models.resolveActiveModel.mockResolvedValue({
+        id: 'm1',
+        actualName: 'gpt-4o',
+        enabled: true,
+        isDefault: true,
+      } as any);
+      conversations.create.mockReturnValue({ id: 'conv-9', messages: [] });
+      providerClient.stream.mockResolvedValue(
+        (async function* () {
+          yield { choices: [{ delta: { content: 'answer' } }] } as any;
+        })(),
+      );
+    };
+
+    const record = {
+      id: 'file-1',
+      userId: 'user-1',
+      originalName: 'report.pdf',
+      mimeType: 'application/pdf',
+      fileKey: 'k.pdf',
+      status: 'UPLOADED',
+    } as any;
+
+    function collect(obs: ReturnType<ChatService['streamChat']>): Promise<any[]> {
+      return new Promise((resolve) => {
+        const events: any[] = [];
+        void obs.subscribe({ next: (e) => events.push(e), complete: () => resolve(events) });
+      });
+    }
+
+    it('augments only the last provider message with the file context', async () => {
+      setupStream();
+      files.findOwned.mockResolvedValue(record);
+      fileContent.buildAttachmentContext.mockResolvedValue('[Attached file: report.pdf]\nPDF TEXT\n[/Attached file]\n\n');
+
+      const events = await collect(svc.streamChat('user-1', { message: 'Summarize this', fileId: 'file-1' }));
+
+      expect(files.findOwned).toHaveBeenCalledWith('file-1', 'user-1');
+      expect(fileContent.buildAttachmentContext).toHaveBeenCalledWith(record);
+      expect(providerClient.stream).toHaveBeenCalledWith({
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'user',
+            content: '[Attached file: report.pdf]\nPDF TEXT\n[/Attached file]\n\nSummarize this',
+          },
+        ],
+      });
+      // Persisted history stays clean — no file text in the message record.
+      expect(conversations.create).toHaveBeenCalledWith(
+        expect.objectContaining({ userMessage: 'Summarize this' }),
+      );
+      expect(events[events.length - 1]).toEqual({ type: 'done', data: {} });
+    });
+
+    it('emits file_not_found and skips the provider when the file id is unknown or foreign', async () => {
+      setupStream();
+      files.findOwned.mockResolvedValue(null);
+
+      const events = await collect(svc.streamChat('user-1', { message: 'hi', fileId: 'nope' }));
+
+      expect(events).toEqual([
+        { type: 'error', data: { code: 'file_not_found', message: expect.any(String) } },
+      ]);
+      expect(providerClient.stream).not.toHaveBeenCalled();
+      expect(conversations.create).not.toHaveBeenCalled();
+    });
+
+    it('emits file_unreadable and skips the provider when extraction fails', async () => {
+      setupStream();
+      files.findOwned.mockResolvedValue(record);
+      fileContent.buildAttachmentContext.mockRejectedValue(
+        new FileParseError('file_unreadable', 'corrupt pdf'),
+      );
+
+      const events = await collect(svc.streamChat('user-1', { message: 'hi', fileId: 'file-1' }));
+
+      expect(events).toEqual([
+        { type: 'error', data: { code: 'file_unreadable', message: expect.any(String) } },
+      ]);
+      expect(providerClient.stream).not.toHaveBeenCalled();
+      expect(conversations.create).not.toHaveBeenCalled();
+    });
+
+    it('ignores a blank fileId and behaves like a plain message', async () => {
+      setupStream();
+
+      await collect(svc.streamChat('user-1', { message: 'hi', fileId: '  ' }));
+
+      expect(files.findOwned).not.toHaveBeenCalled();
     });
   });
 

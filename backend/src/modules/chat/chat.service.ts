@@ -8,6 +8,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { ChatRequestDto } from './dto/chat-request.dto';
+import { FilesService } from '../files/files.service';
+import { FileContentService, FileParseError } from '../files/file-content.service';
+import { FileStatus } from '../files/entities/file.entity';
 
 /**
  * Event shapes emitted on the SSE stream.
@@ -104,6 +107,8 @@ export class ChatService {
     private readonly models: ModelsService,
     private readonly providerClient: OpenAICompatibleClient,
     private readonly conversations: ConversationsService,
+    private readonly files: FilesService,
+    private readonly fileContent: FileContentService,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
   ) {}
@@ -256,6 +261,69 @@ export class ChatService {
         return;
       }
 
+      // Resolve the attachment before persistence
+      let finalUserContent = dto.message;
+      let validFileId: string | null = null;
+
+      if (dto.fileId && dto.fileId.trim().length > 0) {
+        const file = await this.files.findOwned(dto.fileId, userId);
+        if (!file) {
+          if (isActive()) {
+            observer.next({
+              type: 'error',
+              data: {
+                code: 'file_not_found',
+                message: 'Attached file was not found.',
+              },
+            });
+          }
+          observer.complete();
+          return;
+        }
+
+        // Check if file is still processing
+        if (file.status === FileStatus.UPLOADED || file.status === FileStatus.PROCESSING) {
+          if (isActive()) {
+            observer.next({
+              type: 'error',
+              data: {
+                code: 'file_processing',
+                message: 'فایل هنوز در حال پردازش است. لطفاً چند لحظه بعد پیام را ارسال کنید.',
+              },
+            });
+          }
+          observer.complete();
+          return;
+        }
+
+        // Check for processing failure
+        if (file.status === FileStatus.FAILED) {
+          if (isActive()) {
+            observer.next({
+              type: 'error',
+              data: {
+                code: 'file_unreadable',
+                message: file.errorMessage || 'پردازش فایل پیوست با خطا مواجه شد.',
+              },
+            });
+          }
+          observer.complete();
+          return;
+        }
+
+        // File is ready
+        if (file.status === FileStatus.READY) {
+          validFileId = file.id;
+          if (file.extractedText) {
+            const context =
+              `[Attached file: ${file.originalName} (${file.mimeType})]\n` +
+              `${file.extractedText}\n` +
+              `[/Attached file]\n\n`;
+            finalUserContent = `${context}${dto.message}`;
+          }
+        }
+      }
+
       // Resolve or create conversation.
       let priorTurns: ChatMessage[];
       if (dto.conversationId) {
@@ -272,7 +340,7 @@ export class ChatService {
         }
         conversationId = existing.id;
 
-        // FR-6: Check for existing active generation (one active gen per conversation).
+        // FR-6: Check for existing active generation
         const existingStream = await this.conversations.findStreamingMessage(conversationId);
         if (existingStream) {
           if (isActive()) {
@@ -292,18 +360,17 @@ export class ChatService {
           (m) => ({ role: m.role as ChatMessage['role'], content: m.content }),
         );
 
-        // Persist this turn's user message. (The first user message of a
-        // conversation is persisted by `create`; subsequent turns must be
-        // saved here or they vanish from the transcript on reload.)
-        await this.conversations.appendUserMessage(conversationId, dto.message);
+        // Persist user message with fileId
+        await this.conversations.appendUserMessage(conversationId, dto.message, validFileId);
       } else {
         const conv = await this.conversations.create({
           userId,
           modelId: model.id,
           userMessage: dto.message,
+          fileId: validFileId,
         });
         conversationId = conv.id;
-        priorTurns = [{ role: 'user', content: dto.message }];
+        priorTurns = [];
       }
 
       this.updateUserLastSelectedModel(userId, model.id).catch(() => {
@@ -312,7 +379,7 @@ export class ChatService {
 
       const providerMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
         ...priorTurns,
-        { role: 'user', content: dto.message },
+        { role: 'user', content: finalUserContent },
       ];
 
       // ── create assistant message with status=streaming ───────────────
@@ -333,14 +400,12 @@ export class ChatService {
       assistantMessageId = assistantMessage.id;
       await this.conversations.updateMessageStatus(assistantMessageId, 'streaming');
 
-      // Tell the client the real conversation + assistant message ids so it
-      // can route deltas, cancellation, and retries correctly.
       observer.next({
         type: 'start',
         data: { conversationId, assistantMessageId },
       });
 
-      // ── consume phase (shared with the retry pipeline) ─────────────
+      // ── consume phase ─────────────
       await this.consumeAndFinalize({
         conversationId,
         assistantMessageId,
@@ -363,11 +428,6 @@ export class ChatService {
     }
   }
 
-  /**
-   * Open the provider stream, register it for reconnects/cancellation,
-   * consume all tokens, and finalize the assistant message
-   * (completed / cancelled / failed). Shared by send and retry.
-   */
   private async consumeAndFinalize(params: {
     conversationId: string;
     assistantMessageId: string;
@@ -398,9 +458,6 @@ export class ChatService {
       this.activeStreams.set(conversationId, state);
 
       if (this.pendingCancels.delete(assistantMessageId)) {
-        // A cancel landed between assistant-message creation and stream
-        // registration. Abort immediately without consuming; the DB row
-        // is already 'cancelled'.
         abortController.abort();
         this.broadcast(state, {
           type: 'error',
@@ -414,17 +471,12 @@ export class ChatService {
             if (delta) {
               fullResponse += delta;
               state.fullResponse += delta;
-              // Emit to all current subscribers (original + any reconnects).
               for (const sub of state.subscribers) {
                 sub({ data: { delta } });
               }
             }
           }
 
-          // Stream completed successfully — unless a concurrent cancel
-          // already marked the message cancelled. The conditional write
-          // makes that check atomic: a cancelled row is never
-          // resurrected to completed.
           const completed = await this.conversations.completeIfStreaming(
             assistantMessageId,
             fullResponse,
@@ -446,13 +498,8 @@ export class ChatService {
     } catch (err) {
       this.pendingCancels.delete(assistantMessageId);
       if (abortController.signal.aborted) {
-        // User-initiated cancellation: DB row is already 'cancelled' and
-        // subscribers were notified by cancelGeneration. Do not overwrite
-        // the status or emit a provider error.
         this.logger.debug(`Provider stream aborted for message ${assistantMessageId}`);
       } else {
-        // Surface the upstream cause (status, model id, SDK message) —
-        // "The model provider returned an error." alone is undebuggable.
         const status =
           typeof (err as { status?: number })?.status === 'number'
             ? (err as { status: number }).status
@@ -477,12 +524,6 @@ export class ChatService {
     }
   }
 
-  /**
-   * Run a retry generation for a failed/cancelled assistant message.
-   * Validates ownership and retryability, builds prior turns from the DB
-   * (excluding failed/cancelled rows), creates the new assistant row,
-   * and reuses the shared consume pipeline.
-   */
   private async runRetry(
     userId: string,
     conversationId: string,
@@ -538,7 +579,6 @@ export class ChatService {
         );
       }
 
-      // One active generation per conversation (FR-6).
       const existingStream = await this.conversations.findStreamingMessage(conversationId);
       if (existingStream) {
         return this.failStream(
@@ -549,16 +589,12 @@ export class ChatService {
         );
       }
 
-      // Prior turns from the DB. Failed/cancelled assistant rows carry no
-      // useful context and are excluded — including the retried target —
-      // so the transcript ends on the last good exchange.
       const priorTurns: ChatMessage[] = conversation.messages
         .filter((m) => m.status !== 'failed' && m.status !== 'cancelled')
         .map((m) => ({ role: m.role as ChatMessage['role'], content: m.content }));
 
       const providerMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [...priorTurns];
 
-      // ── create assistant message with status=streaming ─────────────
       const assistantMessage = await this.conversations.appendMessage(conversationId, '');
       if (!assistantMessage) {
         return this.failStream(observer, isActive, 'internal_error', 'Failed to create assistant message.');
@@ -593,23 +629,14 @@ export class ChatService {
     }
   }
 
-  /**
-   * Subscribe to an already-active stream for a conversation.
-   * Sends all accumulated content as individual delta events, then
-   * registers the subscriber to receive new tokens.
-   *
-   * Returns false if no active stream exists for the conversation.
-   */
   subscribeToActiveStream(conversationId: string, observer: { next: (e: ChatStreamEvent) => void }): boolean {
     const state = this.activeStreams.get(conversationId);
     if (!state) return false;
 
-    // Send accumulated content so the reconnecting client catches up.
     if (state.fullResponse.length > 0) {
       observer.next({ data: { delta: state.fullResponse } });
     }
 
-    // Register for future tokens.
     state.subscribers.add(observer.next.bind(observer));
     return true;
   }

@@ -26,6 +26,225 @@ tags:
     description: Liveness and readiness
 
 paths:
+  /v1/chat/stream:
+    post:
+      operationId: ChatController_stream
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequestDto"
+      responses:
+        "201":
+          description: ""
+  /v1/conversations:
+    get:
+      operationId: ConversationsController_list
+      parameters:
+        - name: limit
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: offset
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+  /v1/conversations/{id}:
+    get:
+      operationId: ConversationsController_get
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+    delete:
+      operationId: ConversationsController_delete
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "204":
+          description: ""
+  /v1/conversations/{id}/pin:
+    patch:
+      operationId: ConversationsController_pin
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PinConversationDto"
+      responses:
+        "200":
+          description: ""
+  /v1/models:
+    get:
+      operationId: ModelsPublicController_list
+      parameters: []
+      responses:
+        "200":
+          description: ""
+  /v1/admin/models:
+    get:
+      operationId: ModelsAdminController_list
+      parameters: []
+      responses:
+        "200":
+          description: ""
+    post:
+      operationId: ModelsAdminController_create
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelUpsertDto"
+      responses:
+        "201":
+          description: ""
+  /v1/admin/models/{id}:
+    patch:
+      operationId: ModelsAdminController_update
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelUpsertDto"
+      responses:
+        "200":
+          description: ""
+    delete:
+      operationId: ModelsAdminController_delete
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: migrateTo
+          required: false
+          in: query
+          description: Optional replacement model id. When present, all references to the
+            deleted model (conversations, user sticky picks, app default) are
+            re-pointed to it inside one verified transaction before deletion.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+  /v1/files/upload:
+    post:
+      operationId: FilesController_upload
+      parameters: []
+      responses:
+        "201":
+          description: ""
+  /v1/auth/register:
+    post:
+      operationId: AuthController_register
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequestDto"
+      responses:
+        "201":
+          description: ""
+  /v1/auth/login:
+    post:
+      operationId: AuthController_login
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequestDto"
+      responses:
+        "200":
+          description: ""
+  /v1/auth/refresh:
+    post:
+      operationId: AuthController_refresh
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequestDto"
+      responses:
+        "200":
+          description: ""
+  /v1/auth/logout:
+    post:
+      operationId: AuthController_logout
+      parameters: []
+      responses:
+        "204":
+          description: ""
+  /v1/admin/auth/login:
+    post:
+      operationId: AdminAuthController_login
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequestDto"
+      responses:
+        "200":
+          description: ""
+  /v1/users/me:
+    get:
+      operationId: UsersController_me
+      parameters: []
+      responses:
+        "200":
+          description: ""
+    patch:
+      operationId: UsersController_updateMe
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMeRequestDto"
+      responses:
+        "200":
+          description: ""
   /healthz:
     get:
       tags: [health]
