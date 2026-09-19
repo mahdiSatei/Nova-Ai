@@ -6,7 +6,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { generateTitle } from '../../utils/title-generator';
+
+// ... (keep existing imports)
 import { Conversation } from './entities/conversation.entity';
+
 import { Message } from './entities/message.entity';
 import { MessageStatus } from './conversations.types';
 
@@ -30,7 +34,7 @@ export class ConversationsService {
     const conversation = this.conversationRepo.create({
       userId: input.userId,
       modelId: input.modelId,
-      title: this.truncate(input.userMessage, 80),
+      title: generateTitle(input.userMessage),
     });
 
     const saved = await this.conversationRepo.save(conversation);
