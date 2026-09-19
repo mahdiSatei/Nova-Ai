@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // فاز ۸+ — مدیریت کلیدهای API چندگانه برای یک ارائه‌دهنده.
 import { ref, onMounted, watch } from 'vue'
-import { PhPlus, PhTrash, PhCheck, PhX } from '@phosphor-icons/vue'
+import { PhPlus, PhTrash, PhCheck, PhX, PhPower, PhKey } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
@@ -269,7 +269,7 @@ async function validateKey(key: ApiKeyAdmin): Promise<void> {
               :loading="validatingId === key.id"
               @click="validateKey(key)"
             >
-              <PhCheck class="size-4" :class="key.lastValidatedAt ? 'text-success' : 'text-ink-muted'" />
+              <PhKey class="size-4" :class="key.lastValidatedAt ? 'text-success' : 'text-ink-muted'" />
             </BaseButton>
             <BaseButton
               variant="ghost"
@@ -278,8 +278,8 @@ async function validateKey(key: ApiKeyAdmin): Promise<void> {
               :title="key.isActive ? 'غیرفعال کردن' : 'فعال کردن'"
               @click="toggleActive(key)"
             >
-              <PhCheck v-if="key.isActive" class="size-4 text-success" />
-              <PhX v-else class="size-4 text-ink-muted" />
+              <PhPower v-if="key.isActive" class="size-4 text-success" />
+              <PhPower v-else class="size-4 text-ink-muted" />
             </BaseButton>
             <BaseButton variant="ghost" size="sm" type="button" @click="startEdit(key)">
               <span class="text-xs">ویرایش</span>

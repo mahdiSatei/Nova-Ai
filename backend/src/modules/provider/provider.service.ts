@@ -91,6 +91,7 @@ export class ProviderService {
 
   async list(page = 1, pageSize = 20): Promise<{ items: ProviderAdmin[]; total: number; page: number; pageSize: number }> {
     const [rows, total] = await this.repo.findAndCount({
+      relations: ['apiKeys'],
       order: { name: 'ASC' },
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -349,19 +350,35 @@ export class ProviderService {
     }
   }
 
+  /** Per-provider round-robin counter (in-memory; resets on restart). */
+  private readonly roundRobinCounters = new Map<string, number>();
+
   /**
-   * Get a random active API key for a provider.
-   * Falls back to the legacy apiKeyEncrypted if no keys in provider_api_keys.
+   * Select an API key for a provider. If `preferredApiKeyId` is set and
+   * matches an active key, use it; otherwise rotate through active keys
+   * in round-robin order. Falls back to the legacy key when no keys exist
+   * in `provider_api_keys`.
    */
-  async getRandomActiveApiKey(providerId: string): Promise<string> {
+  async selectApiKey(providerId: string, preferredApiKeyId?: string | null): Promise<string> {
     const activeKeys = await this.apiKeyRepo.find({
       where: { providerId, isActive: true },
     });
 
     if (activeKeys.length > 0) {
-      // Random selection for basic load balancing
-      const randomIndex = Math.floor(Math.random() * activeKeys.length);
-      const selectedKey = activeKeys[randomIndex];
+      let selectedKey: ProviderApiKey | undefined;
+
+      // Try the preferred key first
+      if (preferredApiKeyId) {
+        selectedKey = activeKeys.find((k) => k.id === preferredApiKeyId);
+      }
+
+      // Round-robin if no preferred or preferred not found/active
+      if (!selectedKey) {
+        const counter = (this.roundRobinCounters.get(providerId) ?? 0) % activeKeys.length;
+        selectedKey = activeKeys[counter];
+        this.roundRobinCounters.set(providerId, counter + 1);
+      }
+
       try {
         return decrypt(selectedKey.apiKeyEncrypted);
       } catch {
@@ -417,12 +434,19 @@ export class ProviderService {
       await adapter.validate(tempProvider);
       key.lastValidatedAt = new Date();
       key.failureCount = 0;
-    } catch {
+      const saved = await this.apiKeyRepo.save(key);
+      return this.toApiKeyPublic(saved);
+    } catch (err) {
       key.failureCount = (key.failureCount || 0) + 1;
+      await this.apiKeyRepo.save(key);
+      if (err instanceof NormalizedProviderError) {
+        throw new HttpException({ code: err.code, message: err.message }, err.statusCode);
+      }
+      throw new UnprocessableEntityException({
+        code: 'api_key_invalid',
+        message: 'API key validation failed.',
+      });
     }
-
-    const saved = await this.apiKeyRepo.save(key);
-    return this.toApiKeyPublic(saved);
   }
 
   private toApiKeyPublic(key: ProviderApiKey): ApiKeyPublic {

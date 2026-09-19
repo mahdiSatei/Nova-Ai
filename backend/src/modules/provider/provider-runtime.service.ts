@@ -28,6 +28,9 @@ export interface ChatProviderInput {
 
 @Injectable()
 export class ProviderRuntimeService {
+  /** Per-provider round-robin counter (in-memory; resets on restart). */
+  private readonly roundRobinCounters = new Map<string, number>();
+
   constructor(
     private readonly models: ModelsService,
     @InjectRepository(Provider) private readonly providerRepo: Repository<Provider>,
@@ -54,16 +57,23 @@ export class ProviderRuntimeService {
     return { provider, adapter };
   }
 
-  async stream(connection: ProviderConnection, input: ChatProviderInput): Promise<AsyncIterable<ProviderStreamChunk>> {
-    // Select a random active API key for multi-key support
-    const apiKey = await this.providerService.getRandomActiveApiKey(connection.provider.id);
-    
+  /**
+   * Open a provider stream. If the model has a `preferredApiKeyId`, that
+   * specific key is used; otherwise keys are rotated in round-robin order
+   * across all active keys for the provider.
+   */
+  async stream(connection: ProviderConnection, input: ChatProviderInput, preferredApiKeyId?: string | null): Promise<AsyncIterable<ProviderStreamChunk>> {
+    const apiKey = await this.providerService.selectApiKey(
+      connection.provider.id,
+      preferredApiKeyId,
+    );
+
     // Create a modified provider with the selected key encrypted
     const providerWithKey = {
       ...connection.provider,
       apiKeyEncrypted: encrypt(apiKey),
     };
-    
+
     return connection.adapter.stream(providerWithKey, input);
   }
 }

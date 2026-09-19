@@ -1,4 +1,5 @@
 
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -931,6 +932,7 @@ export class ChatService {
                     model: effectiveModel.actualName,
                     messages,
                   },
+            effectiveModel.preferredApiKeyId,
           );
 
           state.providerStream = stream;
@@ -1244,7 +1246,8 @@ export class ChatService {
           await this.quotas
             .finalize(
               quotaId,
-              quotaReservedTokens + totalTokens,
+              quotaReservedTokens,
+              totalTokens,
             )
             .catch((err) => {
               this.logger.warn(

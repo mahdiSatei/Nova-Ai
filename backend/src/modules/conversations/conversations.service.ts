@@ -216,7 +216,7 @@ export class ConversationsService {
     if (!conversation) return false;
 
     if (conversation.userId !== requesterId) {
-      throw new ConflictException({
+      throw new ForbiddenException({
         code: 'forbidden',
         message: 'You do not own this conversation.',
       });

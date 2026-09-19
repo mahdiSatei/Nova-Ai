@@ -33,6 +33,8 @@ export interface CreateModelInput {
   enabled?: boolean;
   /** Model used when this model's provider fails (spec 006). One hop only. */
   fallbackModelId?: string | null;
+  /** Pin this model to a specific API key; null clears the pin. */
+  preferredApiKeyId?: string | null;
   /** Phase 8 — admin reasoning capability configuration. */
   reasoning?: ReasoningConfigInput;
 }
@@ -45,6 +47,8 @@ export interface UpdateModelInput {
   enabled?: boolean;
   /** `null` clears the fallback; absent leaves it untouched. */
   fallbackModelId?: string | null;
+  /** `null` clears the preferred key; absent leaves it untouched. */
+  preferredApiKeyId?: string | null;
   /** Phase 8 — admin reasoning capability configuration. */
   reasoning?: ReasoningConfigInput;
 }
@@ -237,6 +241,7 @@ export class ModelsService {
       enabled,
       isDefault: false,
       fallbackModelId: input.fallbackModelId ?? null,
+      preferredApiKeyId: input.preferredApiKeyId ?? null,
       reasoningConfig,
     });
     return this.repo.save(created);
@@ -299,6 +304,9 @@ export class ModelsService {
     await this.assertValidFallback(id, input.fallbackModelId);
     if (input.fallbackModelId !== undefined) {
       model.fallbackModelId = input.fallbackModelId;
+    }
+    if (input.preferredApiKeyId !== undefined) {
+      model.preferredApiKeyId = input.preferredApiKeyId;
     }
 
     const reasoningBase = readStoredReasoningConfig(model.reasoningConfig);

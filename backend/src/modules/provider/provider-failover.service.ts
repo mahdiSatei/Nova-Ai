@@ -148,7 +148,7 @@ export class ProviderFailoverService {
           const stream = await this.runtime.stream(connection, {
             model: candidate.actualName,
             messages: input.messages,
-          });
+          }, candidate.preferredApiKeyId);
 
           this.metrics.recordSuccess();
           if (index > 0) this.metrics.recordFallback();

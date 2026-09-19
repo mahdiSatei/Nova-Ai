@@ -2,7 +2,7 @@ import { IsString, IsInt, Min, IsOptional, IsIn } from 'class-validator';
 
 export class CreateQuotaRuleDto {
   @IsString()
-  @IsIn(['free', 'commercial', 'admin'])
+  @IsIn(['free', 'commercial'])
   tier!: string;
 
   @IsInt()

@@ -1,19 +1,22 @@
-import {
-  Column,
-  CreateDateColumn,
-  Entity,
-  Index,
-  JoinColumn,
-  ManyToOne,
-  PrimaryGeneratedColumn,
-} from 'typeorm'
-import { Conversation } from './conversation.entity'
-import { FileRecord } from '../../files/entities/file.entity'
-import { MessageStatus } from '../conversations.types'
-
 /** فاز ۳ — سطح دسترسی مدل و کاربر. */
 export type ModelVisibility = 'public' | 'commercial' | 'private'
 export type UserAccessTier = 'free' | 'commercial'
+
+/** Frontend-only mirror of the backend MessageStatus type. */
+export type MessageStatus = 'pending' | 'streaming' | 'completed' | 'failed' | 'cancelled'
+
+/** Frontend-only mirror of the backend Message.role type. */
+export type MessageRole = 'user' | 'assistant'
+
+export type Role = 'user' | 'admin'
+
+/** شکل خطا برگردانده‌شده توسط API. */
+export interface ApiErrorBody {
+  code?: string
+  message?: string
+  details?: Array<{ field: string; message: string }> | Record<string, unknown>
+  requestId?: string
+}
 
 export interface UserPublic {
   id: string
@@ -24,40 +27,6 @@ export interface UserPublic {
   role: Role
   createdAt: string
   lastLoginAt?: string | null
-}
-
-@Entity({ name: 'messages' })
-@Index('idx_msg_conv_created', ['conversationId', 'createdAt'])
-@Index('idx_msg_conv_status', ['conversationId', 'status'])
-export class Message {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string
-
-  @Column({ name: 'conversation_id', type: 'text' })
-  conversationId!: string
-
-  @ManyToOne(() => Conversation, (c) => c.messages, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'conversation_id' })
-  conversation!: Conversation
-
-  @Column({ name: 'file_id', type: 'text', nullable: true })
-  fileId!: string | null
-
-  @ManyToOne(() => FileRecord, { nullable: true, eager: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'file_id' })
-  file!: FileRecord | null
-
-  @Column({ type: 'text' })
-  role!: 'user' | 'assistant'
-
-  @Column({ type: 'text' })
-  content!: string
-
-  @CreateDateColumn({ name: 'created_at' })
-  createdAt!: Date
-
-  @Column({ name: 'status', type: 'text', default: 'completed' })
-  status!: MessageStatus
 }
 
 /** فاز ۸ — توان استدلال مؤثر مدل (ناشناخته در سمت سرور به «پشتیبانی نمی‌شود» تبدیل می‌شود). */
@@ -86,6 +55,10 @@ export interface ModelAdmin extends Omit<ModelPublic, 'reasoning'> {
   providerId: string
   visibility: ModelVisibility
   enabled: boolean
+  /** مدل جایگزین هنگام خرابی ارائه‌دهنده (یک‌پرش). */
+  fallbackModelId?: string | null
+  /** کلید API اختصاصی برای این مدل (خالی = چرخش بین کلیدها). */
+  preferredApiKeyId?: string | null
   createdAt: string
   updatedAt: string
   /** فاز ۸ — پیکربندی استدلال مدل از دید مدیر. */
@@ -135,12 +108,26 @@ export interface ModelUpsertRequest {
   providerId?: string
   visibility?: ModelVisibility
   enabled?: boolean
+  /** مدل جایگزین هنگام حذف (یک‌پرش). null پشتیبان را پاک می‌کند. */
+  fallbackModelId?: string | null
+  /** کلید API اختصاصی. null چرخش را فعال می‌کند. */
+  preferredApiKeyId?: string | null
   /** فاز ۸ — پیکربندی استدلال. */
   reasoning?: ModelReasoningRequest
 }
 
 export interface ModelList<T> {
   items: T[]
+}
+
+/** نتیجه حذف مدل با مهاجرت ارجاع‌ها. */
+export interface DeleteModelMigrationResult {
+  deleted: true
+  migrated: {
+    conversations: number
+    users: number
+    defaultSwitched: boolean
+  }
 }
 
 /** فاز ۳ — کاربر از دید مدیر (هیچ‌گاه شامل هش رمز نیست). */
@@ -172,8 +159,10 @@ export interface ProviderAdmin {
 }
 
 export interface ProviderUpdateRequest {
-  baseUrl: string
+  name?: string
+  baseUrl?: string
   apiKey?: string
+  isActive?: boolean
 }
 
 export interface ProviderList {
@@ -250,6 +239,8 @@ export interface ChatRequest {
   webSearch?: boolean
   /** فاز ۸ — استدلال برای این نوبت. */
   reasoning?: boolean
+  /** پیوست فایل — uuid آپلودشده. */
+  fileId?: string | null
 }
 
 export interface SseDelta {

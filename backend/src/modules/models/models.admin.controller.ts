@@ -55,6 +55,7 @@ export class ModelsAdminController {
       visibility: body.visibility,
       enabled: body.enabled,
       fallbackModelId: body.fallbackModelId,
+      preferredApiKeyId: body.preferredApiKeyId,
       reasoning: body.reasoning,
     });
     return this.toAdminShape(m);
@@ -69,6 +70,7 @@ export class ModelsAdminController {
       visibility: body.visibility,
       enabled: body.enabled,
       fallbackModelId: body.fallbackModelId,
+      preferredApiKeyId: body.preferredApiKeyId,
       reasoning: body.reasoning,
     });
     return this.toAdminShape(m);
@@ -146,6 +148,7 @@ export class ModelsAdminController {
       enabled: m.enabled,
       isDefault: m.isDefault,
       fallbackModelId: m.fallbackModelId ?? null,
+      preferredApiKeyId: m.preferredApiKeyId ?? null,
       reasoning: this.toReasoningShape(m),
       createdAt: m.createdAt.toISOString(),
       updatedAt: m.updatedAt.toISOString(),

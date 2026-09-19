@@ -189,7 +189,9 @@ describe('QuotaService', () => {
   });
 
   describe('finalize', () => {
-    it('adjusts token_used to actual', async () => {
+    it('corrects the estimate: currentUsed - reserved + actual', async () => {
+      // currentUsed=45500, reserved=500 (estimated), actual=350 (provider-reported)
+      // new tokenUsed = 45500 - 500 + 350 = 45350
       mockRepo.findOne.mockResolvedValue({
         id: 'q1',
         userId: 'user-1',
@@ -197,13 +199,13 @@ describe('QuotaService', () => {
         tokenUsed: 45500,
       } as Quota);
 
-      await service.finalize('q1', 45150);
-      expect(mockRepo.update).toHaveBeenCalledWith('q1', { tokenUsed: 45150 });
+      await service.finalize('q1', 500, 350);
+      expect(mockRepo.update).toHaveBeenCalledWith('q1', { tokenUsed: 45350 });
     });
 
     it('does nothing if no quota found', async () => {
       mockRepo.findOne.mockResolvedValue(null);
-      await service.finalize('nonexistent', 100);
+      await service.finalize('nonexistent', 100, 50);
       expect(mockRepo.update).not.toHaveBeenCalled();
     });
   });

@@ -41,9 +41,14 @@ export class QuotaService {
    * always see their balance before their first request.
    */
   async getForUser(userId: string): Promise<QuotaSnapshot | null> {
+    // If the user no longer exists (deleted after JWT issuance),
+    // creating a quota row would violate the foreign-key constraint.
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) return null;
+
     let quota = await this.repo.findOne({ where: { userId } });
     if (!quota) {
-      const tokenLimit = await this.resolveTokenLimit(userId);
+      const tokenLimit = await this.resolveTokenLimitForUser(user);
       quota = await this.repo.save(
         this.repo.create({ userId, tokenLimit, tokenUsed: 0 }),
       );
@@ -66,7 +71,8 @@ export class QuotaService {
     let quota = await this.repo.findOne({ where: { userId } });
 
     if (!quota) {
-      const tokenLimit = await this.resolveTokenLimit(userId);
+      const user = await this.userRepo.findOne({ where: { id: userId } });
+      const tokenLimit = await this.resolveTokenLimitForUser(user);
       quota = this.repo.create({ userId, tokenLimit, tokenUsed: 0 });
       quota = await this.repo.save(quota);
     }
@@ -120,8 +126,7 @@ export class QuotaService {
    * quota rules: admins are unlimited (0), otherwise the rule for the user's
    * access tier applies.
    */
-  private async resolveTokenLimit(userId: string): Promise<number> {
-    const user = await this.userRepo.findOne({ where: { id: userId } });
+  private async resolveTokenLimitForUser(user: User | null): Promise<number> {
     if (user?.role === 'admin') return 0;
 
     const tier = user?.accessTier ?? 'free';
@@ -129,13 +134,26 @@ export class QuotaService {
     return rule ? Number(rule.tokenLimit) : FALLBACK_TOKEN_LIMIT;
   }
 
-  async finalize(quotaId: string, actualTokens: number): Promise<void> {
+  /**
+   * Finalize a reservation: replace the estimated increment with the actual
+   * token count for this request. `reservedTokens` is what was atomically
+   * added by `checkAndReserve`; `actualTokens` is the provider-reported
+   * total. The new value is:
+   *     currentUsed − reservedTokens + actualTokens
+   * i.e. undo the estimate and apply the real count.
+   */
+  async finalize(
+    quotaId: string,
+    reservedTokens: number,
+    actualTokens: number,
+  ): Promise<void> {
     const quota = await this.repo.findOne({ where: { id: quotaId } });
     if (!quota) return;
 
     const currentUsed = Number(quota.tokenUsed);
-    if (actualTokens !== currentUsed) {
-      await this.repo.update(quotaId, { tokenUsed: actualTokens });
+    const corrected = Math.max(0, currentUsed - reservedTokens + actualTokens);
+    if (corrected !== currentUsed) {
+      await this.repo.update(quotaId, { tokenUsed: corrected });
     }
   }
 

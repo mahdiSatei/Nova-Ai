@@ -59,6 +59,13 @@ export class Model {
    * the automatically discovered capability and the admin's manual override, so
    * re-running discovery never destroys what an admin typed.
    */
+  /**
+   * Optional: use a specific API key for this model instead of rotating.
+   * Null means round-robin through all active keys for the provider.
+   */
+  @Column({ name: 'preferred_api_key_id', type: 'text', nullable: true })
+  preferredApiKeyId!: string | null;
+
   @Column({ name: 'reasoning_config', type: 'jsonb', default: () => `'{}'::jsonb` })
   reasoningConfig!: StoredReasoningConfig;
 

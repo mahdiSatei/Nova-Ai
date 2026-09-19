@@ -2,8 +2,11 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  JoinColumn,
+  ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import { User } from '../../users/entities/user.entity';
 
 export enum FileStatus {
   UPLOADED = 'UPLOADED',
@@ -24,8 +27,12 @@ export class FileRecord {
   mimeType!: string;
 
   /** Owning user; stamped at upload from the auth context. */
-  @Column({ name: 'user_id', type: 'text', default: '' })
+  @Column({ name: 'user_id', type: 'text' })
   userId!: string;
+
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'user_id' })
+  user!: User;
 
   @Column({ type: 'integer' })
   size!: number;

@@ -29,10 +29,15 @@ import { map } from 'rxjs/operators';
  * Note: Nest's SseStream serializes the event name from the `type`
  * property of each emitted object (`event` is dropped).
  */
+/**
+ * Map a typed ChatStreamEvent to the wire shape NestJS expects.
+ *
+ * NestJS's SseStream reads the event name from `type` on each emitted object.
+ * The ChatStreamEvent union already uses `type` for this purpose, so we just
+ * ensure the shape is a plain Record — no rewriting needed.
+ */
 function toSseMessage(e: ChatStreamEvent): Record<string, unknown> {
-  const source = e as unknown as { event?: string } & Record<string, unknown>;
-  const { event, ...rest } = source;
-  return { ...rest, type: event };
+  return e as unknown as Record<string, unknown>;
 }
 
 @Controller('v1/chat')

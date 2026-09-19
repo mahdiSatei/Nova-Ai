@@ -90,6 +90,15 @@ export class ModelUpsertDto {
   @IsUUID()
   fallbackModelId?: string | null;
 
+  /**
+   * Optional: pin this model to a specific API key. `null` clears the pin
+   * and reverts to round-robin rotation across active keys.
+   */
+  @IsOptional()
+  @ValidateIf((o: ModelUpsertDto) => o.preferredApiKeyId !== null)
+  @IsUUID()
+  preferredApiKeyId?: string | null;
+
   /** Reasoning capability configuration. Absent leaves it untouched. */
   @IsOptional()
   @ValidateNested()
