@@ -203,6 +203,24 @@ paths:
           in: query
           schema:
             type: string
+<<<<<<< HEAD
+=======
+        - name: status
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: mimeType
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: userId
+          required: true
+          in: query
+          schema:
+            type: string
+>>>>>>> develop
       responses:
         "200":
           description: ""

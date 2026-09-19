@@ -63,15 +63,24 @@ export interface AdminFileRecord {
   originalName: string;
   mimeType: string;
   size: number;
-  status: 'uploaded' | 'processing' | 'ready' | 'failed';
+  status: 'UPLOADED' | 'PROCESSING' | 'READY' | 'FAILED';
   errorMessage: string | null;
   createdAt: string;
   userId: string;
+  username: string; // فیلد جدید
 }
 
-export async function listAdminFiles(limit = 50, offset = 0): Promise<AdminFileRecord[]> {
-  return request<AdminFileRecord[]>(`/v1/admin/files`, {
-    query: { limit: String(limit), offset: String(offset) }
+export async function listAdminFiles(
+  limit = 50,
+  offset = 0,
+  filters: { status?: string; mimeType?: string; userId?: string } = {}
+): Promise<{ items: AdminFileRecord[]; total: number }> {
+  return request<{ items: AdminFileRecord[]; total: number }>(`/v1/admin/files`, {
+    query: {
+      limit: String(limit),
+      offset: String(offset),
+      ...filters,
+    }
   })
 }
 

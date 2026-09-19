@@ -39,7 +39,7 @@ async function onSubmit(): Promise<void> {
 
   submitting.value = true
   try {
-    const user = await auth.login({ identifier: form.identifier.trim(), password: form.password })
+    const user = await auth.adminLogin({ identifier: form.identifier.trim(), password: form.password })
     if (user.role !== 'admin') {
       submitError.value = { message: 'دسترسی غیرمجاز. این پنل فقط مخصوص مدیران است.' }
       await auth.signOut()

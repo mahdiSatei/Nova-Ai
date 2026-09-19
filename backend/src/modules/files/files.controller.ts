@@ -17,7 +17,7 @@ import { FilesService } from './files.service';
 import { FileRecord } from './entities/file.entity';
 
 const ALLOWED_EXTENSIONS = new Set(['.pdf', '.xlsx', '.xls', '.png', '.jpg', '.jpeg']);
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 /** Memory backstop above the product limit; rejected files are caught in the handler. */
 const MULTER_HARD_LIMIT_BYTES = 25 * 1024 * 1024;
 
@@ -76,7 +76,7 @@ export class FilesController {
     if (file.size > MAX_FILE_SIZE_BYTES) {
       throw new PayloadTooLargeException({
         code: 'file_too_large',
-        message: 'File exceeds the 10MB size limit.',
+        message: 'File exceeds the 15MB size limit.',
       });
     }
 
