@@ -6,6 +6,7 @@ import { formatDateTime } from '@/utils/time'
 import { PhFile, PhWarning, PhCheckCircle, PhHourglass, PhArrowsClockwise, PhCaretRight, PhCaretLeft } from '@phosphor-icons/vue'
 
 const files = ref<AdminFileRecord[]>([])
+const totalFiles = ref(0)
 const loading = ref(true)
 const errorMessage = ref<string | null>(null)
 
@@ -15,15 +16,10 @@ const filterMimeType = ref('')
 const filterUserId = ref('')
 
 // Pagination state
-const pageSize = 5
+const pageSize = 4
 const currentPage = ref(1)
 
-const paginatedFiles = computed(() => {
-  return files.value // Assuming API now returns already filtered results
-})
-
-// Since we'll fetch filtered data from API, we don't need local slice
-const totalPages = computed(() => 1) // For MVP: assume simple list, add real pagination later
+const totalPages = computed(() => Math.ceil(totalFiles.value / pageSize) || 1)
 
 // تابع کوتاه کردن هوشمند نام فایل (حفظ پسوند)
 function truncateFilename(name: string, maxLen = 22): string {
@@ -48,7 +44,9 @@ async function loadFiles() {
     if (filterMimeType.value) filters.mimeType = filterMimeType.value
     if (filterUserId.value) filters.userId = filterUserId.value
     
-    files.value = await listAdminFiles(100, 0, filters)
+    const result = await listAdminFiles(pageSize, (currentPage.value - 1) * pageSize, filters)
+    files.value = result.items
+    totalFiles.value = result.total
   } catch (err: any) {
     errorMessage.value = err?.message || 'خطا در بارگذاری لیست فایل‌ها.'
   } finally {
@@ -163,16 +161,16 @@ onMounted(() => {
       </table>
 
       <!-- نوار صفحه‌بندی (Pagination) -->
-      <div v-if="false" class="flex items-center justify-between border-t border-line bg-elevated/50 px-4 py-3 text-sm">
+      <div v-if="totalPages > 1" class="flex items-center justify-between border-t border-line bg-elevated/50 px-4 py-3 text-sm">
         <span class="text-xs text-ink-muted">
-          نمایش صفحه {{ currentPage }} از {{ totalPages }} (مجموعاً {{ files.length }} فایل)
+          نمایش صفحه {{ currentPage }} از {{ totalPages }} (مجموعاً {{ totalFiles }} فایل)
         </span>
         <div class="flex items-center gap-2">
           <button
             type="button"
             class="inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
             :disabled="currentPage === 1"
-            @click="currentPage--"
+            @click="currentPage--; loadFiles()"
           >
             <PhCaretRight class="size-3.5" />
             <span>قبلی</span>
@@ -181,7 +179,7 @@ onMounted(() => {
             type="button"
             class="inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
             :disabled="currentPage >= totalPages"
-            @click="currentPage++"
+            @click="currentPage++; loadFiles()"
           >
             <span>بعدی</span>
             <PhCaretLeft class="size-3.5" />

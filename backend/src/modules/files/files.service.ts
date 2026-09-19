@@ -62,21 +62,23 @@ export class FilesService {
     await this.repo.save(record);
   }
 
-  findAllAdmin(
+  async findAllAdmin(
     limit = 20,
     offset = 0,
     filters?: { status?: FileStatus; mimeType?: string; userId?: string },
-  ): Promise<FileRecord[]> {
+  ): Promise<{ items: FileRecord[]; total: number }> {
     const where: any = {};
     if (filters?.status) where.status = filters.status;
     if (filters?.mimeType) where.mimeType = filters.mimeType;
     if (filters?.userId) where.userId = filters.userId;
 
-    return this.repo.find({
+    const [items, total] = await this.repo.findAndCount({
       where,
       order: { createdAt: 'DESC' },
       take: limit,
       skip: offset,
     });
+
+    return { items, total };
   }
 }

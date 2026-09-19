@@ -72,8 +72,8 @@ export async function listAdminFiles(
   limit = 50,
   offset = 0,
   filters: { status?: string; mimeType?: string; userId?: string } = {}
-): Promise<AdminFileRecord[]> {
-  return request<AdminFileRecord[]>(`/v1/admin/files`, {
+): Promise<{ items: AdminFileRecord[]; total: number }> {
+  return request<{ items: AdminFileRecord[]; total: number }>(`/v1/admin/files`, {
     query: {
       limit: String(limit),
       offset: String(offset),

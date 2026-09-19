@@ -22,6 +22,16 @@ export class FilesAdminController {
     const parsedLimit = limit ? Math.min(parseInt(limit, 10), 100) : 20;
     const parsedOffset = offset ? parseInt(offset, 10) : 0;
     
-    return this.filesService.findAllAdmin(parsedLimit, parsedOffset, { status, mimeType, userId });
+    // نرمال‌سازی نوع فایل برای فیلترینگ آسان‌تر
+    let normalizedMimeType = mimeType;
+    if (mimeType) {
+      if (mimeType.toLowerCase() === 'jpg' || mimeType.toLowerCase() === 'jpeg') normalizedMimeType = 'image/jpeg';
+      else if (mimeType.toLowerCase() === 'png') normalizedMimeType = 'image/png';
+      else if (mimeType.toLowerCase() === 'pdf') normalizedMimeType = 'application/pdf';
+      else if (mimeType.toLowerCase() === 'xlsx') normalizedMimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      else if (mimeType.toLowerCase() === 'xls') normalizedMimeType = 'application/vnd.ms-excel';
+    }
+    
+    return this.filesService.findAllAdmin(parsedLimit, parsedOffset, { status, mimeType: normalizedMimeType, userId });
   }
 }
