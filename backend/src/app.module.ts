@@ -2,9 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule, type TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { LoggerModule } from 'nestjs-pino';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
+import { LoggerModule } from 'nestjs-pino';
 const migrationsGlob = join(__dirname, 'database', 'migrations', '*.{ts,js}');
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -62,7 +62,7 @@ import { BullModule } from '@nestjs/bullmq';
                     frequency: 'daily',
                     mkdir: true,
                     dateFormat: 'yyyy-MM-dd',
-                    extension: '.log',
+                    extension: '.jsonl',
                   },
                   level,
                 },
