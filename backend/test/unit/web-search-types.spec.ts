@@ -8,8 +8,8 @@ describe('Web search domain', () => {
     expect(WEB_SEARCH_LIMITS.MAX_RESULTS_PER_SEARCH).toBe(5);
     expect(WEB_SEARCH_LIMITS.MAX_SOURCES_PER_TURN).toBe(10);
     expect(WEB_SEARCH_LIMITS.MAX_CONTENT_CHARS_PER_SOURCE).toBe(4000);
-    expect(WEB_SEARCH_LIMITS.MAX_TOTAL_SEARCH_MS).toBe(15000);
-    expect(WEB_SEARCH_LIMITS.SEARCH_TIMEOUT_MS).toBe(8000);
+    expect(WEB_SEARCH_LIMITS.MAX_TOTAL_SEARCH_MS).toBe(25000);
+    expect(WEB_SEARCH_LIMITS.SEARCH_TIMEOUT_MS).toBe(12000);
     // Serpex only accepts content_results of exactly 5 or 10.
     expect(SERPEX_CONTENT_RESULTS).toBe(5);
   });

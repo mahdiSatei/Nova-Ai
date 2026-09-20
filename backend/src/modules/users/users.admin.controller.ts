@@ -80,7 +80,6 @@ export class UsersAdminController {
       displayName: u.displayName ?? null,
       avatarSeed: u.avatarSeed ?? null,
       role: u.role,
-      accessTier: u.accessTier,
       createdAt: this.toIso(u.createdAt) ?? '',
       lastLoginAt: this.toIso(u.lastLoginAt),
     };
