@@ -172,16 +172,8 @@ export function useChatStream(): ChatStreamHandle {
   let currentStreamConversationId: string | null = null
 
   // ── Computed ─────────────────────────────────────────────────
-  // Only an active generation locks the input. Terminal states
-  // (completed/failed/cancelled) must unlock, or a completed response
-  // loaded from the DB would keep the composer disabled forever.
   const inputDisabled = computed(() => generationState.value === 'streaming')
 
-  /**
-   * Recover from a server-side model rejection (فاز ۳). The store is imported
-   * lazily so this composable stays usable without an active Pinia instance
-   * (e.g. in unit tests).
-   */
   async function recoverFromModelRejection(code: string | undefined): Promise<boolean> {
     if (!code || !MODEL_REJECTION_CODES.has(code)) return false
 
@@ -197,7 +189,7 @@ export function useChatStream(): ChatStreamHandle {
       const { useModelsStore } = await import('@/stores/models')
       await useModelsStore().load(true)
     } catch {
-      /* catalog refresh is best-effort; the banner still explains the rejection */
+      /* catalog refresh is best-effort */
     }
 
     return true
@@ -276,10 +268,6 @@ export function useChatStream(): ChatStreamHandle {
   }
 
   // ── Dead-stream watchdog ────────────────────────────────────────
-  // If the SSE connection dies silently (proxy timeout, tab throttling,
-  // backend restart), generationState would stay 'streaming' forever and
-  // the input stays locked. A watchdog reconciles with the DB — the
-  // source of truth — when no stream activity is seen for a while.
   let lastStreamActivityAt = 0
   let watchdogTimer: ReturnType<typeof setInterval> | null = null
   const STREAM_IDLE_TIMEOUT_MS = 45_000
@@ -305,7 +293,6 @@ export function useChatStream(): ChatStreamHandle {
         if (convId) {
           void reconcileWithServer(convId)
         } else {
-          // No ids at all (pre-start window): just release locally.
           abort()
         }
 
@@ -321,18 +308,11 @@ export function useChatStream(): ChatStreamHandle {
     }
   }
 
-  /**
-   * Adopt the DB's final state for a conversation when the live stream
-   * is known to be gone (resume returned no_active_stream, or the
-   * watchdog fired). Unlike loadConversation, this never tries to
-   * re-subscribe, so it cannot loop.
-   */
   async function reconcileWithServer(convId: string): Promise<void> {
     try {
       const detail = await getConversation(convId)
       transcript.value = detail.messages
       conversationId.value = detail.id
-      currentStreamConversationId = detail.id
       saveConversationId(detail.id)
 
       const streamingMsg = detail.messages.find(
@@ -340,9 +320,6 @@ export function useChatStream(): ChatStreamHandle {
       )
 
       if (streamingMsg) {
-        // DB still says streaming but the server stream is gone (e.g. the
-        // backend restarted). Surface as failed so the recovery UI shows
-        // instead of a stream that can never finish.
         generation.value = {
           conversationId: detail.id,
           assistantMessageId: streamingMsg.id,
@@ -375,8 +352,6 @@ export function useChatStream(): ChatStreamHandle {
       setConnected()
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
-        // The conversation was deleted while we were attached to it.
-        // Clear state quietly and surface the same "gone" banner.
         clearSavedConversationId()
         resetConversation()
         connectionError.value = {
@@ -390,24 +365,17 @@ export function useChatStream(): ChatStreamHandle {
     }
   }
 
-  // ── Snapshot replacement (FR-7) ──────────────────────────────────
   function replaceSnapshot(snapshot: string): void {
     if (generation.value) {
       generation.value = { ...generation.value, content: snapshot }
     }
   }
 
-  // ── Web search (فاز ۷) ──────────────────────────────────────────────
   function setWebSearch(value: boolean): void {
     webSearchEnabled.value = value
     saveWebSearch(value)
   }
 
-  // ── Reasoning (فاز ۸) ────────────────────────────────────────────────
-  /**
-   * The preference only ever applies to a reasoning-capable model: ChatView is
-   * responsible for keeping `reasoningSupported` in sync with the selection.
-   */
   function setReasoning(value: boolean): void {
     if (value && !reasoningSupported.value) return
     reasoningEnabled.value = value
@@ -419,10 +387,6 @@ export function useChatStream(): ChatStreamHandle {
     if (!supported && reasoningEnabled.value) setReasoning(false)
   }
 
-  /**
-   * Reasoning phases drive only the reasoning state, so a turn can never show
-   * reasoning UI that the backend did not actually report.
-   */
   function applyStatus(info: SseStatus): void {
     if (info.phase === 'retrying') {
       retrying.value = {
@@ -481,17 +445,11 @@ export function useChatStream(): ChatStreamHandle {
     }
   }
 
-  // ── Cancel (FR-10) ───────────────────────────────────────────────
   async function cancel(): Promise<void> {
     stopAutoRetry()
 
     if (!generation.value) return
 
-    // The optimistic placeholder may have an empty conversationId when
-    // the server's start event has not arrived yet (brand-new chat).
-    // Prefer the real id, then the route/store id; if we have neither,
-    // tear the stream down locally — the backend will finish-or-fail the
-    // request on its own but the client must not stay locked.
     const convId = generation.value.conversationId || conversationId.value
 
     if (!convId) {
@@ -506,8 +464,6 @@ export function useChatStream(): ChatStreamHandle {
       generation.value = { ...generation.value, status: serverStatus }
       generationState.value = serverStatus
 
-      // The server has marked the row cancelled and broadcast to
-      // subscribers; close our SSE connection — no further events matter.
       stopWatchdog()
 
       if (controller) {
@@ -530,11 +486,6 @@ export function useChatStream(): ChatStreamHandle {
     }
   }
 
-  // ── Retry (FR-11) ────────────────────────────────────────────────
-  // Retries the most recent failed/cancelled assistant message as a live
-  // SSE stream. Works after refresh too: the failed message is resolved
-  // from the transcript (DB state), not from in-memory generation state,
-  // and missing context surfaces an error instead of failing silently.
   async function retry(targetMessageId?: string): Promise<void> {
     if (generationState.value === 'streaming') return
 
@@ -548,9 +499,6 @@ export function useChatStream(): ChatStreamHandle {
       return
     }
 
-    // Prefer an explicitly targeted row (the button knows its message),
-    // then the failed generation's own message, then the newest
-    // failed/cancelled assistant row from the transcript.
     const isRetryable = (m: MessagePublic) =>
       m.role === 'assistant' &&
       (m.status === 'failed' || m.status === 'cancelled')
@@ -578,8 +526,6 @@ export function useChatStream(): ChatStreamHandle {
       return
     }
 
-    // Optimistic streaming state; the server's real ids arrive via onStart.
-    // `retriedRowId` remembers which transcript row this retry replaces.
     const retriedRowId = failedMsg.id
 
     generation.value = {
@@ -651,9 +597,6 @@ export function useChatStream(): ChatStreamHandle {
         connectionError.value = err
         retrying.value = null
         searchActivity.value = null
-
-        // A failed or cancelled turn has no live reasoning state, even when
-        // the provider had already streamed part of a summary.
         reasoningActive.value = false
 
         if (generation.value) {
@@ -693,8 +636,6 @@ export function useChatStream(): ChatStreamHandle {
 
     controller = retryStream(convId, failedMsg.id, handlers, {
       webSearch: webSearchEnabled.value,
-      // A retry must keep the caller's reasoning choice: silently dropping it
-      // would produce a different answer than the one being retried.
       reasoning: reasoningEnabled.value && reasoningSupported.value,
     })
 
@@ -816,9 +757,6 @@ export function useChatStream(): ChatStreamHandle {
           err.code === 'no_active_stream' ||
           err.code === 'generation_cancelled'
         ) {
-          // The server stream is gone — reconcile with the DB instead of
-          // inventing a local state. This resolves the refresh/mid-stream
-          // race where the stream finished while the page was reloading.
           void reconcileWithServer(convId)
         } else {
           connectionError.value = err
@@ -836,6 +774,14 @@ export function useChatStream(): ChatStreamHandle {
                 { ...transcript.value[idx], status: 'failed' as const },
                 ...transcript.value.slice(idx + 1),
               ]
+            } else {
+              transcript.value.push({
+                id: generation.value.assistantMessageId,
+                role: 'assistant',
+                content: generation.value.content,
+                createdAt: new Date().toISOString(),
+                status: 'completed' as const,
+              })
             }
           }
 
@@ -851,9 +797,6 @@ export function useChatStream(): ChatStreamHandle {
   }
 
   async function loadConversation(id: string): Promise<void> {
-    // Already streaming this exact conversation (e.g. the route just
-    // caught up to the id adopted via onStart) — reloading would tear
-    // down and re-subscribe the live stream. Skip.
     if (
       generationState.value === 'streaming' &&
       generation.value?.conversationId === id
@@ -873,11 +816,8 @@ export function useChatStream(): ChatStreamHandle {
       const detail = await getConversation(id)
       transcript.value = detail.messages
       conversationId.value = detail.id
-      currentStreamConversationId = detail.id
       saveConversationId(detail.id)
 
-      // Sync the picker to the conversation's persisted model so reloading
-      // a conversation restores the user's previous selection.
       if (detail.modelId && detail.modelId !== selectedModelId.value) {
         selectedModelId.value = detail.modelId
         saveModelId(detail.modelId)
@@ -910,10 +850,6 @@ export function useChatStream(): ChatStreamHandle {
       const apiErr = err instanceof ApiError ? err : null
 
       if (apiErr?.status === 404) {
-        // The conversation was hard-deleted (or the stored id points to
-        // another user's data). Clear the stale id so the stored-id
-        // redirect loop can't re-fire, drop local state, and tell the
-        // user clearly instead of pretending the network died.
         clearSavedConversationId()
         resetConversation()
         connectionError.value = {
@@ -935,7 +871,6 @@ export function useChatStream(): ChatStreamHandle {
     abort()
     transcript.value = []
     conversationId.value = null
-    currentStreamConversationId = null
     clearSavedConversationId()
     generation.value = null
     generationState.value = 'idle'
@@ -948,18 +883,8 @@ export function useChatStream(): ChatStreamHandle {
     reasoningSummary.value = ''
   }
 
-  /**
-   * Builds the shared `onStart` handler: adopt the server-assigned ids and
-   * re-key the optimistic transcript rows. When `replaceRowId` is set (a retry),
-   * the already-persisted failed/cancelled row is replaced in place, so the
-   * transcript shows the regenerated answer instead of the stale row.
-   */
   function makeOnStart(replaceRowId: string | null) {
     return (info: StreamStartInfo): void => {
-      // The server assigns the real conversation + assistant message ids
-      // once the DB rows exist. Adopt them so deltas sync into the
-      // transcript, cancel hits the right conversation, and the router can
-      // update the URL — all before the first token arrives.
       conversationId.value = info.conversationId
       currentStreamConversationId = info.conversationId
       saveConversationId(info.conversationId)
@@ -976,7 +901,6 @@ export function useChatStream(): ChatStreamHandle {
           assistantMessageId: info.assistantMessageId,
         }
 
-        // Re-key the optimistic transcript rows to the real ids.
         const userIdx = transcript.value.findIndex(
           (m) => m.id === `user-${oldId.slice('assistant-'.length)}`,
         )
@@ -1131,9 +1055,6 @@ export function useChatStream(): ChatStreamHandle {
         connectionError.value = err
         retrying.value = null
         searchActivity.value = null
-
-        // A failed or cancelled turn has no live reasoning state, even when
-        // the provider had already streamed part of a summary.
         reasoningActive.value = false
 
         if (generation.value) {
@@ -1179,8 +1100,8 @@ export function useChatStream(): ChatStreamHandle {
 
     controller = streamChat(
       {
-        conversationId: targetConversationId,
-        modelId,
+        conversationId: targetConversationId ?? undefined,
+        modelId: modelId ?? undefined,
         message: trimmed,
         fileId,
         webSearch: webSearchEnabled.value,
@@ -1191,9 +1112,6 @@ export function useChatStream(): ChatStreamHandle {
 
     startWatchdog()
 
-    // Optimistically create the assistant message placeholder. The user
-    // row shares the same timestamp so onStart can re-key both to the
-    // server-assigned ids as a pair.
     const optimisticId = String(Date.now())
     const assistantMsgId = `assistant-${optimisticId}`
 
@@ -1206,7 +1124,6 @@ export function useChatStream(): ChatStreamHandle {
 
     generationState.value = 'streaming'
 
-    // Add user message to transcript immediately with file option.
     transcript.value.push({
       id: `user-${optimisticId}`,
       role: 'user',
@@ -1236,7 +1153,6 @@ export function useChatStream(): ChatStreamHandle {
     }
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────
   function saveConversationId(id: string | null): void {
     try {
       if (id) {
@@ -1247,8 +1163,6 @@ export function useChatStream(): ChatStreamHandle {
     }
   }
 
-  /** Remove the persisted last-conversation id (used when it points to a
-   *  conversation that no longer exists, or after the user deletes it). */
   function clearSavedConversationId(): void {
     try {
       localStorage.removeItem(CONVERSATION_KEY)
@@ -1280,9 +1194,6 @@ export function useChatStream(): ChatStreamHandle {
   }
 
   async function setModel(id: string | null): Promise<void> {
-    // Guard programmatic calls; the picker is already disabled in the UI
-    // but this prevents a stray setModel during streaming from mutating
-    // state mid-turn.
     if (generationState.value === 'streaming') return
 
     selectedModelId.value = id
@@ -1297,10 +1208,6 @@ export function useChatStream(): ChatStreamHandle {
       }
     }
 
-    // If a conversation is loaded, persist the choice server-side so the
-    // active model survives reload and follows the user across devices.
-    // Errors are surfaced but non-blocking — the in-memory selection
-    // still drives the next chat request.
     const convId = conversationId.value
 
     if (convId && id) {

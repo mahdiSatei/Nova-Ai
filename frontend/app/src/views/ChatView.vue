@@ -29,6 +29,7 @@ import { useChatStream } from '@/composables/useChatStream'
 import { useNewChatSignal } from '@/composables/useNewChatSignal'
 import { useTheme } from '@/composables/useTheme'
 import { useModelsStore } from '@/stores/models'
+import { useAuthStore } from '@/stores/auth'
 import { apiErrorMessage } from '@/utils/errors'
 import { useQuota } from '@/composables/useQuota'
 
@@ -40,6 +41,7 @@ const route = useRoute()
 const router = useRouter()
 const models = useModelsStore()
 const chat = useChatStream()
+const auth = useAuthStore()
 const theme = useTheme()
 
 const inputText = ref('')
@@ -57,8 +59,6 @@ onMounted(() => {
 })
 
 // فاز ۸ — کنترل استدلال فقط برای مدل‌هایی که پیکربندی مؤثرشان پشتیبانی را می‌گوید.
-// (سرور مقدار ناشناخته را به «پشتیبانی نمی‌شود» تبدیل می‌کند، پس اینجا فقط
-// supported===true معنا دارد.)
 const reasoningSupported = computed(
   () => models.byId(chat.selectedModelId.value)?.reasoning?.supported === true,
 )
@@ -87,21 +87,24 @@ const activeModelName = computed(() =>
   models.displayName(chat.selectedModelId.value, ''),
 )
 
-// ✨ جملات رندوم برای عنوان خوش‌آمدگویی
-const welcomeHeadlines = [
-  'چطور می‌تونم کمکت کنم؟',
-  'امروز روی چه پروژه‌ای کار می‌کنیم؟',
-  'سوالی داری؟ از من بپرس!',
-  'آماده‌ام تا با هم ایده پردازی کنیم.',
-  'چه کمکی از دست من برمی‌آید؟',
-  'امروز دوست داری درباره چی صحبت کنیم؟',
-]
+// جملات رندوم برای عنوان خوش‌آمدگویی با نام کاربر
+const getWelcomeHeadline = () => {
+  const name = auth.user?.displayName ? `، ${auth.user.displayName}` : ''
+  const headlines = [
+    `چطور می‌تونم کمکت کنم${name}؟`,
+    `امروز روی چه پروژه‌ای کار می‌کنیم${name}؟`,
+    `سوالی داری${name}؟ از من بپرس!`,
+    `آماده‌ام تا با هم ایده پردازی کنیم${name}.`,
+    `چه کمکی از دست من برمی‌آید${name}؟`,
+    `امروز دوست داری درباره چی صحبت کنیم${name}؟`
+  ]
+  return headlines[Math.floor(Math.random() * headlines.length)]
+}
 
-const randomHeadline = ref('چطور می‌تونم کمکت کنم؟')
+const randomHeadline = ref(getWelcomeHeadline())
 
 function randomizeHeadline() {
-  const randomIndex = Math.floor(Math.random() * welcomeHeadlines.length)
-  randomHeadline.value = welcomeHeadlines[randomIndex]!
+  randomHeadline.value = getWelcomeHeadline()
 }
 
 // آرایه‌ای جامع از پرامپت‌های پیشنهادی برای انتخاب رندوم
@@ -156,7 +159,6 @@ function scrollToBottom(smooth = true): void {
   showScrollButton.value = false
 }
 
-// auto-scroll به پایین هنگام تغییر ترنسکریپت یا streaming text (اگر کاربر چسبیده باشد)
 watch(
   () => [chat.transcript.value, chat.generation.value?.content],
   async () => {
@@ -169,12 +171,6 @@ watch(
 onMounted(async () => {
   refreshWelcomeState()
 
-  console.debug('[ChatView] onMounted start', {
-    routeName: route.name,
-    resolvedId: resolvedId(),
-    propsId: props.id,
-  })
-
   await models.load(true)
 
   if (!chat.selectedModelId.value) {
@@ -186,13 +182,9 @@ onMounted(async () => {
 
   const id = resolvedId()
 
-  console.debug('[ChatView] onMounted resolvedId', { id })
-
   if (id) {
     await chat.loadConversation(id)
 
-    // The conversation was deleted (404): loadConversation already reset
-    // state and set the banner — just move the URL back to new-chat.
     if (chat.connectionError.value?.code === 'conversation_not_found') {
       void router.replace({ name: 'chat' })
     }
@@ -209,11 +201,6 @@ onMounted(async () => {
     }
   }
 
-  console.debug('[ChatView] onMounted after load', {
-    transcriptLen: chat.transcript.value.length,
-    generation: chat.generation.value,
-  })
-
   pinnedToBottom.value = true
   await nextTick()
   scrollToBottom(false)
@@ -222,12 +209,7 @@ onMounted(async () => {
 watch(
   () => resolvedId(),
   async (id) => {
-    console.debug('[ChatView] route watch resolvedId', { id })
-
     if (id) {
-      // If we're already streaming this conversation (the id was just
-      // adopted via the SSE start event), only sync the URL — reloading
-      // would tear down and re-subscribe the live stream.
       if (
         chat.generationState.value === 'streaming' &&
         chat.generation.value?.conversationId === id
@@ -241,8 +223,6 @@ watch(
         void router.replace({ name: 'chat' })
       }
     } else {
-      // Returning to /chat right after a stale-conversation 404: the
-      // banner was just set — don't wipe it with a full reset.
       refreshWelcomeState()
 
       if (chat.connectionError.value?.code !== 'conversation_not_found') {
@@ -274,7 +254,6 @@ watch(
   },
 )
 
-// «گفتگوی جدید» از سایدبار وقتی همین‌جا هستیم: reset مستقیم (بدون تغییر مسیر)
 watch(newChatTick, () => {
   if (resolvedId() || route.name !== 'chat') return
 

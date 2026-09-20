@@ -588,3 +588,237 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           description: Model is referenced elsewhere and no migration ID was provided.
+
+  /v1/files/upload:
+    post:
+      operationId: FilesController_upload
+      parameters: []
+      responses:
+        "201":
+          description: ""
+  /v1/files/{id}/status:
+    get:
+      operationId: FilesController_getStatus
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+  /v1/admin/files:
+    get:
+      operationId: FilesAdminController_findAll
+      parameters:
+        - name: limit
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: offset
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: status
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: mimeType
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: userId
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+  /v1/auth/register:
+    post:
+      operationId: AuthController_register
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequestDto"
+      responses:
+        "201":
+          description: ""
+  /v1/auth/login:
+    post:
+      operationId: AuthController_login
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequestDto"
+      responses:
+        "200":
+          description: ""
+  /v1/auth/refresh:
+    post:
+      operationId: AuthController_refresh
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequestDto"
+      responses:
+        "200":
+          description: ""
+  /v1/auth/logout:
+    post:
+      operationId: AuthController_logout
+      parameters: []
+      responses:
+        "204":
+          description: ""
+  /v1/admin/auth/login:
+    post:
+      operationId: AdminAuthController_login
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequestDto"
+      responses:
+        "200":
+          description: ""
+  /v1/users/me:
+    get:
+      operationId: UsersController_me
+      parameters: []
+      responses:
+        "200":
+          description: ""
+    patch:
+      operationId: UsersController_updateMe
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMeRequestDto"
+      responses:
+        "200":
+          description: ""
+  /v1/admin/users:
+    get:
+      operationId: UsersAdminController_findAll
+      parameters:
+        - name: limit
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: offset
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+  /healthz:
+    get:
+      operationId: HealthController_liveness
+      parameters: []
+      responses:
+        "200":
+          description: ""
+  /readyz:
+    get:
+      operationId: HealthController_readiness
+      parameters: []
+      responses:
+        "200":
+          description: ""
+  /v1/admin/provider:
+    get:
+      operationId: ProviderController_read
+      parameters: []
+      responses:
+        "200":
+          description: ""
+    put:
+      operationId: ProviderController_update
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CentralProviderUpdateDto"
+      responses:
+        "200":
+          description: ""
+  /v1/admin/config:
+    get:
+      operationId: AppConfigController_read
+      parameters: []
+      responses:
+        "200":
+          description: ""
+    put:
+      operationId: AppConfigController_update
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppConfigUpdateDto"
+      responses:
+        "200":
+          description: ""
+
+components:
+  securitySchemes:
+    bearer:
+      scheme: bearer
+      bearerFormat: JWT
+      type: http
+  schemas:
+    ChatRequestDto:
+      type: object
+      properties: {}
+    PinConversationDto:
+      type: object
+      properties: {}
+    ModelUpsertDto:
+      type: object
+      properties: {}
+    RegisterRequestDto:
+      type: object
+      properties: {}
+    LoginRequestDto:
+      type: object
+      properties: {}
+    RefreshRequestDto:
+      type: object
+      properties: {}
+    UpdateMeRequestDto:
+      type: object
+      properties: {}
+    CentralProviderUpdateDto:
+      type: object
+      properties: {}
+    AppConfigUpdateDto:
+      type: object
+      properties: {}

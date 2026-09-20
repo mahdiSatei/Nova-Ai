@@ -11,6 +11,8 @@ import type {
   ProviderAdmin,
   ProviderUpdateRequest,
   UsageReport,
+  PaginatedQuery,
+  UserPublic,
 } from '@/types/api'
 
 // ── Config ───────────────────────────────────────────────────────────────

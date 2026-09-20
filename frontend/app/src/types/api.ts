@@ -1,4 +1,5 @@
-/** فاز ۳ — سطح دسترسی مدل و کاربر. */
+// Shared API contract types (combining full capabilities: reasoning, citations, providers, and files).
+
 export type ModelVisibility = 'public' | 'commercial' | 'private'
 export type UserAccessTier = 'free' | 'commercial'
 
@@ -18,6 +19,24 @@ export interface ApiErrorBody {
   requestId?: string
 }
 
+export interface PaginatedQuery {
+  limit?: number
+  offset?: number
+}
+
+// ─── auth & users ──────────────────────────────────────────────────────────
+
+export interface LoginRequest {
+  identifier: string
+  password: string
+}
+
+export interface RegisterRequest {
+  email: string
+  password: string
+  username?: string
+}
+
 export interface UserPublic {
   id: string
   email: string
@@ -29,7 +48,16 @@ export interface UserPublic {
   lastLoginAt?: string | null
 }
 
-/** فاز ۸ — توان استدلال مؤثر مدل (ناشناخته در سمت سرور به «پشتیبانی نمی‌شود» تبدیل می‌شود). */
+export interface AuthResponse {
+  user: UserPublic
+  accessToken: string
+  refreshToken: string
+  expiresIn: number
+}
+
+// ─── models & reasoning ────────────────────────────────────────────────────
+
+/** فاز ۸ — توان استدلال مؤثر مدل */
 export interface ReasoningCapability {
   supported: boolean
   output: 'none' | 'summary'
@@ -40,32 +68,25 @@ export interface ModelPublic {
   id: string
   displayName: string
   isDefault: boolean
-  /** فاز ۸ — فقط وقتی supported=true کنترل استدلال نمایش داده می‌شود. */
   reasoning?: ReasoningCapability
 }
 
-/**
- * Admin view of a model. The admin reasoning shape is deliberately different
- * from the public capability (`reasoning` here carries the discovery snapshot
- * and the manual values, not just the effective capability), so the inherited
- * field is omitted and re-declared.
- */
 export interface ModelAdmin extends Omit<ModelPublic, 'reasoning'> {
   actualName: string
-  providerId: string
-  visibility: ModelVisibility
+  providerId?: string
+  visibility?: ModelVisibility
   enabled: boolean
-  /** مدل جایگزین هنگام خرابی ارائه‌دهنده (یک‌پرش). */
   fallbackModelId?: string | null
-  /** کلید API اختصاصی برای این مدل (خالی = چرخش بین کلیدها). */
   preferredApiKeyId?: string | null
   createdAt: string
   updatedAt: string
-  /** فاز ۸ — پیکربندی استدلال مدل از دید مدیر. */
   reasoning?: AdminModelReasoning
 }
 
-/** فاز ۸ — پیکربندی استدلال مدل از دید مدیر. */
+export interface ModelList<T> {
+  items: T[]
+}
+
 export type ReasoningConfigMode = 'automatic' | 'manual'
 export type ReasoningOutput = 'none' | 'summary'
 export type ReasoningCapabilitySource = 'provider_api' | 'provider_rules' | 'manual' | 'unknown'
@@ -108,19 +129,11 @@ export interface ModelUpsertRequest {
   providerId?: string
   visibility?: ModelVisibility
   enabled?: boolean
-  /** مدل جایگزین هنگام حذف (یک‌پرش). null پشتیبان را پاک می‌کند. */
   fallbackModelId?: string | null
-  /** کلید API اختصاصی. null چرخش را فعال می‌کند. */
   preferredApiKeyId?: string | null
-  /** فاز ۸ — پیکربندی استدلال. */
   reasoning?: ModelReasoningRequest
 }
 
-export interface ModelList<T> {
-  items: T[]
-}
-
-/** نتیجه حذف مدل با مهاجرت ارجاع‌ها. */
 export interface DeleteModelMigrationResult {
   deleted: true
   migrated: {
@@ -130,7 +143,8 @@ export interface DeleteModelMigrationResult {
   }
 }
 
-/** فاز ۳ — کاربر از دید مدیر (هیچ‌گاه شامل هش رمز نیست). */
+// ─── admin users & providers ───────────────────────────────────────────────
+
 export interface AdminUser {
   id: string
   email: string
@@ -170,7 +184,6 @@ export interface ProviderList {
   total: number
 }
 
-/** فاز ۸+ — کلید API چندگانه برای یک ارائه‌دهنده. */
 export interface ApiKeyAdmin {
   id: string
   label: string
@@ -181,6 +194,8 @@ export interface ApiKeyAdmin {
   updatedAt: string
 }
 
+// ─── app config ───────────────────────────────────────────────────────────
+
 export interface AppConfigPublic {
   defaultModelId: string | null
 }
@@ -188,6 +203,8 @@ export interface AppConfigPublic {
 export interface AppConfigUpdateRequest {
   defaultModelId: string | null
 }
+
+// ─── conversations & messages ──────────────────────────────────────────────
 
 export interface ConversationSummary {
   id: string
@@ -219,27 +236,31 @@ export interface MessagePublic {
   content: string
   createdAt: string
   status: MessageStatus
-  /** فاز ۷ — منابع وبِ استنادشده در این پیام دستیار. */
   citations?: CitationSource[]
-  /** فاز ۸ — استدلال برای این نوبت فعال بوده است. */
   reasoningEnabled?: boolean
-  /** فاز ۸ — خلاصهٔ استدلال ارائه‌شده توسط ارائه‌دهنده (نه زنجیرهٔ فکر خصوصی). */
   reasoningSummary?: string | null
+  fileId?: string | null
+  file?: {
+    id: string
+    originalName: string
+    mimeType: string
+    size: number
+    status: string
+  } | null
 }
 
 export interface ConversationDetail extends ConversationSummary {
   messages: MessagePublic[]
 }
 
+// ─── chat / SSE ────────────────────────────────────────────────────────────
+
 export interface ChatRequest {
   conversationId?: string | null
   modelId?: string | null
   message: string
-  /** فاز ۷ — جستجوی وب برای این نوبت. */
   webSearch?: boolean
-  /** فاز ۸ — استدلال برای این نوبت. */
   reasoning?: boolean
-  /** پیوست فایل — uuid آپلودشده. */
   fileId?: string | null
 }
 
@@ -248,14 +269,12 @@ export interface SseDelta {
 }
 
 export interface SseError {
-  code: string
-  message: string
+  code?: string
+  message?: string
 }
 
-/** فاز ۸ — فازهای چرخهٔ استدلال. */
 export type ReasoningPhase = 'reasoning_started' | 'reasoning_completed' | 'answer_started'
 
-/** فاز ۶/۷/۸ — رویداد وضعیت: تلاش مجدد، چرخهٔ جستجوی وب، یا چرخهٔ استدلال. */
 export interface SseStatus {
   phase: 'retrying' | SearchPhase | ReasoningPhase
   attempt?: number
@@ -265,22 +284,16 @@ export interface SseStatus {
   credits?: number
 }
 
-/** فاز ۸ — یک تکه از خلاصهٔ استدلال قابل‌نمایش. */
 export interface SseReasoningDelta {
   delta: string
 }
 
-/** فاز ۷ — منابع نهایی پاسخ، پیش از رویداد done. */
 export interface SseCitations {
   sources: CitationSource[]
 }
 
-export interface PaginatedQuery {
-  limit?: number
-  offset?: number
-}
+// ─── usage & quotas ────────────────────────────────────────────────────────
 
-/** Phase 4 — Usage & Cost Tracking */
 export interface UsageRecord {
   id: string
   userId: string
@@ -309,7 +322,6 @@ export interface UsageReport {
   }
 }
 
-/** Phase 5 — Quotas & user usage display. */
 export interface QuotaResponse {
   tokenLimit: number
   tokenUsed: number

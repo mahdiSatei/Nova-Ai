@@ -17,11 +17,29 @@ const MAX_LIMIT = 100;
  * visibility is checked against. It is NOT account administration (no create,
  * disable, delete, or password reset) — that remains out of scope per spec 001.
  */
+
+/** Admin listing shape (never includes password fields). */
+interface AdminUserResponse {
+  id: string;
+  email: string;
+  username: string | null;
+  displayName: string | null;
+  avatarSeed: string | null;
+  role: 'user' | 'admin';
+  accessTier?: string; // اضافه شده از HEAD
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+/**
+ * Admin-only user management endpoints. Mirrors the other
+ * `/v1/admin/*` controllers: JWT + RolesGuard with the `admin` role.
+ */
 @Controller('v1/admin/users')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin')
 export class UsersAdminController {
-  constructor(private readonly users: UsersService) {}
+  constructor(private readonly usersService: UsersService) {}
 
   @Get()
   async list(
@@ -37,28 +55,37 @@ export class UsersAdminController {
         : DEFAULT_LIMIT;
     const safeOffset = Number.isFinite(parsedOffset) && parsedOffset > 0 ? parsedOffset : 0;
 
-    const { items, total } = await this.users.listForAdmin({
-      query,
-      limit: safeLimit,
-      offset: safeOffset,
-    });
-    return { items: items.map((u) => this.toAdminUser(u)), total };
+    // پشتیبانی از متد service هر دو نسخه (اگر متد listForAdmin وجود داشت یا findAll)
+    const result = await (this.usersService as any).listForAdmin
+      ? (this.usersService as any).listForAdmin({ query, limit: safeLimit, offset: safeOffset })
+      : { items: await this.usersService.findAll(safeLimit, safeOffset), total: undefined };
+
+    const items = result.items || result;
+    return { 
+      items: items.map((u: any) => this.toAdminShape(u)), 
+      ...(result.total !== undefined ? { total: result.total } : {}) 
+    };
   }
 
   @Patch(':id/access-tier')
   async setAccessTier(@Param('id') id: string, @Body() dto: SetUserAccessTierDto) {
-    const updated = await this.users.setAccessTier(id, dto.accessTier);
-    return this.toAdminUser(updated);
+    const updated = await (this.usersService as any).setAccessTier(id, dto.accessTier);
+    return this.toAdminShape(updated);
   }
 
-  private toAdminUser(u: User) {
+  // ─────────────────────────── helpers ────────────────────────────────────
+
+  private toAdminShape(u: any): AdminUserResponse {
     return {
       id: u.id,
       email: u.email,
       username: u.username,
+      displayName: u.displayName ?? null,
+      avatarSeed: u.avatarSeed ?? null,
       role: u.role,
       accessTier: u.accessTier,
-      createdAt: u.createdAt.toISOString(),
+      createdAt: typeof u.createdAt === 'string' ? u.createdAt : u.createdAt.toISOString(),
+      lastLoginAt: u.lastLoginAt ? (typeof u.lastLoginAt === 'string' ? u.lastLoginAt : u.lastLoginAt.toISOString()) : null,
     };
   }
 }

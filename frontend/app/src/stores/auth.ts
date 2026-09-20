@@ -79,6 +79,7 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
     tokenStore.clear()
     persistUser(null)
+    localStorage.removeItem('mmcb.lastConversationId')
   }
 
   /** Replace the cached profile (e.g. after PATCH /v1/users/me). */

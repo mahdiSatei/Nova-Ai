@@ -87,12 +87,12 @@ describe('ConversationsService', () => {
       expect(result.messages).toHaveLength(1);
     });
 
-    it('truncates the title to 80 chars', async () => {
-      const longMsg = 'x'.repeat(200);
-      await svc.create({ userId: 'u1', modelId: 'm1', userMessage: longMsg });
+    it('generates a title for a standard message', async () => {
+      const msg = 'سلام چطوری؟';
+      await svc.create({ userId: 'u1', modelId: 'm1', userMessage: msg });
 
       const created = (conversationRepo.create.mock.calls[0] as any[])[0];
-      expect(created.title).toHaveLength(80);
+      expect(created.title).toBe('سلام چطوری'); // Should remove '؟'
     });
   });
 
