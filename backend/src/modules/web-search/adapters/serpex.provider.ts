@@ -94,7 +94,7 @@ export class SerpexProvider implements WebSearchProvider {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey.slice(0, 8)}...${apiKey.slice(-4)}`,
+          Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
           q: request.query,
