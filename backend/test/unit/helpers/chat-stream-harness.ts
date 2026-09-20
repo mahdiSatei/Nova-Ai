@@ -63,7 +63,10 @@ export function buildChatHarness() {
     findById: jest.fn().mockResolvedValue(MODEL),
     resolveActiveModel: jest.fn().mockResolvedValue(MODEL),
   };
-  const access = { canAccessUser: jest.fn().mockResolvedValue(true) };
+  const access = {
+    loadViewer: jest.fn().mockResolvedValue({ role: 'user' }),
+    canAccessUser: jest.fn().mockResolvedValue(true),
+  };
   const userRepo = { update: jest.fn().mockResolvedValue(undefined) };
   const webSearch = {
     isConfigured: () => true,

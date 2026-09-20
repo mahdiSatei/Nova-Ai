@@ -397,7 +397,7 @@ function useSuggestedPrompt(text: string): void {
           v-if="resolvedId()"
           :conversation-id="resolvedId() || ''"
         />
-        <CreditBalance />
+        <CreditBalance v-if="!auth.isAdmin" />
 
         <button
           type="button"

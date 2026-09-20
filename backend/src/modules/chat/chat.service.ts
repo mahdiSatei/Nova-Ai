@@ -450,15 +450,21 @@ export class ChatService {
         }
       }
 
+      const viewer = await this.access.loadViewer(userId);
+      const isAdmin = viewer?.role === 'admin';
+
       // ── credit gate ─────────────────────────────────────────────────────
       // A paid model must not start a generation for an empty/overdrawn wallet.
+      // Administrators are platform operators and use all enabled models free
+      // of charge; their usage is still tracked for observability.
+
       // The bounded grace is intentionally only available after a user has a
       // positive balance; otherwise a new user could consume paid models for
       // free up to the grace limit.
       const modelRequiresCredits =
         Number(model.inputPricePer1m) > 0 || Number(model.outputPricePer1m) > 0;
 
-      if (modelRequiresCredits) {
+      if (modelRequiresCredits && !isAdmin) {
         let balance: number;
         try {
           balance = await this.wallet.getBalance(userId);
@@ -743,6 +749,7 @@ export class ChatService {
         isActive,
         usageRecordId,
         effectiveModel,
+        isAdmin,
         webSearchEnabled: dto.webSearch === true,
         reasoning: reasoningRequested
           ? this.reasoningRequestFor(effectiveModel)
@@ -799,6 +806,7 @@ export class ChatService {
     isActive: () => boolean;
     usageRecordId: string | undefined;
     effectiveModel: Model;
+    isAdmin: boolean;
     webSearchEnabled: boolean;
     reasoning: ProviderReasoningRequest;
   }): Promise<void> {
@@ -812,6 +820,7 @@ export class ChatService {
       isActive,
       usageRecordId,
       effectiveModel,
+      isAdmin,
       webSearchEnabled,
       reasoning,
     } = params;
@@ -839,7 +848,7 @@ export class ChatService {
       .getOutputCreditRate(effectiveModel.id)
       .catch(() => 0);
     const budget =
-      outputCreditRate > 0
+      !isAdmin && outputCreditRate > 0
         ? createCreditBudget(
             (await this.wallet.getBalance(userId).catch(() => 0)) +
               CREDIT_EXHAUSTION_GRACE_CREDITS,
@@ -1114,7 +1123,7 @@ export class ChatService {
               // extracted content, or provider cost. A discrete charge uses the
               // strict deduction (no mid-stream grace). Pricing of 0 disables
               // search billing rather than charging nothing-but-touching-wallet.
-              const searchCost = this.pricing.calculateWebSearchCost();
+              const searchCost = isAdmin ? 0 : this.pricing.calculateWebSearchCost();
               searchCredits += searchCost;
 
               if (searchCost > 0) {
@@ -1294,6 +1303,7 @@ export class ChatService {
             capCredits: budget ? budget.boundaryCredits : null,
             searchCredits,
             assistantMessageId,
+            isAdmin,
           });
         }
       } finally {
@@ -1403,6 +1413,7 @@ export class ChatService {
     capCredits: number | null;
     searchCredits: number;
     assistantMessageId: string;
+    isAdmin: boolean;
   }): Promise<void> {
     const { usageRecordId, userId, modelId, usage } = params;
 
@@ -1428,8 +1439,9 @@ export class ChatService {
         return { chargedCost: 0, chargedCredits: 0 };
       });
 
-    const chargeable =
-      params.capCredits === null
+    const chargeable = params.isAdmin
+      ? 0
+      : params.capCredits === null
         ? cost.chargedCredits
         : Math.min(cost.chargedCredits, params.capCredits);
     const charge = roundCredits(chargeable);
@@ -1466,7 +1478,7 @@ export class ChatService {
         outputTokens,
         totalTokens,
         reasoningTokens,
-        chargedCost: cost.chargedCost,
+        chargedCost: params.isAdmin ? 0 : cost.chargedCost,
         chargedCredits: deducted,
         status: 'completed',
         searchCredits: params.searchCredits,
@@ -1690,6 +1702,7 @@ export class ChatService {
         isActive,
         usageRecordId,
         effectiveModel: model,
+        isAdmin: (await this.access.loadViewer(userId))?.role === 'admin',
         webSearchEnabled,
         reasoning: reasoningEnabled
           ? this.reasoningRequestFor(model)

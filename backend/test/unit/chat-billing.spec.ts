@@ -29,6 +29,26 @@ describe('ChatService billing (Phase 3 §3.1/§3.3/§3.9)', () => {
     expect(h.failover.establish).not.toHaveBeenCalled();
   });
 
+  it('allows an admin to use a priced model without reading or deducting wallet credits', async () => {
+    const h = buildChatHarness();
+    h.access.loadViewer.mockResolvedValue({ role: 'admin' });
+    h.runtime.stream.mockResolvedValue(
+      (async function* () {
+        yield contentChunk('admin response', { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 });
+      })(),
+    );
+
+    const events = await collect(h.service, 'admin-1', { message: 'hi', modelId: 'model-1' });
+
+    expect(events.at(-1)).toMatchObject({ type: 'done' });
+    expect(h.wallet.getBalance).not.toHaveBeenCalled();
+    expect(h.wallet.deductCreditsWithGrace).not.toHaveBeenCalled();
+    expect(h.usage.finalizeOnce).toHaveBeenCalledWith(
+      'usage-1',
+      expect.objectContaining({ chargedCost: 0, chargedCredits: 0, status: 'completed' }),
+    );
+  });
+
   it('deducts the priced credits once for a completed generation and records them', async () => {
     const h = buildChatHarness();
     h.runtime.stream.mockResolvedValue(

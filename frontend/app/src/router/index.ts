@@ -27,9 +27,9 @@ const routes: RouteRecordRaw[] = [
       { path: '', name: 'chat', component: () => import('@/views/ChatView.vue') },
       { path: 'c/:id', name: 'chat-conversation', component: () => import('@/views/ChatView.vue'), props: true },
       { path: 'conversations/:id', name: 'conversation', component: () => import('@/views/ConversationView.vue'), props: true },
-      { path: 'dashboard', name: 'user-dashboard', component: () => import('@/views/UsageDashboardView.vue') },
-      { path: 'wallet', name: 'wallet', component: () => import('@/views/WalletView.vue') },
-      { path: 'payment-result', name: 'payment-result', component: () => import('@/views/PaymentResultView.vue') },
+      { path: 'dashboard', name: 'user-dashboard', component: () => import('@/views/UsageDashboardView.vue'), meta: { role: 'user' } },
+      { path: 'wallet', name: 'wallet', component: () => import('@/views/WalletView.vue'), meta: { role: 'user' } },
+      { path: 'payment-result', name: 'payment-result', component: () => import('@/views/PaymentResultView.vue'), meta: { role: 'user' } },
     ],
   },
 
