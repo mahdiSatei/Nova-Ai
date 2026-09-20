@@ -26,6 +26,7 @@ import { WebSearchError } from '../web-search/web-search.errors';
 import { WEB_SEARCH_LIMITS } from '../web-search/web-search.constants';
 import type { CitationSource, WebSource } from '../web-search/web-search.types';
 import { WalletService, roundCredits } from '../wallet/wallet.service';
+import { AuditService } from '../audit/audit.service';
 import {
   CREDIT_EXHAUSTION_GRACE_CREDITS,
   createCreditBudget,
@@ -170,6 +171,7 @@ export class ChatService {
     private readonly failover: ProviderFailoverService,
     private readonly webSearch: WebSearchService,
     private readonly wallet: WalletService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -1384,6 +1386,12 @@ export class ChatService {
           CREDIT_EXHAUSTION_GRACE_CREDITS,
         );
         deducted = charge;
+        void this.audit.log({
+          actorId: userId,
+          action: 'credit_deducted',
+          targetType: 'wallet',
+          metadata: { amount: charge, modelId, conversationId: params.assistantMessageId },
+        });
       } catch (err) {
         // Boundary lost to a concurrent stream, or wallet failure: record no
         // charge we did not collect (§3.9). The turn stays recoverable.

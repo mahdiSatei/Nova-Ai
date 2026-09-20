@@ -81,7 +81,8 @@ export function buildChatHarness() {
     pricing as never,
     failover as never,
     webSearch as never,
-    wallet as never, // 11th arg — appended by Task 4
+    wallet as never,
+    { log: jest.fn().mockResolvedValue(undefined) } as never, // audit
   );
 
   return {

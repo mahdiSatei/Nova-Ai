@@ -67,6 +67,7 @@ describe('PaymentsService.verifyAndFinalize', () => {
       wallet as never,
       { get: jest.fn() } as never,
       dataSource as never,
+      { log: jest.fn().mockResolvedValue(undefined) } as never,
     );
   };
 

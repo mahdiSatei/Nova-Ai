@@ -13,6 +13,7 @@ import { BillingModule } from '../billing/billing.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { WebSearchModule } from '../web-search/web-search.module';
 import { FilesModule } from '../files/files.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { FilesModule } from '../files/files.module';
     WalletModule,
     WebSearchModule,
     FilesModule,
+    AuditModule,
   ],
   controllers: [ChatController],
   providers: [ChatService],

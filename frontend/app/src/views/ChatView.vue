@@ -24,6 +24,7 @@ import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import ModelPicker from '@/components/chat/ModelPicker.vue'
 import MessageList from '@/components/chat/MessageList.vue'
 import MessageInput from '@/components/chat/MessageInput.vue'
+import CreditBalance from '@/components/chat/CreditBalance.vue'
 import type { UploadedFile } from '@/api/files'
 import { useChatStream } from '@/composables/useChatStream'
 import { useNewChatSignal } from '@/composables/useNewChatSignal'
@@ -436,6 +437,8 @@ function useSuggestedPrompt(text: string): void {
           <PhBrain class="size-3.5" aria-hidden="true" />
           <span>استدلال</span>
         </button>
+
+        <CreditBalance />
 
         <button
           type="button"

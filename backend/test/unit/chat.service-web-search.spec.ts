@@ -102,6 +102,7 @@ function build() {
     } as never,
     webSearch as never,
     wallet as never,
+    { log: jest.fn() } as never, // audit
   );
   return { service, runtime, conversations, usage, webSearch, wallet };
 }

@@ -82,6 +82,7 @@ function build() {
     failover as never,
     { isConfigured: () => true, search: jest.fn().mockResolvedValue({ query: '', sources: [], empty: true }) } as never,
     { getBalance: jest.fn().mockResolvedValue(0), deductCreditsWithGrace: jest.fn().mockResolvedValue({}), grantCredits: jest.fn().mockResolvedValue(undefined) } as never,
+    { log: jest.fn().mockResolvedValue(undefined) } as never,
   );
 
   return { service, conversations, usage, pricing, failover, models, access, runtime };

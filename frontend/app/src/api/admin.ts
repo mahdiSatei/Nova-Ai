@@ -179,3 +179,27 @@ export async function listAdminFiles(
     },
   })
 }
+
+// ── Payments (admin) ─────────────────────────────────────────────────────
+
+export function listAdminPayments(query: {
+  status?: string
+  userId?: string
+  limit?: number
+  offset?: number
+} = {}): Promise<{ items: unknown[]; total: number }> {
+  return request('/v1/admin/payments', { query: { ...query } })
+}
+
+export function listAdminCreditPurchases(query: {
+  status?: string
+  userId?: string
+  limit?: number
+  offset?: number
+} = {}): Promise<{ items: unknown[]; total: number }> {
+  return request('/v1/admin/credit-purchases', { query: { ...query } })
+}
+
+export function reconcilePayment(id: string): Promise<unknown> {
+  return request(`/v1/admin/payments/${id}/reconcile`, { method: 'POST' })
+}

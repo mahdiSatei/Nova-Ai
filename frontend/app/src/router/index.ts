@@ -27,6 +27,8 @@ const routes: RouteRecordRaw[] = [
       { path: '', name: 'chat', component: () => import('@/views/ChatView.vue') },
       { path: 'c/:id', name: 'chat-conversation', component: () => import('@/views/ChatView.vue'), props: true },
       { path: 'conversations/:id', name: 'conversation', component: () => import('@/views/ConversationView.vue'), props: true },
+      { path: 'wallet', name: 'wallet', component: () => import('@/views/WalletView.vue') },
+      { path: 'payment-result', name: 'payment-result', component: () => import('@/views/PaymentResultView.vue') },
     ],
   },
 
@@ -47,9 +49,19 @@ const routes: RouteRecordRaw[] = [
       { path: 'models', name: 'admin-models', component: () => import('@/views/admin/ModelsView.vue') },
       { path: 'users', name: 'admin-users', component: () => import('@/views/admin/UsersView.vue') },
       { path: 'usage', name: 'admin-usage', component: () => import('@/views/admin/UsageView.vue') },
-      {path: 'files', name: 'admin-files', component: () => import('@/views/admin/FilesView.vue')
-      },
+      { path: 'payments', name: 'admin-payments', component: () => import('@/views/admin/PaymentsView.vue') },
+      { path: 'audit', name: 'admin-audit', component: () => import('@/views/admin/AuditLogView.vue') },
+      { path: 'files', name: 'admin-files', component: () => import('@/views/admin/FilesView.vue') },
     ],
+  },
+
+  // ---- Public (no auth) ----
+  {
+    path: '/s/:shareId',
+    name: 'shared-chat',
+    component: () => import('@/views/SharedChatView.vue'),
+    props: true,
+    meta: { guestOnly: true },
   },
 
   { path: '/forbidden', name: 'forbidden', component: () => import('@/views/ForbiddenView.vue') },

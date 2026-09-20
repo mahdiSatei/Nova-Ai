@@ -8,9 +8,10 @@ import { PaymentsAdminController } from './payments.admin.controller';
 import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { WalletModule } from '../wallet/wallet.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Payment, CreditPurchase]), WalletModule],
+  imports: [TypeOrmModule.forFeature([Payment, CreditPurchase]), WalletModule, AuditModule],
   controllers: [PaymentsController, PaymentsAdminController],
   providers: [
     PaymentsService,

@@ -13,6 +13,8 @@ import {
   PhChatCircleText,
   PhUserGear,
   PhFileText,
+  PhCurrencyCircleDollar,
+  PhClipboardText,
 } from '@phosphor-icons/vue'
 import { useAuthStore } from '@/stores/auth'
 import { useTheme } from '@/composables/useTheme'
@@ -28,6 +30,8 @@ const nav = [
   { to: { name: 'admin-models' }, label: 'کاتالوگ مدل‌ها', icon: PhListBullets },
   { to: { name: 'admin-users' }, label: 'سطح دسترسی کاربران', icon: PhUsers },
   { to: { name: 'admin-usage' }, label: 'گزارش مصرف', icon: PhChartBar },
+  { to: { name: 'admin-payments' }, label: 'پرداخت‌ها', icon: PhCurrencyCircleDollar },
+  { to: { name: 'admin-audit' }, label: 'گزارش عملیات', icon: PhClipboardText },
   { to: { name: 'admin-files' }, label: 'مدیریت فایل‌ها', icon: PhFileText },
 ]
 

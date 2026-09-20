@@ -18,6 +18,7 @@ import { ConversationsService } from '../../src/modules/conversations/conversati
 import { WebSearchService } from '../../src/modules/web-search/web-search.service';
 import { FilesService } from '../../src/modules/files/files.service';
 import { User } from '../../src/modules/users/entities/user.entity';
+import { AuditService } from '../../src/modules/audit/audit.service';
 import { UsageService } from '../../src/modules/usage/usage.service';
 import { UsagePricingService } from '../../src/modules/billing/usage-pricing.service';
 import { WalletService } from '../../src/modules/wallet/wallet.service';
@@ -203,6 +204,12 @@ describe('ChatService', () => {
           useValue: {
             isConfigured: () => true,
             search: jest.fn(),
+          },
+        },
+        {
+          provide: AuditService,
+          useValue: {
+            log: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],
