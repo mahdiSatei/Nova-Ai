@@ -244,16 +244,16 @@ function onCancel(): void {
     <Transition name="fade">
       <div
         v-if="open"
-        class="fixed inset-0 z-30 flex items-center justify-center bg-bg/70 p-4"
+        class="fixed inset-0 z-30 flex items-center justify-center bg-bg/70 p-4 backdrop-blur-sm"
         role="dialog"
         aria-modal="true"
         @click.self="onCancel"
       >
-        <div class="w-full max-w-md rounded-card border border-line bg-surface p-6 shadow-xl">
-          <h2 class="mb-1 text-lg font-semibold">
+        <div class="panel w-full max-w-sm rounded-card border border-line bg-surface p-5 shadow-xl max-h-[min(90dvh,42rem)] overflow-y-auto">
+          <h2 class="mb-1 text-base font-semibold">
             {{ isEdit ? 'ویرایش مدل' : 'افزودن مدل' }}
           </h2>
-          <p class="mb-4 text-sm text-ink-muted">
+          <p class="mb-3 text-xs text-ink-muted">
             نام نمایشی به کاربران نمایش داده می‌شود؛ نام سمت ارائه‌دهنده به‌طور داخلی استفاده می‌شود.
           </p>
 
@@ -266,7 +266,7 @@ function onCancel(): void {
             class="mb-3"
           />
 
-          <form class="flex flex-col gap-4" novalidate @submit.prevent="onSubmit">
+          <form class="flex flex-col gap-3" novalidate @submit.prevent="onSubmit">
             <BaseInput
               v-model="form.displayName"
               label="نام نمایشی"
@@ -417,12 +417,35 @@ function onCancel(): void {
 </template>
 
 <style scoped>
-.fade-enter-active,
+.fade-enter-active {
+  transition: opacity 180ms ease;
+}
 .fade-leave-active {
-  transition: opacity 150ms ease;
+  transition: opacity 120ms ease;
 }
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+.fade-enter-active .panel {
+  animation: panel-pop 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.fade-leave-active .panel {
+  transition: transform 120ms ease, opacity 120ms ease;
+}
+.fade-leave-to .panel {
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+}
+
+@keyframes panel-pop {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 </style>
