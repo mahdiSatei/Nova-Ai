@@ -19,17 +19,16 @@ describe('access-control columns', () => {
     expect(options.default).toBe('public');
   });
 
-  it('keeps the model access columns nullable-free at the SQL level', () => {
+  it('keeps the model visibility column nullable-free at the SQL level', () => {
     const visibility = column('visibility', Model);
-    const tier = column('accessTier', User);
     expect(visibility.nullable).toBeFalsy();
-    expect(tier.nullable).toBeFalsy();
   });
 
-  it('maps users.access_tier with a free default', () => {
-    const options = column('accessTier', User);
-    expect(options.name).toBe('access_tier');
-    expect(options.type).toBe('text');
-    expect(options.default).toBe('free');
+  it('no longer maps a users.access_tier column', () => {
+    const columns = getMetadataArgsStorage()
+      .columns.filter((c) => c.target === User)
+      .map((c) => c.propertyName);
+    expect(columns).not.toContain('accessTier');
+    expect(columns).not.toContain('access_tier');
   });
 });

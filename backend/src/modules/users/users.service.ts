@@ -1,14 +1,7 @@
-import {
-  ConflictException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  UnprocessableEntityException,
-} from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
-import { USER_ACCESS_TIERS, UserAccessTier } from '../models/model-visibility';
 
 @Injectable()
 export class UsersService {
@@ -143,25 +136,6 @@ export class UsersService {
 
     const [items, total] = await qb.getManyAndCount();
     return { items, total };
-  }
-
-  /**
-   * Admin: set a user's entitlement tier. Throws 404 `user_not_found` for an
-   * unknown id so the admin UI can distinguish "gone" from "invalid input".
-   */
-  async setAccessTier(id: string, accessTier: UserAccessTier): Promise<User> {
-    if (!USER_ACCESS_TIERS.includes(accessTier)) {
-      throw new UnprocessableEntityException({
-        code: 'validation_failed',
-        message: 'accessTier must be one of free, commercial.',
-      });
-    }
-    const user = await this.repo.findOne({ where: { id } });
-    if (!user) {
-      throw new NotFoundException({ code: 'user_not_found', message: 'User not found.' });
-    }
-    user.accessTier = accessTier;
-    return this.repo.save(user);
   }
 
   /** Update lastLoginAt to now. Silent on failure — best-effort. */

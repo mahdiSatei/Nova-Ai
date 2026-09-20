@@ -52,13 +52,13 @@ describe('ConversationsController.setModel', () => {
   });
 
   it('delegates entitlement to ModelAccessService and returns the updated summary', async () => {
-    models.findById.mockResolvedValue({ id: 'com', enabled: true, visibility: 'commercial' });
+    models.findById.mockResolvedValue({ id: 'priv', enabled: true, visibility: 'private' });
 
-    const result = await controller.setModel({ id: 'u-1' } as never, 'conv-1', { modelId: 'com' });
+    const result = await controller.setModel({ id: 'u-1' } as never, 'conv-1', { modelId: 'priv' });
 
     expect(access.assertCanUseModel).toHaveBeenCalledWith(
       'u-1',
-      expect.objectContaining({ id: 'com' }),
+      expect.objectContaining({ id: 'priv' }),
     );
     expect(result.id).toBe('conv-1');
   });

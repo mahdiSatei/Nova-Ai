@@ -13,13 +13,11 @@ import type {
 // فاز ۳: برچسب سطح دسترسی برای هر مدل.
 const VISIBILITY_LABELS: Record<ModelVisibility, string> = {
   public: 'عمومی',
-  commercial: 'تجاری',
   private: 'خصوصی',
 }
 
 const VISIBILITY_CLASSES: Record<ModelVisibility, string> = {
   public: 'bg-success/15 text-success',
-  commercial: 'bg-primary/15 text-primary',
   private: 'bg-warning/15 text-warning',
 }
 

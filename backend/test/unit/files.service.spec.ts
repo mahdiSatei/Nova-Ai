@@ -4,6 +4,8 @@ import { BadGatewayException } from '@nestjs/common';
 import { FilesService } from '../../src/modules/files/files.service';
 import { StorageService } from '../../src/modules/files/storage.service';
 import { FileRecord, FileStatus } from '../../src/modules/files/entities/file.entity';
+import { User } from '../../src/modules/users/entities/user.entity';
+import { Queue } from 'bullmq';
 
 describe('FilesService', () => {
   let svc: FilesService;
@@ -48,6 +50,8 @@ describe('FilesService', () => {
         FilesService,
         { provide: StorageService, useValue: storage },
         { provide: getRepositoryToken(FileRecord), useValue: repo },
+        { provide: getRepositoryToken(User), useValue: { findByIds: jest.fn(async () => []) } },
+        { provide: Queue, useValue: { add: jest.fn(async () => ({})) } },
       ],
     }).compile();
 

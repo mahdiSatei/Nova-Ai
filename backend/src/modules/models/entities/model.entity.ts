@@ -69,13 +69,13 @@ export class Model {
   @Column({ name: 'reasoning_config', type: 'jsonb', default: () => `'{}'::jsonb` })
   reasoningConfig!: StoredReasoningConfig;
 
-  /** Cost per 1,000 input tokens (USD). Zero means free or unpriced. */
-  @Column({ name: 'input_price_per_1k', type: 'decimal', precision: 10, scale: 6, default: 0 })
-  inputPricePer1k!: number;
+  /** Cost per 1,000,000 input tokens in Toman. Zero means free or unpriced. */
+  @Column({ name: 'input_price_per_1m', type: 'decimal', precision: 10, scale: 4, default: 0 })
+  inputPricePer1m!: number;
 
-  /** Cost per 1,000 output tokens (USD). Zero means free or unpriced. */
-  @Column({ name: 'output_price_per_1k', type: 'decimal', precision: 10, scale: 6, default: 0 })
-  outputPricePer1k!: number;
+  /** Cost per 1,000,000 output tokens in Toman. Zero means free or unpriced. */
+  @Column({ name: 'output_price_per_1m', type: 'decimal', precision: 10, scale: 4, default: 0 })
+  outputPricePer1m!: number;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

@@ -10,7 +10,6 @@ import { Provider } from '../../src/modules/provider/entities/provider.entity';
 import { Model } from '../../src/modules/models/entities/model.entity';
 import { User } from '../../src/modules/users/entities/user.entity';
 import { UsageRecord } from '../../src/modules/usage/entities/usage-record.entity';
-import { Quota } from '../../src/modules/quotas/entities/quota.entity';
 import { AppConfig } from '../../src/modules/app-config/entities/app-config.entity';
 import { encrypt } from '../../src/common/crypto/credential-cipher';
 import { ProviderRuntimeService } from '../../src/modules/provider/provider-runtime.service';
@@ -32,11 +31,11 @@ const PASSWORD = 'correct-horse-battery-staple';
 const IDS = {
   downProvider: `down-prov-${RUN}`,
   upProvider: `up-prov-${RUN}`,
-  commercialProvider: `com-prov-${RUN}`,
+  privateProvider: `priv-prov-${RUN}`,
   flakyModel: randomUUID(),
   stableModel: randomUUID(),
   doomedModel: randomUUID(),
-  commercialModel: randomUUID(),
+  privateModel: randomUUID(),
 };
 
 type Behaviour =
@@ -144,7 +143,7 @@ describe('Provider fallback — e2e (spec 006)', () => {
     // runtime.assertReady(modelId) → provider id, then runtime.stream.
     const down = failProvider(IDS.downProvider);
     const up = failProvider(IDS.upProvider);
-    const commercial = failProvider(IDS.commercialProvider);
+    const restricted = failProvider(IDS.privateProvider);
 
     const moduleRef: TestingModule = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(ProviderRuntimeService)
@@ -154,7 +153,7 @@ describe('Provider fallback — e2e (spec 006)', () => {
           const model = await modelRepo.findOne({ where: { id: modelId } });
           const providerId = model?.providerId ?? IDS.upProvider;
           if (providerId === IDS.downProvider) return down;
-          if (providerId === IDS.commercialProvider) return commercial;
+          if (providerId === IDS.privateProvider) return restricted;
           return up;
         }),
         stream: jest.fn((connection: any, input: any) => connection.adapter.stream(input)),
@@ -189,8 +188,8 @@ describe('Provider fallback — e2e (spec 006)', () => {
         isActive: true,
       }),
       providerRepo.create({
-        id: IDS.commercialProvider,
-        name: `Commercial Provider ${RUN}`,
+        id: IDS.privateProvider,
+        name: `Private Provider ${RUN}`,
         type: 'openai-compatible',
         baseUrl: 'http://localhost:9999',
         apiKeyEncrypted: encrypt('test-api-key'),
@@ -229,18 +228,19 @@ describe('Provider fallback — e2e (spec 006)', () => {
         enabled: true,
         fallbackModelId: null,
       }),
-      // Commercial fallback target for the entitlement test.
+      // Admin-only fallback target for the entitlement test. Visibility is
+      // `private`, which a regular user never satisfies.
       modelRepo.create({
-        id: IDS.commercialModel,
-        displayName: `Commercial Model ${RUN}`,
-        actualName: `commercial-${RUN}`,
-        providerId: IDS.commercialProvider,
-        visibility: 'commercial',
+        id: IDS.privateModel,
+        displayName: `Private Model ${RUN}`,
+        actualName: `private-${RUN}`,
+        providerId: IDS.privateProvider,
+        visibility: 'private',
         enabled: true,
       }),
     ]);
 
-    // The entitlement case needs its own primary whose fallback is commercial.
+    // The entitlement case needs its own primary whose fallback is admin-only.
     // Re-point the flaky model? No — use a dedicated model so the other cases
     // are unaffected.
     await modelRepo.update(
@@ -255,13 +255,11 @@ describe('Provider fallback — e2e (spec 006)', () => {
         email: `fb-user-${RUN}@example.com`,
         passwordHash,
         role: 'user',
-        accessTier: 'free',
       }),
       userRepo.create({
         email: `fb-free-${RUN}@example.com`,
         passwordHash,
         role: 'user',
-        accessTier: 'free',
       }),
     ]);
 
@@ -285,16 +283,6 @@ describe('Provider fallback — e2e (spec 006)', () => {
       await appConfigRepo.save(cfg);
     }
 
-    // Give both users an effectively unlimited quota so token accounting
-    // assertions are not confounded by phase-5 reservation limits.
-    const quotaRepo = ds.getRepository(Quota);
-    for (const uid of [userId, freeUserId]) {
-      const existing = await quotaRepo.findOne({ where: { userId: uid } });
-      if (existing) {
-        existing.tokenLimit = 0;
-        await quotaRepo.save(existing);
-      }
-    }
   });
 
   afterAll(async () => {
@@ -478,17 +466,17 @@ describe('Provider fallback — e2e (spec 006)', () => {
   });
 
   it('never bypasses entitlement: an unentitled fallback yields all_providers_unavailable', async () => {
-    // The commercial model's provider succeeds, but the user is not entitled
-    // to it. Re-point the flaky model's fallback at the commercial model.
+    // The private model's provider succeeds, but the user is not entitled to
+    // it. Re-point the flaky model's fallback at the private model.
     const modelRepo = ds.getRepository(Model);
-    await modelRepo.update({ id: IDS.flakyModel }, { fallbackModelId: IDS.commercialModel });
+    await modelRepo.update({ id: IDS.flakyModel }, { fallbackModelId: IDS.privateModel });
 
     script(IDS.downProvider, { kind: 'fail', code: 'provider_timeout', times: 1 }, {
       kind: 'fail',
       code: 'provider_timeout',
       times: 1,
     });
-    script(IDS.commercialProvider, { kind: 'succeed', content: 'secret commercial answer' });
+    script(IDS.privateProvider, { kind: 'succeed', content: 'secret admin answer' });
 
     try {
       const { events } = await streamChat(app.getHttpServer(), userToken, {
@@ -499,38 +487,35 @@ describe('Provider fallback — e2e (spec 006)', () => {
 
       const error = events.find((e) => e.event === 'error');
       expect(error?.data?.code).toBe('all_providers_unavailable');
-      // The commercial provider was never invoked for this free-tier user.
-      expect(callCounts.get(IDS.commercialProvider) ?? 0).toBe(0);
+      // The private provider was never invoked for this regular user.
+      expect(callCounts.get(IDS.privateProvider) ?? 0).toBe(0);
     } finally {
       // Restore for any later case.
       await modelRepo.update({ id: IDS.flakyModel }, { fallbackModelId: IDS.stableModel });
     }
   });
 
-  it('leaves the user quota unchanged after a total failure (reservation refunded)', async () => {
+  it('records no charge for a totally failed turn', async () => {
     script(
       IDS.downProvider,
       { kind: 'fail', code: 'provider_timeout', times: 1 },
       { kind: 'fail', code: 'provider_timeout', times: 1 },
     );
 
-    const quotaRepo = ds.getRepository(Quota);
-    // Make sure a quota row exists with a real limit so reservation/refund is
-    // observable, then snapshot tokenUsed.
-    const existing = await quotaRepo.findOne({ where: { userId } });
-    if (!existing) {
-      await quotaRepo.save(quotaRepo.create({ userId, tokenLimit: 1000000, tokenUsed: 0 }));
-    }
-    const before = (await quotaRepo.findOne({ where: { userId } }))?.tokenUsed ?? 0;
-
     await streamChat(app.getHttpServer(), userToken, {
-      message: 'refund check',
+      message: 'no charge check',
       modelId: IDS.doomedModel,
       conversationId: null,
     });
 
-    const after = (await quotaRepo.findOne({ where: { userId } }))?.tokenUsed ?? 0;
-    expect(Number(after)).toBe(Number(before));
+    const usageRepo = ds.getRepository(UsageRecord);
+    const record = await usageRepo.findOne({
+      where: { conversationId: (await newestConversationId()) ?? '' },
+      order: { createdAt: 'DESC' },
+    });
+    expect(record?.status).toBe('failed');
+    expect(Number(record?.chargedCost)).toBe(0);
+    expect(Number(record?.chargedCredits)).toBe(0);
   });
 
   /** Newest conversation for the primary user (most recent turn). */

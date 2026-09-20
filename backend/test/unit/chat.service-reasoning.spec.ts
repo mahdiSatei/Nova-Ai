@@ -24,8 +24,8 @@ const model = (reasoningConfig: unknown) => ({
   enabled: true,
   visibility: 'public',
   fallbackModelId: null,
-  inputPricePer1k: 0.5,
-  outputPricePer1k: 1.5,
+  inputPricePer1m: 500_000,
+  outputPricePer1m: 1_000_000,
   reasoningConfig,
 });
 
@@ -65,7 +65,7 @@ function build(options: { model?: unknown; chunks?: unknown[][] } = {}) {
   }
   const usage = {
     create: jest.fn().mockResolvedValue({ id: 'usage-1' }),
-    finalize: jest.fn().mockResolvedValue(undefined),
+    finalizeOnce: jest.fn().mockResolvedValue(true),
   };
   const selected = options.model ?? model(CAPABILITY);
 
@@ -77,12 +77,12 @@ function build(options: { model?: unknown; chunks?: unknown[][] } = {}) {
     { canAccessUser: jest.fn().mockResolvedValue(true) } as never,
     runtime as never,
     conversations as never,
+    {} as never, // files (not exercised by these cases)
     { update: jest.fn().mockResolvedValue(undefined) } as never,
     usage as never,
     {
-      checkAndReserve: jest.fn().mockResolvedValue({ reserved: true, quotaId: 'q1', tokenRemaining: 9 }),
-      finalize: jest.fn().mockResolvedValue(undefined),
-      refund: jest.fn().mockResolvedValue(undefined),
+      calculateLlmCost: jest.fn().mockResolvedValue({ chargedCost: 0, chargedCredits: 0 }),
+      getOutputCreditRate: jest.fn().mockResolvedValue(0),
     } as never,
     {
       establish: jest.fn().mockResolvedValue({
@@ -94,6 +94,7 @@ function build(options: { model?: unknown; chunks?: unknown[][] } = {}) {
       }),
     } as never,
     { isConfigured: () => true, search: jest.fn() } as never,
+    { getBalance: jest.fn().mockResolvedValue(0), deductCreditsWithGrace: jest.fn().mockResolvedValue({}), grantCredits: jest.fn().mockResolvedValue(undefined) } as never,
   );
 
   return { service, runtime, conversations, usage, selected };

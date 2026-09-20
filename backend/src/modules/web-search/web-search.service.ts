@@ -61,7 +61,6 @@ export class WebSearchService {
     return {
       query: raw.query,
       sources,
-      creditsUsed: raw.creditsUsed,
       empty: sources.length === 0,
     };
   }

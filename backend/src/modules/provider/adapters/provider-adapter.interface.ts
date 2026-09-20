@@ -55,6 +55,10 @@ export interface ProviderStreamChunk {
     prompt_tokens?: number;
     completion_tokens?: number;
     total_tokens?: number;
+    /** Normalized reasoning-token count, when the provider reports one. */
+    reasoning_tokens?: number;
+    /** OpenAI-compatible providers nest reasoning tokens here instead. */
+    completion_tokens_details?: { reasoning_tokens?: number };
   };
 }
 

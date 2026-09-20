@@ -28,7 +28,7 @@ const OK_BODY = {
     { title: 'T1', url: 'https://a.test/1', snippet: 's1', position: 1, content: '# one' },
     { title: 'T2', url: 'https://b.test/2', snippet: 's2', position: 2, content_error: 'blocked' },
   ],
-  metadata: { status: 'success', credits_used: 2, from_cache: false },
+  metadata: { status: 'success', from_cache: false },
 };
 
 describe('SerpexProvider', () => {
@@ -52,18 +52,18 @@ describe('SerpexProvider', () => {
     expect(res.results).toHaveLength(2);
     expect(res.results[0]).toMatchObject({ title: 'T1', url: 'https://a.test/1', content: '# one' });
     expect(res.results[1]).toMatchObject({ contentError: 'blocked' });
-    expect(res.creditsUsed).toBe(2);
+    // Provider credit accounting never leaves the adapter (Phase 4 §4.3).
+    expect(Object.keys(res)).not.toContain('creditsUsed');
     expect(res.status).toBe('success');
   });
 
-  it('maps no_results with credits from metadata', async () => {
+  it('maps no_results from metadata', async () => {
     jest.spyOn(global, 'fetch').mockResolvedValue(
-      jsonResponse(200, { query: 'q', results: [], metadata: { status: 'no_results', credits_used: 1 } }),
+      jsonResponse(200, { query: 'q', results: [], metadata: { status: 'no_results' } }),
     );
     const res = await build().search({ query: 'q', maxResults: 5, includeContent: true });
     expect(res.results).toEqual([]);
     expect(res.status).toBe('no_results');
-    expect(res.creditsUsed).toBe(1);
   });
 
   it.each([

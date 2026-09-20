@@ -91,8 +91,8 @@ describe('Usage tracking — e2e', () => {
         providerId: IDS.provider,
         visibility: 'public',
         enabled: true,
-        inputPricePer1k: 0.01,
-        outputPricePer1k: 0.03,
+        inputPricePer1m: 100_000,
+        outputPricePer1m: 300_000,
       }),
     );
 
@@ -108,8 +108,8 @@ describe('Usage tracking — e2e', () => {
     const userRepo = ds.getRepository(User);
     const passwordHash = await argon2.hash(PASSWORD);
     await userRepo.save([
-      userRepo.create({ email: EMAIL_ADMIN, passwordHash, role: 'admin', accessTier: 'free' }),
-      userRepo.create({ email: EMAIL_USER, passwordHash, role: 'user', accessTier: 'free' }),
+      userRepo.create({ email: EMAIL_ADMIN, passwordHash, role: 'admin' }),
+      userRepo.create({ email: EMAIL_USER, passwordHash, role: 'user' }),
     ]);
 
     // Get admin token via admin login
@@ -232,8 +232,8 @@ describe('Usage tracking — e2e', () => {
 
       expect(model).toBeDefined();
       // Decimal columns may return as strings in some environments
-      expect(Number(model?.inputPricePer1k)).toBeCloseTo(0.01, 2);
-      expect(Number(model?.outputPricePer1k)).toBeCloseTo(0.03, 2);
+      expect(Number(model?.inputPricePer1m)).toBeCloseTo(100_000, 0);
+      expect(Number(model?.outputPricePer1m)).toBeCloseTo(300_000, 0);
     });
   });
 });

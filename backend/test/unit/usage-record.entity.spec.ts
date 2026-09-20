@@ -23,20 +23,39 @@ describe('UsageRecord entity', () => {
     expect(column('estimatedCost', UsageRecord)).toMatchObject({ type: 'decimal' });
     expect(column('status', UsageRecord)).toMatchObject({ type: 'text', default: 'pending' });
   });
+
+  it('maps the commercial columns (reasoning tokens, charged cost/credits)', () => {
+    const { UsageRecord } = require('../../src/modules/usage/entities/usage-record.entity');
+    expect(column('reasoningTokens', UsageRecord)).toMatchObject({ type: 'int', default: 0 });
+    expect(column('chargedCost', UsageRecord)).toMatchObject({
+      type: 'decimal',
+      precision: 14,
+      scale: 4,
+    });
+    expect(column('chargedCredits', UsageRecord)).toMatchObject({
+      type: 'decimal',
+      precision: 14,
+      scale: 4,
+    });
+  });
 });
 
 describe('Model pricing columns', () => {
-  it('maps inputPricePer1k with a zero default', () => {
+  it('maps inputPricePer1m with a zero default', () => {
     const { Model } = require('../../src/modules/models/entities/model.entity');
-    const options = column('inputPricePer1k', Model);
+    const options = column('inputPricePer1m', Model);
     expect(options.type).toBe('decimal');
+    expect(options.precision).toBe(10);
+    expect(options.scale).toBe(4);
     expect(options.default).toBe(0);
   });
 
-  it('maps outputPricePer1k with a zero default', () => {
+  it('maps outputPricePer1m with a zero default', () => {
     const { Model } = require('../../src/modules/models/entities/model.entity');
-    const options = column('outputPricePer1k', Model);
+    const options = column('outputPricePer1m', Model);
     expect(options.type).toBe('decimal');
+    expect(options.precision).toBe(10);
+    expect(options.scale).toBe(4);
     expect(options.default).toBe(0);
   });
 });

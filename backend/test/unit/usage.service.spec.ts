@@ -9,39 +9,26 @@ describe('UsageService', () => {
       create: jest.fn((data) => data),
       save: jest.fn(async (data) => ({ id: 'usage-1', ...data })),
       findOne: jest.fn(),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
       createQueryBuilder: jest.fn(() => ({
         leftJoinAndSelect: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        addSelect: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
         skip: jest.fn().mockReturnThis(),
         take: jest.fn().mockReturnThis(),
         getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
-        getRawOne: jest.fn().mockResolvedValue({ totalTokens: 0, totalCost: 0, requestCount: 0 }),
+        getRawOne: jest.fn().mockResolvedValue({
+          totalTokens: '150',
+          totalCost: '200',
+          totalCredits: '2',
+          requestCount: '1',
+        }),
       })),
     };
     service = new UsageService(mockRepo);
-  });
-
-  describe('calculateCost', () => {
-    it('returns 0 when both prices are 0', () => {
-      const cost = service.calculateCost(100, 50, 0, 0);
-      expect(cost).toBe(0);
-    });
-
-    it('calculates cost from input and output prices', () => {
-      // $0.01 per 1k input, $0.03 per 1k output
-      // 100 input tokens = 0.1k * $0.01 = $0.001
-      // 50 output tokens = 0.05k * $0.03 = $0.0015
-      // Total = $0.0025
-      const cost = service.calculateCost(100, 50, 0.01, 0.03);
-      expect(cost).toBeCloseTo(0.0025, 8);
-    });
-
-    it('handles zero tokens gracefully', () => {
-      const cost = service.calculateCost(0, 0, 0.01, 0.03);
-      expect(cost).toBe(0);
-    });
   });
 
   describe('create', () => {
@@ -66,66 +53,72 @@ describe('UsageService', () => {
     });
   });
 
-  describe('finalize', () => {
-    it('updates usage record with token counts and cost', async () => {
-      mockRepo.findOne.mockResolvedValue({
-        id: 'usage-1',
-        modelId: 'model-1',
-        status: 'pending',
-      });
+  describe('finalizeOnce', () => {
+    const completedInput = {
+      inputTokens: 100,
+      outputTokens: 50,
+      totalTokens: 150,
+      reasoningTokens: 10,
+      chargedCost: 200,
+      chargedCredits: 2,
+      status: 'completed' as const,
+    };
 
-      await service.finalize('usage-1', {
-        promptTokens: 100,
-        completionTokens: 50,
-        totalTokens: 150,
-        inputPricePer1k: 0.01,
-        outputPricePer1k: 0.03,
-        status: 'completed',
-      });
+    it('atomically finalizes a pending record and reports success', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 1 });
 
-      expect(mockRepo.save).toHaveBeenCalledWith(
+      const recorded = await service.finalizeOnce('usage-1', completedInput);
+
+      expect(recorded).toBe(true);
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'usage-1', status: 'pending' },
         expect.objectContaining({
           promptTokens: 100,
           completionTokens: 50,
           totalTokens: 150,
+          reasoningTokens: 10,
+          chargedCost: 200,
+          chargedCredits: 2,
           status: 'completed',
           completedAt: expect.any(Date),
         }),
       );
     });
 
-    it('marks as failed when status is failed', async () => {
-      mockRepo.findOne.mockResolvedValue({
-        id: 'usage-1',
-        modelId: 'model-1',
-        status: 'pending',
-      });
+    it('reports false and writes nothing when the record is no longer pending', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 0 });
 
-      await service.finalize('usage-1', {
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
-        inputPricePer1k: 0,
-        outputPricePer1k: 0,
-        status: 'failed',
-      });
+      const recorded = await service.finalizeOnce('usage-1', completedInput);
 
-      expect(mockRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'failed' }),
-      );
+      expect(recorded).toBe(false);
     });
 
-    it('does nothing if record not found', async () => {
-      mockRepo.findOne.mockResolvedValue(null);
-      await service.finalize('nonexistent', {
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
-        inputPricePer1k: 0,
-        outputPricePer1k: 0,
-        status: 'completed',
+    it('forces cost and credits to zero for a failed status', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 1 });
+
+      await service.finalizeOnce('usage-1', {
+        ...completedInput,
+        status: 'failed' as const,
+        chargedCost: 999,
+        chargedCredits: 7,
       });
-      expect(mockRepo.save).not.toHaveBeenCalled();
+
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'usage-1', status: 'pending' },
+        expect.objectContaining({ status: 'failed', chargedCost: 0, chargedCredits: 0 }),
+      );
+    });
+  });
+
+  describe('listForAdmin', () => {
+    it('reports token, Toman cost, and Credit totals', async () => {
+      const result = await service.listForAdmin({ limit: 20, offset: 0 });
+      expect(result.totals).toEqual({
+        totalTokens: 150,
+        totalCost: 200,
+        totalCredits: 2,
+        requestCount: 1,
+      });
     });
   });
 });

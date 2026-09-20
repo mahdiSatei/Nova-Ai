@@ -8,16 +8,9 @@ describe('ModelAccessService', () => {
   let svc: ModelAccessService;
   let userRepo: { findOne: jest.Mock };
 
-  const viewer = (role: 'user' | 'admin', accessTier: 'free' | 'commercial'): AccessViewer => ({
-    role,
-    accessTier,
-  });
+  const viewer = (role: 'user' | 'admin'): AccessViewer => ({ role });
 
-  const userRow = (role: 'user' | 'admin', accessTier: 'free' | 'commercial') => ({
-    id: 'u-1',
-    role,
-    accessTier,
-  });
+  const userRow = (role: 'user' | 'admin') => ({ id: 'u-1', role });
 
   beforeEach(async () => {
     userRepo = { findOne: jest.fn() };
@@ -29,18 +22,18 @@ describe('ModelAccessService', () => {
 
   describe('canAccess', () => {
     it.each([
-      ['free', 'user', 'public', true],
-      ['free', 'user', 'commercial', false],
-      ['free', 'user', 'private', false],
-      ['commercial', 'user', 'public', true],
-      ['commercial', 'user', 'commercial', true],
-      ['commercial', 'user', 'private', false],
-      ['free', 'admin', 'public', true],
-      ['free', 'admin', 'commercial', true],
-      ['free', 'admin', 'private', true],
-    ] as const)('tier=%s role=%s visibility=%s => %s', (accessTier, role, visibility, expected) => {
-      expect(svc.canAccess(viewer(role, accessTier), { visibility, enabled: true })).toBe(expected);
-    });
+      ['user', 'public', true, true],
+      ['user', 'private', true, false],
+      ['admin', 'public', true, true],
+      ['admin', 'private', true, true],
+      ['user', 'public', false, false],
+      ['admin', 'private', false, false],
+    ] as const)(
+      'role=%s visibility=%s enabled=%s => %s',
+      (role, visibility, enabled, expected) => {
+        expect(svc.canAccess(viewer(role), { visibility, enabled })).toBe(expected);
+      },
+    );
 
     it('denies everything to an unknown viewer', () => {
       expect(svc.canAccess(null, { visibility: 'public', enabled: true })).toBe(false);
@@ -48,20 +41,18 @@ describe('ModelAccessService', () => {
     });
 
     it('denies a disabled model even to an admin', () => {
-      expect(
-        svc.canAccess(viewer('admin', 'commercial'), { visibility: 'public', enabled: false }),
-      ).toBe(false);
+      expect(svc.canAccess(viewer('admin'), { visibility: 'public', enabled: false })).toBe(false);
     });
   });
 
   describe('loadViewer', () => {
     it('loads only the fields needed by the policy', async () => {
-      userRepo.findOne.mockResolvedValue(userRow('user', 'commercial'));
+      userRepo.findOne.mockResolvedValue(userRow('admin'));
       const result = await svc.loadViewer('u-1');
-      expect(result).toEqual({ role: 'user', accessTier: 'commercial' });
+      expect(result).toEqual({ role: 'admin' });
       expect(userRepo.findOne).toHaveBeenCalledWith({
         where: { id: 'u-1' },
-        select: ['id', 'role', 'accessTier'],
+        select: ['id', 'role'],
       });
     });
 
@@ -72,27 +63,22 @@ describe('ModelAccessService', () => {
   });
 
   describe('canAccessUser', () => {
-    it('grants a commercial model to a commercial user', async () => {
-      userRepo.findOne.mockResolvedValue(userRow('user', 'commercial'));
-      expect(await svc.canAccessUser('u-1', { visibility: 'commercial', enabled: true })).toBe(
-        true,
-      );
+    it('grants a public model to a regular user', async () => {
+      userRepo.findOne.mockResolvedValue(userRow('user'));
+      expect(await svc.canAccessUser('u-1', { visibility: 'public', enabled: true })).toBe(true);
     });
 
-    it('denies a commercial model to a free user', async () => {
-      userRepo.findOne.mockResolvedValue(userRow('user', 'free'));
-      expect(await svc.canAccessUser('u-1', { visibility: 'commercial', enabled: true })).toBe(
-        false,
-      );
+    it('denies a private model to a regular user', async () => {
+      userRepo.findOne.mockResolvedValue(userRow('user'));
+      expect(await svc.canAccessUser('u-1', { visibility: 'private', enabled: true })).toBe(false);
     });
   });
 
   describe('filterAccessible', () => {
-    it('keeps only entitled models and loads the viewer once', async () => {
-      userRepo.findOne.mockResolvedValue(userRow('user', 'free'));
+    it('keeps only enabled public models for a regular user and loads the viewer once', async () => {
+      userRepo.findOne.mockResolvedValue(userRow('user'));
       const models = [
         { id: 'pub', visibility: 'public' as const, enabled: true },
-        { id: 'com', visibility: 'commercial' as const, enabled: true },
         { id: 'priv', visibility: 'private' as const, enabled: true },
         { id: 'off', visibility: 'public' as const, enabled: false },
       ];
@@ -104,16 +90,16 @@ describe('ModelAccessService', () => {
 
   describe('assertCanUseModel', () => {
     it('throws model_unavailable for a disabled model', async () => {
-      userRepo.findOne.mockResolvedValue(userRow('user', 'free'));
+      userRepo.findOne.mockResolvedValue(userRow('user'));
       await expect(
         svc.assertCanUseModel('u-1', { visibility: 'public', enabled: false }),
       ).rejects.toBeInstanceOf(UnprocessableEntityException);
     });
 
-    it('throws model_forbidden with a stable code for an unentitled viewer', async () => {
-      userRepo.findOne.mockResolvedValue(userRow('user', 'free'));
+    it('throws model_forbidden with a stable code for a private model as a non-admin', async () => {
+      userRepo.findOne.mockResolvedValue(userRow('user'));
       const err = await svc
-        .assertCanUseModel('u-1', { visibility: 'commercial', enabled: true })
+        .assertCanUseModel('u-1', { visibility: 'private', enabled: true })
         .catch((e) => e);
       expect(err).toBeInstanceOf(ForbiddenException);
       expect(err.getResponse()).toMatchObject({ code: 'model_forbidden' });
@@ -121,7 +107,7 @@ describe('ModelAccessService', () => {
     });
 
     it('resolves for a public model', async () => {
-      userRepo.findOne.mockResolvedValue(userRow('user', 'free'));
+      userRepo.findOne.mockResolvedValue(userRow('user'));
       await expect(
         svc.assertCanUseModel('u-1', { visibility: 'public', enabled: true }),
       ).resolves.toBeUndefined();

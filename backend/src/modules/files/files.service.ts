@@ -1,6 +1,6 @@
 import { Injectable, BadGatewayException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { StorageService } from './storage.service';
@@ -70,7 +70,7 @@ export class FilesService {
     offset = 0,
     filters?: { status?: FileStatus; mimeType?: string; userId?: string },
   ): Promise<{ items: (FileRecord & { username?: string | null })[]; total: number }> {
-    const where: any = {};
+    const where: FindOptionsWhere<FileRecord> = {};
     if (filters?.status) where.status = filters.status;
     if (filters?.mimeType) where.mimeType = filters.mimeType;
     if (filters?.userId) where.userId = filters.userId;

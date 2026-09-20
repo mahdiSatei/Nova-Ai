@@ -25,7 +25,6 @@ interface SerpexBody {
   results?: SerpexResult[];
   metadata?: {
     status?: string;
-    credits_used?: number;
     from_cache?: boolean;
   };
 }
@@ -103,7 +102,6 @@ export class SerpexProvider implements WebSearchProvider {
       return {
         query: body.query ?? request.query,
         results: body.results.map((r) => this.normalizeResult(r)),
-        creditsUsed: Number(body.metadata?.credits_used ?? 0) || 0,
         fromCache: Boolean(body.metadata?.from_cache),
         status,
       };

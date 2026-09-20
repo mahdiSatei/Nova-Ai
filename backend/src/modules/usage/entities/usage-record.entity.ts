@@ -68,9 +68,27 @@ export class UsageRecord {
   @Column({ name: 'total_tokens', type: 'int', default: 0 })
   totalTokens!: number;
 
-  /** Estimated cost in USD. Calculated from model pricing after streaming. */
+  /**
+   * Reasoning (thinking) tokens reported by the provider. Billed at the output
+   * rate but stored separately so the admin report can break them out.
+   */
+  @Column({ name: 'reasoning_tokens', type: 'int', default: 0 })
+  reasoningTokens!: number;
+
+  /**
+   * Legacy estimated cost in USD. Retained for historical rows only — new rows
+   * are priced in Toman and recorded in `chargedCost`. Never recalculated.
+   */
   @Column({ name: 'estimated_cost', type: 'decimal', precision: 12, scale: 8, default: 0 })
   estimatedCost!: number;
+
+  /** Cost charged for this request in Toman, captured at finalize time. */
+  @Column({ name: 'charged_cost', type: 'decimal', precision: 14, scale: 4, default: 0 })
+  chargedCost!: number;
+
+  /** Credits actually deducted for this request, captured at finalize time. */
+  @Column({ name: 'charged_credits', type: 'decimal', precision: 14, scale: 4, default: 0 })
+  chargedCredits!: number;
 
   @Column({ type: 'int', default: 1 })
   attempts!: number;

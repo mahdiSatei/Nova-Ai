@@ -16,7 +16,7 @@ import {
 } from '../provider/provider-failover.service';
 import { ConversationsService } from '../conversations/conversations.service';
 import { UsageService } from '../usage/usage.service';
-import { QuotaService } from '../quotas/quotas.service';
+import { UsagePricingService } from '../billing/usage-pricing.service';
 import { User } from '../users/entities/user.entity';
 import { ChatRequestDto } from './dto/chat-request.dto';
 import { FilesService } from '../files/files.service';
@@ -25,6 +25,12 @@ import { WebSearchService } from '../web-search/web-search.service';
 import { WebSearchError } from '../web-search/web-search.errors';
 import { WEB_SEARCH_LIMITS } from '../web-search/web-search.constants';
 import type { CitationSource, WebSource } from '../web-search/web-search.types';
+import { WalletService, roundCredits } from '../wallet/wallet.service';
+import {
+  CREDIT_EXHAUSTION_GRACE_CREDITS,
+  createCreditBudget,
+  estimateOutputTokens,
+} from './credit-budget';
 import { ToolCallAccumulator } from './tool-call-accumulator';
 import { buildCitations, extractCitationIds } from './citations';
 import { ReasoningStreamNormalizer, ReasoningStreamEvent } from './reasoning-stream';
@@ -113,14 +119,6 @@ export type ChatStreamEvent =
   | ChatReasoningDeltaEvent;
 
 /**
- * Loose message shape used internally.
- */
-interface ChatMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-}
-
-/**
  * Holds the in-progress stream state for a conversation.
  */
 interface StreamState {
@@ -168,9 +166,10 @@ export class ChatService {
     private readonly userRepo: Repository<User>,
 
     private readonly usage: UsageService,
-    private readonly quotas: QuotaService,
+    private readonly pricing: UsagePricingService,
     private readonly failover: ProviderFailoverService,
     private readonly webSearch: WebSearchService,
+    private readonly wallet: WalletService,
   ) {}
 
   /**
@@ -472,7 +471,7 @@ export class ChatService {
           observer,
           isActive,
           'provider_not_configured',
-          'Central provider is not configured. Ask an admin to set it up.',
+          'The model provider is not available. Ask an admin to configure it.',
         );
       }
 
@@ -587,49 +586,6 @@ export class ChatService {
         'streaming',
       );
 
-      // ── quota preflight ─────────────────────────────────────────────────
-
-      let quotaId: string | undefined;
-      let quotaReservedTokens = 0;
-
-      try {
-        const estimatedTokens = Math.max(
-          1,
-          Math.ceil(dto.message.length / 4),
-        );
-
-        const reservation =
-          await this.quotas.checkAndReserve(
-            userId,
-            estimatedTokens,
-          );
-
-        if (!reservation.reserved) {
-          // Do not leave the assistant message permanently streaming.
-          await this.conversations.updateMessageStatus(
-            assistantMessageId,
-            'failed',
-            '',
-          );
-
-          return this.failStream(
-            observer,
-            isActive,
-            'quota_exceeded',
-            `You have reached your token limit. ${reservation.tokenRemaining.toLocaleString()} tokens remaining.`,
-          );
-        }
-
-        quotaId = reservation.quotaId;
-        quotaReservedTokens = estimatedTokens;
-      } catch (err) {
-        this.logger.warn(
-          `Quota preflight failed open: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      }
-
       // ── provider establishment ─────────────────────────────────────────
 
       let established: EstablishedStream;
@@ -698,15 +654,6 @@ export class ChatService {
             attempts: err.attempts,
           });
 
-          if (quotaId) {
-            await this.quotas
-              .refund(
-                quotaId,
-                quotaReservedTokens,
-              )
-              .catch(() => {});
-          }
-
           observer.complete();
           return;
         }
@@ -728,6 +675,7 @@ export class ChatService {
             modelId: effectiveModel.id,
             providerId: effectiveModel.providerId,
             attempts: established.attempts,
+            messageId: assistantMessageId,
           });
 
         usageRecordId = usageRecord.id;
@@ -752,6 +700,7 @@ export class ChatService {
       });
 
       await this.runToolLoop({
+        userId,
         conversationId,
         assistantMessageId,
         modelName: effectiveModel.actualName,
@@ -759,8 +708,6 @@ export class ChatService {
         observer,
         isActive,
         usageRecordId,
-        quotaId,
-        quotaReservedTokens,
         effectiveModel,
         webSearchEnabled: dto.webSearch === true,
         reasoning: reasoningRequested
@@ -806,6 +753,7 @@ export class ChatService {
    * one provider call — the pre-Phase-7 behaviour.
    */
   private async runToolLoop(params: {
+    userId: string;
     conversationId: string;
     assistantMessageId: string;
     modelName: string;
@@ -816,13 +764,12 @@ export class ChatService {
     };
     isActive: () => boolean;
     usageRecordId: string | undefined;
-    quotaId: string | undefined;
-    quotaReservedTokens: number;
     effectiveModel: Model;
     webSearchEnabled: boolean;
     reasoning: ProviderReasoningRequest;
   }): Promise<void> {
     const {
+      userId,
       conversationId,
       assistantMessageId,
       modelName,
@@ -830,20 +777,34 @@ export class ChatService {
       observer,
       isActive,
       usageRecordId,
-      quotaId,
-      quotaReservedTokens,
       effectiveModel,
       webSearchEnabled,
       reasoning,
     } = params;
 
     let fullResponse = '';
-    let lastChunk: ProviderStreamChunk | undefined;
+    let providerUsage: ProviderStreamChunk['usage'] | undefined;
     let searchCredits = 0;
+
+    let stopReason: 'completed' | 'credit_exhausted' = 'completed';
 
     const abortController = new AbortController();
     const sourcesByUrl = new Map<string, WebSource>();
     const startedAt = Date.now();
+
+    // §3.8 boundary: balance at stream start + grace, checked against a
+    // character-based estimate of answer + reasoning output. A rate of 0
+    // (misconfigured pricing) disables the check.
+    const outputCreditRate = await this.pricing
+      .getOutputCreditRate(effectiveModel.id)
+      .catch(() => 0);
+    const budget =
+      outputCreditRate > 0
+        ? createCreditBudget(
+            (await this.wallet.getBalance(userId).catch(() => 0)) +
+              CREDIT_EXHAUSTION_GRACE_CREDITS,
+          )
+        : null;
     const normalizer = new ReasoningStreamNormalizer({ enabled: reasoning.enabled });
     let answerStarted = false;
 
@@ -940,7 +901,7 @@ export class ChatService {
           const accumulator = new ToolCallAccumulator();
 
           for await (const chunk of stream) {
-            lastChunk = chunk;
+            if (chunk.usage) providerUsage = chunk.usage;
 
             const delta = chunk.choices?.[0]?.delta;
 
@@ -951,6 +912,21 @@ export class ChatService {
             for (const event of normalizer.pushReasoning(delta?.reasoning)) {
               if (event.kind === 'delta') state.reasoningSummary = normalizer.summary;
               this.emitReasoningEvent(state, event);
+            }
+
+            // §3.8: check after every chunk. The current chunk is not yet
+            // accumulated; the conservative estimator absorbs that one-chunk
+            // skew.
+            if (
+              budget &&
+              budget.exceeded(
+                estimateOutputTokens(
+                  fullResponse.length + state.reasoningSummary.length,
+                ) * outputCreditRate,
+              )
+            ) {
+              stopReason = 'credit_exhausted';
+              break;
             }
 
             if (!delta?.content) {
@@ -980,6 +956,10 @@ export class ChatService {
           }
 
           if (!webSearchEnabled || !accumulator.hasCalls) {
+            break;
+          }
+
+          if (stopReason === 'credit_exhausted') {
             break;
           }
 
@@ -1070,7 +1050,25 @@ export class ChatService {
                   signal: abortController.signal,
                 });
 
-              searchCredits += outcome.creditsUsed;
+              // §4.1/§4.2: one fixed, deployment-configured price per
+              // *successful* search — never a function of result count,
+              // extracted content, or provider cost. A discrete charge uses the
+              // strict deduction (no mid-stream grace). Pricing of 0 disables
+              // search billing rather than charging nothing-but-touching-wallet.
+              const searchCost = this.pricing.calculateWebSearchCost();
+              searchCredits += searchCost;
+
+              if (searchCost > 0) {
+                try {
+                  await this.wallet.deductCredits(userId, searchCost);
+                } catch (err) {
+                  // The search was already served to the model; record no charge
+                  // we did not collect and keep the turn alive (§3.9).
+                  this.logger.warn(
+                    `Failed to deduct ${searchCost} search credits for user ${userId}: ${String(err)}`,
+                  );
+                }
+              }
 
               const added: WebSource[] = [];
 
@@ -1094,7 +1092,7 @@ export class ChatService {
                   phase: 'search_completed',
                   query,
                   sources: outcome.sources.length,
-                  credits: outcome.creditsUsed,
+                  credits: searchCost,
                 },
               });
 
@@ -1195,10 +1193,23 @@ export class ChatService {
             });
           }
 
-          this.broadcast(state, {
-            type: 'done',
-            data: {},
-          });
+          if (stopReason === 'credit_exhausted') {
+            // §3.8 notify: the partial answer is saved (status completed) and
+            // the stream ends with the dedicated terminal code instead of done.
+            this.broadcast(state, {
+              type: 'error',
+              data: {
+                code: 'credit_exhausted',
+                message:
+                  'You ran out of credits mid-response. The partial answer has been saved; top up your wallet to continue.',
+              },
+            });
+          } else {
+            this.broadcast(state, {
+              type: 'done',
+              data: {},
+            });
+          }
         } else {
           // Cancellation won the race.
           this.broadcast(state, {
@@ -1213,47 +1224,18 @@ export class ChatService {
         // ── finalize usage ───────────────────────────────────────────────
 
         if (usageRecordId) {
-          const usage = lastChunk?.usage;
-
-          await this.usage
-            .finalize(usageRecordId, {
-              promptTokens:
-                usage?.prompt_tokens ?? 0,
-              completionTokens:
-                usage?.completion_tokens ?? 0,
-              totalTokens:
-                usage?.total_tokens ?? 0,
-              inputPricePer1k:
-                effectiveModel.inputPricePer1k,
-              outputPricePer1k:
-                effectiveModel.outputPricePer1k,
-              status: 'completed',
-              searchCredits,
-            })
-            .catch((err) => {
-              this.logger.warn(
-                `Failed to finalize usage: ${err}`,
-              );
-            });
-        }
-
-        // ── finalize quota ───────────────────────────────────────────────
-
-        if (quotaId) {
-          const totalTokens =
-            lastChunk?.usage?.total_tokens ?? 0;
-
-          await this.quotas
-            .finalize(
-              quotaId,
-              quotaReservedTokens,
-              totalTokens,
-            )
-            .catch((err) => {
-              this.logger.warn(
-                `Failed to finalize quota: ${err}`,
-              );
-            });
+          await this.finalizeTurnUsage({
+            usageRecordId,
+            userId,
+            modelId: effectiveModel.id,
+            usage: providerUsage,
+            answerChars: fullResponse.length,
+            reasoningChars: state.reasoningSummary.length,
+            exhausted: stopReason === 'credit_exhausted',
+            capCredits: budget ? budget.boundaryCredits : null,
+            searchCredits,
+            assistantMessageId,
+          });
         }
       } finally {
         this.activeStreams.delete(
@@ -1316,14 +1298,13 @@ export class ChatService {
 
         if (usageRecordId) {
           await this.usage
-            .finalize(usageRecordId, {
-              promptTokens: 0,
-              completionTokens: 0,
+            .finalizeOnce(usageRecordId, {
+              inputTokens: 0,
+              outputTokens: 0,
               totalTokens: 0,
-              inputPricePer1k:
-                effectiveModel.inputPricePer1k,
-              outputPricePer1k:
-                effectiveModel.outputPricePer1k,
+              reasoningTokens: 0,
+              chargedCost: 0,
+              chargedCredits: 0,
               status: 'failed',
               searchCredits,
             })
@@ -1333,22 +1314,112 @@ export class ChatService {
               );
             });
         }
-
-        if (quotaId) {
-          await this.quotas
-            .refund(
-              quotaId,
-              quotaReservedTokens,
-            )
-            .catch((quotaError) => {
-              this.logger.warn(
-                `Failed to refund quota: ${quotaError}`,
-              );
-            });
-        }
       }
     } finally {
       observer.complete();
+    }
+  }
+
+  /**
+   * Price, deduct, and record the charge for one finished generation (spec
+   * Phase 3 §3.1, §3.3, §3.9).
+   *
+   * Ordering: the wallet deduction happens first, then the usage record is
+   * claimed with `finalizeOnce`. If the record was already claimed, the
+   * deduction is refunded — a duplicate finalization can never charge twice.
+   * `capCredits` (the §3.8 boundary, wired in a later task) limits what the
+   * turn may cost regardless of what the provider reported; `null` is
+   * uncapped. On a mid-stream exhaustion stop the provider never sends final
+   * usage, so tokens are estimated from the accumulated text (input unknown,
+   * recorded as 0).
+   */
+  private async finalizeTurnUsage(params: {
+    usageRecordId: string | undefined;
+    userId: string;
+    modelId: string;
+    usage: ProviderStreamChunk['usage'];
+    answerChars: number;
+    reasoningChars: number;
+    exhausted: boolean;
+    capCredits: number | null;
+    searchCredits: number;
+    assistantMessageId: string;
+  }): Promise<void> {
+    const { usageRecordId, userId, modelId, usage } = params;
+
+    const inputTokens = params.exhausted ? 0 : (usage?.prompt_tokens ?? 0);
+    const outputTokens = params.exhausted
+      ? estimateOutputTokens(params.answerChars)
+      : (usage?.completion_tokens ?? 0);
+    const reasoningTokens = params.exhausted
+      ? estimateOutputTokens(params.reasoningChars)
+      : (usage?.reasoning_tokens ??
+        usage?.completion_tokens_details?.reasoning_tokens ??
+        0);
+    const totalTokens = params.exhausted
+      ? outputTokens + reasoningTokens
+      : (usage?.total_tokens ?? 0);
+
+    const cost = await this.pricing
+      .calculateLlmCost(modelId, inputTokens, outputTokens, reasoningTokens)
+      .catch((err) => {
+        this.logger.warn(
+          `Failed to price usage for message ${params.assistantMessageId}: ${String(err)}`,
+        );
+        return { chargedCost: 0, chargedCredits: 0 };
+      });
+
+    const chargeable =
+      params.capCredits === null
+        ? cost.chargedCredits
+        : Math.min(cost.chargedCredits, params.capCredits);
+    const charge = roundCredits(chargeable);
+
+    let deducted = 0;
+    if (charge > 0) {
+      try {
+        await this.wallet.deductCreditsWithGrace(
+          userId,
+          charge,
+          CREDIT_EXHAUSTION_GRACE_CREDITS,
+        );
+        deducted = charge;
+      } catch (err) {
+        // Boundary lost to a concurrent stream, or wallet failure: record no
+        // charge we did not collect (§3.9). The turn stays recoverable.
+        this.logger.warn(
+          `Failed to deduct ${charge} credits for message ${params.assistantMessageId}: ${String(err)}`,
+        );
+      }
+    }
+
+    if (!usageRecordId) return;
+
+    const recorded = await this.usage
+      .finalizeOnce(usageRecordId, {
+        inputTokens,
+        outputTokens,
+        totalTokens,
+        reasoningTokens,
+        chargedCost: cost.chargedCost,
+        chargedCredits: deducted,
+        status: 'completed',
+        searchCredits: params.searchCredits,
+      })
+      .catch((err) => {
+        this.logger.warn(
+          `Failed to finalize usage for message ${params.assistantMessageId}: ${String(err)}`,
+        );
+        return false;
+      });
+
+    if (!recorded && deducted > 0) {
+      // Another finalization already claimed this record; give the credits back.
+      await this.wallet.grantCredits(userId, deducted).catch((err) => {
+        this.logger.error(
+          `Failed to refund ${deducted} credits for message ${params.assistantMessageId}: ${String(err)}`,
+        );
+      });
     }
   }
 
@@ -1404,7 +1475,7 @@ export class ChatService {
           observer,
           isActive,
           'provider_not_configured',
-          'Central provider is not configured. Ask an admin to set it up.',
+          'The model provider is not available. Ask an admin to configure it.',
         );
       }
 
@@ -1524,18 +1595,35 @@ export class ChatService {
         },
       });
 
-      // Retry currently does not reserve quota or create a usage record,
-      // preserving the behavior of the existing implementation.
+      // Regeneration is a new generation: new usage identity, new charge (§3.6).
+      let usageRecordId: string | undefined;
+      try {
+        const usageRecord = await this.usage.create({
+          userId,
+          conversationId,
+          modelId: model.id,
+          providerId: model.providerId,
+          attempts: 1,
+          messageId: assistantMessageId,
+        });
+        usageRecordId = usageRecord.id;
+      } catch (err) {
+        this.logger.warn(
+          `Failed to create retry usage record: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+
       await this.runToolLoop({
+        userId,
         conversationId,
         assistantMessageId,
         modelName: model.actualName,
         providerMessages,
         observer,
         isActive,
-        usageRecordId: undefined,
-        quotaId: undefined,
-        quotaReservedTokens: 0,
+        usageRecordId,
         effectiveModel: model,
         webSearchEnabled,
         reasoning: reasoningEnabled
@@ -1598,14 +1686,15 @@ export class ChatService {
           attempts: params.attempts,
         });
 
-      await this.usage.finalize(
+      await this.usage.finalizeOnce(
         record.id,
         {
-          promptTokens: 0,
-          completionTokens: 0,
+          inputTokens: 0,
+          outputTokens: 0,
           totalTokens: 0,
-          inputPricePer1k: 0,
-          outputPricePer1k: 0,
+          reasoningTokens: 0,
+          chargedCost: 0,
+          chargedCredits: 0,
           status: 'failed',
         },
       );

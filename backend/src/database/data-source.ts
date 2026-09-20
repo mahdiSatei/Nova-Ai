@@ -11,8 +11,9 @@ import { Model } from '../modules/models/entities/model.entity';
 import { AppConfig } from '../modules/app-config/entities/app-config.entity';
 import { Conversation } from '../modules/conversations/entities/conversation.entity';
 import { Message } from '../modules/conversations/entities/message.entity';
-import { Quota } from '../modules/quotas/entities/quota.entity';
-import { QuotaRule } from '../modules/quotas/entities/quota-rule.entity';
+import { Wallet } from '../modules/wallet/entities/wallet.entity';
+import { Payment } from '../modules/payments/entities/payment.entity';
+import { CreditPurchase } from '../modules/payments/entities/credit-purchase.entity';
 import { FileRecord } from '../modules/files/entities/file.entity';
 
 // Load .env if present so CLI scripts (migration:run etc.) see the same
@@ -43,8 +44,9 @@ const entities = [
   AppConfig,
   Conversation,
   Message,
-  Quota,
-  QuotaRule,
+  Wallet,
+  Payment,
+  CreditPurchase,
   FileRecord,
 ];
 

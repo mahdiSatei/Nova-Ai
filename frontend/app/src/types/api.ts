@@ -1,7 +1,6 @@
 // Shared API contract types (combining full capabilities: reasoning, citations, providers, and files).
 
-export type ModelVisibility = 'public' | 'commercial' | 'private'
-export type UserAccessTier = 'free' | 'commercial'
+export type ModelVisibility = 'public' | 'private'
 
 /** Frontend-only mirror of the backend MessageStatus type. */
 export type MessageStatus = 'pending' | 'streaming' | 'completed' | 'failed' | 'cancelled'
@@ -73,8 +72,8 @@ export interface ModelPublic {
 
 export interface ModelAdmin extends Omit<ModelPublic, 'reasoning'> {
   actualName: string
-  providerId?: string
-  visibility?: ModelVisibility
+  providerId: string
+  visibility: ModelVisibility
   enabled: boolean
   fallbackModelId?: string | null
   preferredApiKeyId?: string | null
@@ -149,9 +148,11 @@ export interface AdminUser {
   id: string
   email: string
   username: string | null
+  displayName: string | null
+  avatarSeed: string | null
   role: Role
-  accessTier: UserAccessTier
   createdAt: string
+  lastLoginAt: string | null
 }
 
 export interface AdminUserList {
@@ -245,7 +246,7 @@ export interface MessagePublic {
     originalName: string
     mimeType: string
     size: number
-    status: string
+    url?: string | null
   } | null
 }
 
@@ -292,7 +293,11 @@ export interface SseCitations {
   sources: CitationSource[]
 }
 
-// ─── usage & quotas ────────────────────────────────────────────────────────
+// ─── usage & billing ───────────────────────────────────────────────────────
+// Charges are Toman/credits, not USD: `chargedCost` is the amount billed at
+// finalize time and `chargedCredits` what the wallet actually deducted.
+// `estimatedCost` only exists for historical rows (legacy USD); it is always 0
+// for new usage and must never be presented as the user's charge.
 
 export interface UsageRecord {
   id: string
@@ -306,7 +311,14 @@ export interface UsageRecord {
   promptTokens: number
   completionTokens: number
   totalTokens: number
+  reasoningTokens: number
+  /** Legacy estimated cost in USD; 0 for every row created since Phase 5. */
   estimatedCost: number
+  /** Cost charged for this request in Toman. */
+  chargedCost: number
+  /** Credits actually deducted for this request. */
+  chargedCredits: number
+  attempts: number
   status: 'pending' | 'completed' | 'failed'
   createdAt: string
   completedAt: string | null
@@ -317,27 +329,10 @@ export interface UsageReport {
   total: number
   totals: {
     totalTokens: number
+    /** Total charged cost in Toman (sum of `chargedCost`). */
     totalCost: number
+    /** Total credits actually deducted. */
+    totalCredits: number
     requestCount: number
   }
-}
-
-export interface QuotaResponse {
-  tokenLimit: number
-  tokenUsed: number
-  tokenRemaining: number
-  costLimit: number | null
-  resetAt: string | null
-}
-
-export interface QuotaRuleAdmin {
-  id: string
-  tier: string
-  tokenLimit: number
-  label: string
-  createdAt: string
-}
-
-export interface QuotaRuleList {
-  items: QuotaRuleAdmin[]
 }

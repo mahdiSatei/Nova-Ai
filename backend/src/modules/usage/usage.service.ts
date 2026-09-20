@@ -10,14 +10,31 @@ export interface CreateUsageInput {
   providerId: string;
   /** Provider attempts made, including retries and fallbacks. Defaults to 1. */
   attempts?: number;
+  /**
+   * The assistant message this generation produces. With the unique index on
+   * `usage_records.message_id`, two usage records for one generation are
+   * structurally impossible (spec Phase 3 §3.9).
+   */
+  messageId?: string;
 }
 
 export interface FinalizeUsageInput {
-  promptTokens: number;
-  completionTokens: number;
+  /** Provider-reported input (prompt) tokens. */
+  inputTokens: number;
+  /** Provider-reported output (completion) tokens, excluding reasoning. */
+  outputTokens: number;
+  /** Provider-reported total tokens. */
   totalTokens: number;
-  inputPricePer1k: number;
-  outputPricePer1k: number;
+  /** Reasoning tokens, reported separately and billed at the output rate. */
+  reasoningTokens?: number;
+  /**
+   * Cost charged for the request in Toman, precomputed by `UsagePricingService`.
+   * Pricing deliberately does not live here: this service only persists what the
+   * billing layer decided. Ignored (stored as 0) when `status` is `failed`.
+   */
+  chargedCost: number;
+  /** Credits actually deducted for the request. Ignored when `status` is `failed`. */
+  chargedCredits: number;
   status: 'completed' | 'failed';
   /** Web-search credits consumed during the request (Phase 7). */
   searchCredits?: number;
@@ -41,18 +58,6 @@ export class UsageService {
     private readonly repo: Repository<UsageRecord>,
   ) {}
 
-  /** Calculate estimated cost from token counts and per-1k pricing. */
-  calculateCost(
-    promptTokens: number,
-    completionTokens: number,
-    inputPricePer1k: number,
-    outputPricePer1k: number,
-  ): number {
-    const inputCost = (promptTokens / 1000) * inputPricePer1k;
-    const outputCost = (completionTokens / 1000) * outputPricePer1k;
-    return Math.round((inputCost + outputCost) * 1e8) / 1e8; // 8 decimal places
-  }
-
   /**
    * Create a pending usage record once a provider stream has been established.
    * The model is passed explicitly because with fallback the serving model is
@@ -67,30 +72,35 @@ export class UsageService {
     return this.repo.save(record);
   }
 
-  /** Finalize a usage record after the provider stream completes or fails. */
-  async finalize(id: string, input: FinalizeUsageInput): Promise<void> {
-    const record = await this.repo.findOne({ where: { id } });
-    if (!record) return;
+  /**
+   * Finalize a usage record exactly once.
+   *
+   * The `status: 'pending'` predicate rides inside the same UPDATE that applies
+   * the final values, so two concurrent calls can never both report success —
+   * the same exactly-once shape the payments module uses for
+   * `UPDATE payments ... WHERE status = 'PENDING'`. Returns true only for the
+   * call that actually transitioned the record; callers must treat `true` as
+   * the permission to charge the wallet (spec Phase 3 §3.9).
+   */
+  async finalizeOnce(id: string, input: FinalizeUsageInput): Promise<boolean> {
+    const charged = input.status === 'completed';
 
-    const cost =
-      input.status === 'completed'
-        ? this.calculateCost(
-            input.promptTokens,
-            input.completionTokens,
-            input.inputPricePer1k,
-            input.outputPricePer1k,
-          )
-        : 0;
+    const result = await this.repo.update(
+      { id, status: 'pending' },
+      {
+        promptTokens: input.inputTokens,
+        completionTokens: input.outputTokens,
+        totalTokens: input.totalTokens,
+        reasoningTokens: input.reasoningTokens ?? 0,
+        chargedCost: charged ? input.chargedCost : 0,
+        chargedCredits: charged ? input.chargedCredits : 0,
+        status: input.status,
+        searchCredits: input.searchCredits ?? 0,
+        completedAt: new Date(),
+      },
+    );
 
-    record.promptTokens = input.promptTokens;
-    record.completionTokens = input.completionTokens;
-    record.totalTokens = input.totalTokens;
-    record.estimatedCost = cost;
-    record.status = input.status;
-    record.searchCredits = input.searchCredits ?? 0;
-    record.completedAt = new Date();
-
-    await this.repo.save(record);
+    return (result.affected ?? 0) === 1;
   }
 
   /** List usage records for admin report with filters and pagination. */
@@ -126,11 +136,14 @@ export class UsageService {
 
     const [items, total] = await qb.getManyAndCount();
 
-    // Aggregate totals for the filtered set (without pagination limits)
+    // Aggregate totals for the filtered set (without pagination limits).
+    // `totalCost` is now Toman (SUM of charged_cost); `estimated_cost` (legacy
+    // USD) is intentionally not part of the report.
     const totalsQb = this.repo
       .createQueryBuilder('u')
       .select('COALESCE(SUM(u.total_tokens), 0)', 'totalTokens')
-      .addSelect('COALESCE(SUM(u.estimated_cost), 0)', 'totalCost')
+      .addSelect('COALESCE(SUM(u.charged_cost), 0)', 'totalCost')
+      .addSelect('COALESCE(SUM(u.charged_credits), 0)', 'totalCredits')
       .addSelect('COUNT(*)', 'requestCount');
 
     if (query.userId) totalsQb.andWhere('u.userId = :userId', { userId: query.userId });
@@ -140,7 +153,12 @@ export class UsageService {
     if (query.from) totalsQb.andWhere('u.createdAt >= :from', { from: query.from });
     if (query.to) totalsQb.andWhere('u.createdAt <= :to', { to: query.to });
 
-    const totals = await totalsQb.getRawOne() as { totalTokens: string; totalCost: string; requestCount: string } | null;
+    const totals = await totalsQb.getRawOne() as {
+      totalTokens: string;
+      totalCost: string;
+      totalCredits: string;
+      requestCount: string;
+    } | null;
 
     return {
       items,
@@ -148,6 +166,7 @@ export class UsageService {
       totals: {
         totalTokens: Number(totals?.totalTokens ?? 0),
         totalCost: Number(totals?.totalCost ?? 0),
+        totalCredits: Number(totals?.totalCredits ?? 0),
         requestCount: Number(totals?.requestCount ?? 0),
       },
     };

@@ -8,7 +8,6 @@ import {
 } from 'typeorm';
 import { RefreshToken } from '../../auth/entities/refresh-token.entity';
 import { Conversation } from '../../conversations/entities/conversation.entity';
-import type { UserAccessTier } from '../../models/model-visibility';
 
 @Entity({ name: 'users' })
 @Index('uq_users_email_lower', { synchronize: false })
@@ -37,13 +36,6 @@ export class User {
 
   @Column({ type: 'text', default: 'user' })
   role!: 'user' | 'admin';
-
-  /**
-   * Entitlement tier for commercial models. `free` is the floor; the admin
-   * role bypasses the ladder entirely (see ModelAccessService).
-   */
-  @Column({ name: 'access_tier', type: 'text', default: 'free' })
-  accessTier!: UserAccessTier;
 
   @Column({ name: 'last_selected_model_id', type: 'text', nullable: true })
   lastSelectedModelId!: string | null;

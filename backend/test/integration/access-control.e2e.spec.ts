@@ -14,7 +14,11 @@ import { ConversationsService } from '../../src/modules/conversations/conversati
 import { encrypt } from '../../src/common/crypto/credential-cipher';
 
 /**
- * Phase 3 acceptance suite (PostgreSQL, database `chatbot_test`).
+ * Model access-control acceptance suite (PostgreSQL, database `chatbot_test`).
+ *
+ * Phase 5 retired the access-tier ladder: entitlement is now only `public`
+ * (any authenticated user) or `private` (admin role only). Spend is governed by
+ * the credit wallet instead, so no tier appears here.
  *
  * Runs are id-scoped (`RUN`) so the suite is re-runnable against a shared test
  * database, and catalog assertions are containment-based because other suites
@@ -23,21 +27,19 @@ import { encrypt } from '../../src/common/crypto/credential-cipher';
 describe('Model access control — e2e', () => {
   let app: INestApplication;
   let ds: DataSource;
-  let tokens: { free: string; commercial: string; admin: string };
-  let freeUserId: string;
+  let tokens: { user: string; admin: string };
+  let userId: string;
 
   const RUN = Date.now().toString(36);
   const PASSWORD = 'correct-horse-battery-staple';
   const EMAILS = {
-    free: `access-free-${RUN}@example.com`,
-    commercial: `access-com-${RUN}@example.com`,
+    user: `access-user-${RUN}@example.com`,
     admin: `access-admin-${RUN}@example.com`,
   };
   // `models.id` is a real `uuid` column (see the init migration), so seeds must
   // use UUIDs rather than readable string ids.
   const IDS = {
     public: randomUUID(),
-    commercial: randomUUID(),
     private: randomUUID(),
     disabled: randomUUID(),
   };
@@ -92,14 +94,6 @@ describe('Model access control — e2e', () => {
         enabled: true,
       }),
       modelRepo.create({
-        id: IDS.commercial,
-        displayName: `Commercial ${RUN}`,
-        actualName: 'com-model',
-        providerId: `prov-${RUN}`,
-        visibility: 'commercial',
-        enabled: true,
-      }),
-      modelRepo.create({
         id: IDS.private,
         displayName: `Private ${RUN}`,
         actualName: 'priv-model',
@@ -120,14 +114,8 @@ describe('Model access control — e2e', () => {
     const userRepo = ds.getRepository(User);
     const passwordHash = await argon2.hash(PASSWORD);
     await userRepo.save([
-      userRepo.create({ email: EMAILS.free, passwordHash, role: 'user', accessTier: 'free' }),
-      userRepo.create({
-        email: EMAILS.commercial,
-        passwordHash,
-        role: 'user',
-        accessTier: 'commercial',
-      }),
-      userRepo.create({ email: EMAILS.admin, passwordHash, role: 'admin', accessTier: 'free' }),
+      userRepo.create({ email: EMAILS.user, passwordHash, role: 'user' }),
+      userRepo.create({ email: EMAILS.admin, passwordHash, role: 'admin' }),
     ]);
 
     const userLogin = async (email: string): Promise<string> => {
@@ -151,11 +139,10 @@ describe('Model access control — e2e', () => {
     }
 
     tokens = {
-      free: await userLogin(EMAILS.free),
-      commercial: await userLogin(EMAILS.commercial),
+      user: await userLogin(EMAILS.user),
       admin: adminLogin.body.accessToken,
     };
-    freeUserId = (await userRepo.findOneOrFail({ where: { email: EMAILS.free } })).id;
+    userId = (await userRepo.findOneOrFail({ where: { email: EMAILS.user } })).id;
   });
 
   afterAll(async () => {
@@ -173,32 +160,23 @@ describe('Model access control — e2e', () => {
   async function createConversation(): Promise<string> {
     const conversations = app.get(ConversationsService);
     const conv = await conversations.create({
-      userId: freeUserId,
+      userId,
       modelId: IDS.public,
       userMessage: 'seed',
     });
     return conv.id;
   }
 
-  it('AC: a free user sees only public enabled models', async () => {
-    const ids = await catalogIds(tokens.free);
+  it('AC: a regular user sees only public enabled models', async () => {
+    const ids = await catalogIds(tokens.user);
     expect(ids).toContain(IDS.public);
-    expect(ids).not.toContain(IDS.commercial);
     expect(ids).not.toContain(IDS.private);
     expect(ids).not.toContain(IDS.disabled);
-  });
-
-  it('AC: a commercial user additionally sees commercial models', async () => {
-    const ids = await catalogIds(tokens.commercial);
-    expect(ids).toContain(IDS.public);
-    expect(ids).toContain(IDS.commercial);
-    expect(ids).not.toContain(IDS.private);
   });
 
   it('AC: an admin sees private models but never disabled ones', async () => {
     const ids = await catalogIds(tokens.admin);
     expect(ids).toContain(IDS.public);
-    expect(ids).toContain(IDS.commercial);
     expect(ids).toContain(IDS.private);
     expect(ids).not.toContain(IDS.disabled);
   });
@@ -206,7 +184,7 @@ describe('Model access control — e2e', () => {
   it('the public catalog never exposes admin-only fields', async () => {
     const res = await request(app.getHttpServer())
       .get('/v1/models')
-      .set('Authorization', `Bearer ${tokens.free}`);
+      .set('Authorization', `Bearer ${tokens.user}`);
     const serialized = JSON.stringify(res.body);
     expect(serialized).not.toContain('actualName');
     expect(serialized).not.toContain('enabled');
@@ -215,33 +193,26 @@ describe('Model access control — e2e', () => {
     }
   });
 
-  it('AC: switching a conversation to an unentitled model is rejected server-side', async () => {
+  it('AC: switching a conversation to a private model is rejected server-side', async () => {
     const conversationId = await createConversation();
-
-    const commercial = await request(app.getHttpServer())
-      .patch(`/v1/conversations/${conversationId}/model`)
-      .set('Authorization', `Bearer ${tokens.free}`)
-      .send({ modelId: IDS.commercial });
-    expect(commercial.status).toBe(403);
-    expect(commercial.body.code).toBe('model_forbidden');
 
     const priv = await request(app.getHttpServer())
       .patch(`/v1/conversations/${conversationId}/model`)
-      .set('Authorization', `Bearer ${tokens.free}`)
+      .set('Authorization', `Bearer ${tokens.user}`)
       .send({ modelId: IDS.private });
     expect(priv.status).toBe(403);
     expect(priv.body.code).toBe('model_forbidden');
 
     const unknown = await request(app.getHttpServer())
       .patch(`/v1/conversations/${conversationId}/model`)
-      .set('Authorization', `Bearer ${tokens.free}`)
+      .set('Authorization', `Bearer ${tokens.user}`)
       .send({ modelId: '00000000-0000-4000-8000-000000000999' });
     expect(unknown.status).toBe(422);
     expect(unknown.body.code).toBe('model_unavailable');
 
     const disabled = await request(app.getHttpServer())
       .patch(`/v1/conversations/${conversationId}/model`)
-      .set('Authorization', `Bearer ${tokens.free}`)
+      .set('Authorization', `Bearer ${tokens.user}`)
       .send({ modelId: IDS.disabled });
     expect(disabled.status).toBe(422);
     expect(disabled.body.code).toBe('model_unavailable');
@@ -249,30 +220,30 @@ describe('Model access control — e2e', () => {
     // The conversation is untouched by every rejected attempt.
     const detail = await request(app.getHttpServer())
       .get(`/v1/conversations/${conversationId}`)
-      .set('Authorization', `Bearer ${tokens.free}`);
+      .set('Authorization', `Bearer ${tokens.user}`);
     expect(detail.body.modelId).toBe(IDS.public);
   });
 
-  it('AC: the sticky model preference rejects unentitled models', async () => {
+  it('AC: the sticky model preference rejects private models', async () => {
     const denied = await request(app.getHttpServer())
       .patch('/v1/users/me/model-preference')
-      .set('Authorization', `Bearer ${tokens.free}`)
-      .send({ modelId: IDS.commercial });
+      .set('Authorization', `Bearer ${tokens.user}`)
+      .send({ modelId: IDS.private });
     expect(denied.status).toBe(403);
     expect(denied.body.code).toBe('model_forbidden');
 
     const allowed = await request(app.getHttpServer())
       .patch('/v1/users/me/model-preference')
-      .set('Authorization', `Bearer ${tokens.free}`)
+      .set('Authorization', `Bearer ${tokens.user}`)
       .send({ modelId: IDS.public });
     expect(allowed.status).toBe(200);
     expect(allowed.body.modelId).toBe(IDS.public);
   });
 
-  it('AC: the chat stream emits model_forbidden for an unentitled explicit model', async () => {
+  it('AC: the chat stream emits model_forbidden for a private explicit model', async () => {
     const res = await request(app.getHttpServer())
       .post('/v1/chat/stream')
-      .set('Authorization', `Bearer ${tokens.free}`)
+      .set('Authorization', `Bearer ${tokens.user}`)
       .set('Accept', 'text/event-stream')
       .send({ message: 'hello', modelId: IDS.private });
 
@@ -280,86 +251,70 @@ describe('Model access control — e2e', () => {
     expect(res.text).toContain('model_forbidden');
   });
 
-  it('AC: an admin can configure model access and the change takes effect immediately', async () => {
+  it('AC: an admin can flip a model between public and private with immediate effect', async () => {
     const create = await request(app.getHttpServer())
       .post('/v1/admin/models')
       .set('Authorization', `Bearer ${tokens.admin}`)
       .send({
-        displayName: `Granted ${RUN}`,
-        actualName: 'granted-model',
+        displayName: `Admin-only ${RUN}`,
+        actualName: 'admin-only-model',
         providerId: `prov-${RUN}`,
-        visibility: 'commercial',
+        visibility: 'private',
+        inputPricePer1m: 100_000,
+        outputPricePer1m: 300_000,
       });
     expect(create.status).toBe(201);
-    expect(create.body.visibility).toBe('commercial');
+    expect(create.body.visibility).toBe('private');
+    expect(Number(create.body.inputPricePer1m)).toBe(100_000);
 
     await request(app.getHttpServer())
-      .patch(`/v1/admin/models/${IDS.commercial}`)
+      .patch(`/v1/admin/models/${IDS.private}`)
       .set('Authorization', `Bearer ${tokens.admin}`)
       .send({ visibility: 'public' })
       .expect(200);
 
-    expect(await catalogIds(tokens.free)).toContain(IDS.commercial);
+    expect(await catalogIds(tokens.user)).toContain(IDS.private);
 
     await request(app.getHttpServer())
-      .patch(`/v1/admin/models/${IDS.commercial}`)
+      .patch(`/v1/admin/models/${IDS.private}`)
       .set('Authorization', `Bearer ${tokens.admin}`)
-      .send({ visibility: 'commercial' })
+      .send({ visibility: 'private' })
       .expect(200);
 
-    expect(await catalogIds(tokens.free)).not.toContain(IDS.commercial);
+    expect(await catalogIds(tokens.user)).not.toContain(IDS.private);
   });
 
-  it('AC: an admin can grant a tier and the user gains access on the next request', async () => {
+  it('the admin user list is role-only and never leaks the password hash', async () => {
     const list = await request(app.getHttpServer())
-      .get(`/v1/admin/users?query=${encodeURIComponent(EMAILS.free)}`)
+      .get(`/v1/admin/users?query=${encodeURIComponent(EMAILS.user)}`)
       .set('Authorization', `Bearer ${tokens.admin}`);
     expect(list.status).toBe(200);
     expect(list.body.total).toBe(1);
-    expect(list.body.items[0].accessTier).toBe('free');
-
-    const grant = await request(app.getHttpServer())
-      .patch(`/v1/admin/users/${freeUserId}/access-tier`)
-      .set('Authorization', `Bearer ${tokens.admin}`)
-      .send({ accessTier: 'commercial' });
-    expect(grant.status).toBe(200);
-    expect(grant.body.accessTier).toBe('commercial');
-
-    expect(await catalogIds(tokens.free)).toContain(IDS.commercial);
-
-    await request(app.getHttpServer())
-      .patch(`/v1/admin/users/${freeUserId}/access-tier`)
-      .set('Authorization', `Bearer ${tokens.admin}`)
-      .send({ accessTier: 'free' })
-      .expect(200);
-    expect(await catalogIds(tokens.free)).not.toContain(IDS.commercial);
+    expect(list.body.items[0].role).toBe('user');
+    expect(list.body.items[0]).not.toHaveProperty('accessTier');
+    expect(JSON.stringify(list.body)).not.toContain('passwordHash');
+    expect(JSON.stringify(list.body)).not.toContain('$argon2');
   });
 
-  it('non-admins cannot reach the admin access surface', async () => {
+  it('non-admins cannot reach the admin surface', async () => {
     const list = await request(app.getHttpServer())
       .get('/v1/admin/users')
-      .set('Authorization', `Bearer ${tokens.free}`);
+      .set('Authorization', `Bearer ${tokens.user}`);
     expect(list.status).toBe(403);
 
-    const grant = await request(app.getHttpServer())
-      .patch(`/v1/admin/users/${freeUserId}/access-tier`)
-      .set('Authorization', `Bearer ${tokens.free}`)
-      .send({ accessTier: 'commercial' });
-    expect(grant.status).toBe(403);
-
     const patchModel = await request(app.getHttpServer())
-      .patch(`/v1/admin/models/${IDS.commercial}`)
-      .set('Authorization', `Bearer ${tokens.free}`)
+      .patch(`/v1/admin/models/${IDS.private}`)
+      .set('Authorization', `Bearer ${tokens.user}`)
       .send({ visibility: 'public' });
     expect(patchModel.status).toBe(403);
   });
 
-  it('an invalid access tier is rejected at the boundary', async () => {
+  it('the retired access-tier endpoint no longer exists', async () => {
     const res = await request(app.getHttpServer())
-      .patch(`/v1/admin/users/${freeUserId}/access-tier`)
+      .patch(`/v1/admin/users/${userId}/access-tier`)
       .set('Authorization', `Bearer ${tokens.admin}`)
-      .send({ accessTier: 'enterprise' });
-    expect(res.status).toBe(400);
+      .send({ accessTier: 'commercial' });
+    expect(res.status).toBe(404);
   });
 
   it('the system default cannot be made non-public', async () => {
@@ -369,7 +324,7 @@ describe('Model access control — e2e', () => {
     const put = await request(app.getHttpServer())
       .put('/v1/admin/config')
       .set('Authorization', `Bearer ${tokens.admin}`)
-      .send({ defaultModelId: IDS.commercial });
+      .send({ defaultModelId: IDS.private });
     expect(put.status).toBe(422);
     expect(put.body.code).toBe('model_not_eligible_default');
 

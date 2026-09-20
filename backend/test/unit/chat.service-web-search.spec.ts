@@ -8,13 +8,12 @@ const MODEL = {
   enabled: true,
   visibility: 'public',
   fallbackModelId: null,
-  inputPricePer1k: 0.5,
-  outputPricePer1k: 1.5,
+  inputPricePer1m: 500_000,
+  outputPricePer1m: 1_000_000,
 };
 
 const outcome = {
   query: 'cats',
-  creditsUsed: 2,
   empty: false,
   sources: [
     { id: 'S1', title: 'Cats', url: 'https://cats.test', snippet: 'meow', provider: 'fake', content: 'body' },
@@ -70,19 +69,27 @@ function build() {
   };
   const usage = {
     create: jest.fn().mockResolvedValue({ id: 'usage-1' }),
-    finalize: jest.fn().mockResolvedValue(undefined),
+    finalizeOnce: jest.fn().mockResolvedValue(undefined),
+  };
+  const wallet = {
+    getBalance: jest.fn(),
+    deductCreditsWithGrace: jest.fn(),
+    deductCredits: jest.fn().mockResolvedValue({}),
+    grantCredits: jest.fn(),
   };
   const service = new ChatService(
     { findById: jest.fn().mockResolvedValue(MODEL), resolveActiveModel: jest.fn().mockResolvedValue(MODEL) } as never,
     { canAccessUser: jest.fn().mockResolvedValue(true) } as never,
     runtime as never,
     conversations as never,
+    {} as never, // files (not exercised by these cases)
     { update: jest.fn() } as never,
     usage as never,
     {
-      checkAndReserve: jest.fn().mockResolvedValue({ reserved: true, quotaId: 'q1', tokenRemaining: 9 }),
-      finalize: jest.fn(),
-      refund: jest.fn(),
+      calculateLlmCost: jest.fn().mockResolvedValue({ chargedCost: 0, chargedCredits: 0 }),
+      getOutputCreditRate: jest.fn().mockResolvedValue(0),
+      // Phase 4: one fixed price per successful search, expressed in Credits.
+      calculateWebSearchCost: jest.fn().mockReturnValue(10),
     } as never,
     {
       establish: jest.fn().mockResolvedValue({
@@ -94,8 +101,9 @@ function build() {
       }),
     } as never,
     webSearch as never,
+    wallet as never,
   );
-  return { service, runtime, conversations, usage, webSearch };
+  return { service, runtime, conversations, usage, webSearch, wallet };
 }
 
 function collect(service: ChatService, dto: unknown): Promise<ChatStreamEvent[]> {
@@ -119,7 +127,7 @@ function statusOf(events: ChatStreamEvent[], phase: string): ChatStatusEvent | u
 
 describe('ChatService web search', () => {
   it('runs a bounded tool loop, feeds results back, and emits citations', async () => {
-    const { service, runtime, conversations, usage, webSearch } = build();
+    const { service, runtime, conversations, usage, webSearch, wallet } = build();
 
     const events = await collect(service, { message: 'tell me about cats', modelId: 'model-1', webSearch: true });
 
@@ -131,7 +139,8 @@ describe('ChatService web search', () => {
       .map((e) => e.data.phase)
       .filter((p) => p !== 'retrying');
     expect(phases).toEqual(['search_started', 'search_completed', 'retrieval_started', 'retrieval_completed', 'generating']);
-    expect(statusOf(events, 'search_completed')?.data).toMatchObject({ sources: 1, credits: 2 });
+    // Phase 4 §4.2: the search_completed frame reports the fixed Credits charged.
+    expect(statusOf(events, 'search_completed')?.data).toMatchObject({ sources: 1, credits: 10 });
 
     const secondMessages = runtime.stream.mock.calls[1][1].messages;
     expect(secondMessages.at(-1)).toMatchObject({ role: 'tool', toolCallId: 'call_1' });
@@ -148,7 +157,11 @@ describe('ChatService web search', () => {
       data: { sources: [{ id: 'S1', title: 'Cats', url: 'https://cats.test', snippet: 'meow' }] },
     });
     expect(events).toContainEqual({ type: 'done', data: {} });
-    expect(usage.finalize).toHaveBeenCalledWith('usage-1', expect.objectContaining({ searchCredits: 2, status: 'completed' }));
+    expect(usage.finalizeOnce).toHaveBeenCalledWith(
+      'usage-1',
+      expect.objectContaining({ searchCredits: 10, status: 'completed' }),
+    );
+    expect(wallet.deductCredits).toHaveBeenCalledWith('user-1', 10);
     expect(webSearch.search).toHaveBeenCalledTimes(1);
   });
 

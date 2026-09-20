@@ -19,7 +19,8 @@ import { WebSearchService } from '../../src/modules/web-search/web-search.servic
 import { FilesService } from '../../src/modules/files/files.service';
 import { User } from '../../src/modules/users/entities/user.entity';
 import { UsageService } from '../../src/modules/usage/usage.service';
-import { QuotaService } from '../../src/modules/quotas/quotas.service';
+import { UsagePricingService } from '../../src/modules/billing/usage-pricing.service';
+import { WalletService } from '../../src/modules/wallet/wallet.service';
 
 describe('ChatService', () => {
   let svc: ChatService;
@@ -152,7 +153,6 @@ describe('ChatService', () => {
     access = {
       loadViewer: jest.fn().mockResolvedValue({
         role: 'user',
-        accessTier: 'free',
       }),
       canAccess: jest.fn().mockReturnValue(true),
       canAccessUser: jest.fn().mockResolvedValue(true),
@@ -180,19 +180,22 @@ describe('ChatService', () => {
           provide: UsageService,
           useValue: {
             create: jest.fn(async () => ({ id: 'usage-1' })),
-            finalize: jest.fn(async () => {}),
+            finalizeOnce: jest.fn(async () => true),
           },
         },
         {
-          provide: QuotaService,
+          provide: UsagePricingService,
           useValue: {
-            checkAndReserve: jest.fn(async () => ({
-              reserved: true,
-              quotaId: 'quota-1',
-              tokenRemaining: 100000,
-            })),
-            finalize: jest.fn(async () => {}),
-            refund: jest.fn(async () => {}),
+            calculateLlmCost: jest.fn(async () => ({ chargedCost: 0, chargedCredits: 0 })),
+            getOutputCreditRate: jest.fn().mockResolvedValue(0),
+          },
+        },
+        {
+          provide: WalletService,
+          useValue: {
+            getBalance: jest.fn().mockResolvedValue(0),
+            deductCreditsWithGrace: jest.fn(),
+            grantCredits: jest.fn(),
           },
         },
         {
@@ -504,6 +507,7 @@ describe('ChatService', () => {
         userId: 'user-1',
         modelId: 'm1',
         userMessage: 'Hi there',
+        fileId: null,
       });
 
       expect(conversations.appendMessage).toHaveBeenCalledWith(
@@ -632,6 +636,7 @@ describe('ChatService', () => {
             },
           ],
         },
+        undefined,
       );
 
       expect(
@@ -755,6 +760,7 @@ describe('ChatService', () => {
             },
           ],
         },
+        undefined,
       );
 
       expect(conversations.create).toHaveBeenCalledWith({
@@ -1040,7 +1046,7 @@ describe('ChatService', () => {
         id: 'msg-3',
       });
 
-      const erroringStream = (async function* () => {
+      const erroringStream = (async function* () {
         yield {
           choices: [{ delta: { content: 'partial' } }],
         } as any;
@@ -1269,9 +1275,9 @@ describe('ChatService', () => {
   describe('explicit model entitlement', () => {
     it('never uses an explicit model the caller is not entitled to', async () => {
       models.findById.mockResolvedValue({
-        id: 'com',
+        id: 'priv',
         enabled: true,
-        visibility: 'commercial',
+        visibility: 'private',
       });
 
       access.canAccessUser.mockResolvedValue(false);
@@ -1291,7 +1297,7 @@ describe('ChatService', () => {
       svc
         .streamChat('user-1', {
           message: 'hi',
-          modelId: 'com',
+          modelId: 'priv',
         })
         .subscribe((e) => events.push(e));
 
@@ -1309,7 +1315,7 @@ describe('ChatService', () => {
       ).toHaveBeenCalledWith(
         'user-1',
         expect.objectContaining({
-          id: 'com',
+          id: 'priv',
         }),
       );
 
@@ -1699,6 +1705,7 @@ describe('ChatService', () => {
             },
           ],
         },
+        undefined,
       );
 
       expect(

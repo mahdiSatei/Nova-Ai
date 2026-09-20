@@ -169,8 +169,6 @@ export function useChatStream(): ChatStreamHandle {
   const MAX_RETRIES = 5
   const RETRY_INTERVAL_MS = 3000
 
-  let currentStreamConversationId: string | null = null
-
   // ── Computed ─────────────────────────────────────────────────
   const inputDisabled = computed(() => generationState.value === 'streaming')
 
@@ -886,7 +884,6 @@ export function useChatStream(): ChatStreamHandle {
   function makeOnStart(replaceRowId: string | null) {
     return (info: StreamStartInfo): void => {
       conversationId.value = info.conversationId
-      currentStreamConversationId = info.conversationId
       saveConversationId(info.conversationId)
 
       if (
@@ -1046,7 +1043,6 @@ export function useChatStream(): ChatStreamHandle {
 
           if (id) {
             conversationId.value = id
-            currentStreamConversationId = id
             saveConversationId(id)
           }
         }

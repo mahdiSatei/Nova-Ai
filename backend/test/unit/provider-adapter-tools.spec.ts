@@ -14,7 +14,7 @@ jest.mock('../../src/common/crypto/credential-cipher', () => ({
 
 import { OpenAICompatibleAdapter } from '../../src/modules/provider/adapters/openai-compatible.adapter';
 
-const { __create: create } = jest.requireMock('openai') as { __create: jest.Mock };
+const { __create: create } = jest.requireMock('openai');
 
 const PROVIDER = {
   id: 'p1',

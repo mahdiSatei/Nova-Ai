@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { PhMagnifyingGlass, PhX, PhChartBar } from '@phosphor-icons/vue'
+import { PhX, PhChartBar } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseCard from '@/components/ui/BaseCard.vue'
 import BaseSpinner from '@/components/ui/BaseSpinner.vue'
 import { listAdminUsage } from '@/api/admin'
-import type { UsageRecord, UsageReport } from '@/types/api'
+import type { UsageReport } from '@/types/api'
 
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -78,12 +78,14 @@ const statusOptions = [
   { value: 'pending', label: 'در انتظار' },
 ]
 
-function formatCost(cost: number): string {
-  return cost.toFixed(8)
+function formatCost(cost: number | undefined | null): string {
+  const val = Number(cost) || 0
+  return val.toFixed(8)
 }
 
-function formatTokens(tokens: number): string {
-  return tokens.toLocaleString('fa-IR')
+function formatTokens(tokens: number | undefined | null): string {
+  const val = Number(tokens) || 0
+  return val.toLocaleString('fa-IR')
 }
 
 onMounted(fetchData)
@@ -101,15 +103,15 @@ watch(filters, () => { page.value = 0; fetchData() }, { deep: true })
     <div v-if="data" class="grid grid-cols-3 gap-4">
       <BaseCard class="p-4 text-center">
         <div class="text-sm text-ink-muted">تعداد درخواست‌ها</div>
-        <div class="text-2xl font-bold text-ink">{{ formatTokens(data.totals.requestCount) }}</div>
+        <div class="text-2xl font-bold text-ink">{{ formatTokens(data.totals?.requestCount) }}</div>
       </BaseCard>
       <BaseCard class="p-4 text-center">
         <div class="text-sm text-ink-muted">کل توکن‌ها</div>
-        <div class="text-2xl font-bold text-ink">{{ formatTokens(data.totals.totalTokens) }}</div>
+        <div class="text-2xl font-bold text-ink">{{ formatTokens(data.totals?.totalTokens) }}</div>
       </BaseCard>
       <BaseCard class="p-4 text-center">
-        <div class="text-sm text-ink-muted">کل هزینه (USD)</div>
-        <div class="text-2xl font-bold text-ink">${{ formatCost(data.totals.totalCost) }}</div>
+        <div class="text-sm text-ink-muted">کل هزینه (تومان)</div>
+        <div class="text-2xl font-bold text-ink">{{ formatCost(data.totals?.totalCost) }} تومان</div>
       </BaseCard>
     </div>
 
@@ -153,20 +155,20 @@ watch(filters, () => { page.value = 0; fetchData() }, { deep: true })
               <th class="px-4 py-3 text-right font-medium text-ink-muted">ورودی</th>
               <th class="px-4 py-3 text-right font-medium text-ink-muted">خروجی</th>
               <th class="px-4 py-3 text-right font-medium text-ink-muted">کل</th>
-              <th class="px-4 py-3 text-right font-medium text-ink-muted">هزینه</th>
+              <th class="px-4 py-3 text-right font-medium text-ink-muted">هزینه (تومان)</th>
               <th class="px-4 py-3 text-right font-medium text-ink-muted">وضعیت</th>
               <th class="px-4 py-3 text-right font-medium text-ink-muted">تاریخ</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-line">
             <tr v-for="item in data.items" :key="item.id" class="hover:bg-elevated/50">
-              <td class="px-4 py-3 text-ink">{{ item.userId.slice(0, 8) }}...</td>
-              <td class="px-4 py-3 text-ink">{{ item.modelName ?? item.modelId.slice(0, 8) }}</td>
-              <td class="px-4 py-3 text-ink">{{ item.providerName ?? item.providerId.slice(0, 8) }}</td>
+              <td class="px-4 py-3 text-ink">{{ item.userId?.slice(0, 8) ?? '—' }}...</td>
+              <td class="px-4 py-3 text-ink">{{ item.modelName ?? item.modelId?.slice(0, 8) ?? '—' }}</td>
+              <td class="px-4 py-3 text-ink">{{ item.providerName ?? item.providerId?.slice(0, 8) ?? '—' }}</td>
               <td class="px-4 py-3 text-ink">{{ formatTokens(item.promptTokens) }}</td>
               <td class="px-4 py-3 text-ink">{{ formatTokens(item.completionTokens) }}</td>
               <td class="px-4 py-3 text-ink">{{ formatTokens(item.totalTokens) }}</td>
-              <td class="px-4 py-3 text-ink">${{ formatCost(item.estimatedCost) }}</td>
+              <td class="px-4 py-3 text-ink">{{ formatCost(item.chargedCost) }} تومان</td>
               <td class="px-4 py-3">
                 <span
                   :class="{
@@ -179,7 +181,7 @@ watch(filters, () => { page.value = 0; fetchData() }, { deep: true })
                   {{ item.status === 'completed' ? 'تکمیل' : item.status === 'failed' ? 'ناموفق' : 'در انتظار' }}
                 </span>
               </td>
-              <td class="px-4 py-3 text-ink-muted">{{ new Date(item.createdAt).toLocaleDateString('fa-IR') }}</td>
+              <td class="px-4 py-3 text-ink-muted">{{ item.createdAt ? new Date(item.createdAt).toLocaleDateString('fa-IR') : '—' }}</td>
             </tr>
             <tr v-if="data.items.length === 0">
               <td colspan="9" class="px-4 py-8 text-center text-ink-muted">

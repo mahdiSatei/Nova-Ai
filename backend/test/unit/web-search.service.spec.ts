@@ -8,7 +8,6 @@ function build(provider: Partial<WebSearchProvider>) {
 
 const raw = (over: Record<string, unknown> = {}) => ({
   query: 'q',
-  creditsUsed: 1,
   fromCache: false,
   status: 'success' as const,
   results: [
@@ -27,7 +26,8 @@ describe('WebSearchService', () => {
     expect(out.sources[1]).toMatchObject({ id: 'S2', url: 'https://b.test', provider: 'fake' });
     expect(out.sources[1].content).toBeUndefined();
     expect(out.empty).toBe(false);
-    expect(out.creditsUsed).toBe(1);
+    // The outcome carries no provider credit accounting (Phase 4 §4.3).
+    expect(Object.keys(out)).not.toContain('creditsUsed');
   });
 
   it('continues ids after earlier searches', async () => {

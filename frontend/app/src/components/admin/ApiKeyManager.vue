@@ -3,7 +3,8 @@ import { ref, onMounted, watch } from 'vue'
 import { PhTrash, PhCheck, PhX, PhPower, PhKey } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
-import { listApiKeys, updateApiKey, deleteApiKey, validateApiKey, type ApiKeyAdmin } from '@/api/admin'
+import { listApiKeys, updateApiKey, deleteApiKey, validateApiKey } from '@/api/admin'
+import type { ApiKeyAdmin } from '@/types/api'
 
 const props = defineProps<{ providerId: string }>()
 
@@ -158,7 +159,7 @@ async function validateKey(key: ApiKeyAdmin): Promise<void> {
               <span v-if="key.failureCount > 0"> · خطاها: {{ key.failureCount }}</span>
             </div>
             <div
-              v-if="validationResult?.keyId === key.id"
+              v-if="validationResult && validationResult.keyId === key.id"
               class="text-xs mt-1"
               :class="validationResult.success ? 'text-success' : 'text-danger'"
             >

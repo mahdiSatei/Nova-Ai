@@ -18,7 +18,6 @@ const source = (id: string): WebSource => ({
 const outcome = (sources: WebSource[]): WebSearchOutcome => ({
   query: 'q',
   sources,
-  creditsUsed: 1,
   empty: false,
 });
 

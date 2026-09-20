@@ -14,6 +14,7 @@ const config: Config = {
   testEnvironment: 'node',
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    '^@nestjs/bullmq$': '<rootDir>/test/unit/__mocks__/@nestjs/bullmq.ts',
   },
 };
 

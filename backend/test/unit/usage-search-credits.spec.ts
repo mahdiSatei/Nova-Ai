@@ -1,40 +1,45 @@
 import { UsageService } from '../../src/modules/usage/usage.service';
 
 function build() {
-  const record = { id: 'u1', searchCredits: 0, save: jest.fn().mockResolvedValue(undefined) };
   const repo = {
     create: jest.fn((v: unknown) => v),
-    save: jest.fn().mockResolvedValue(record),
-    findOne: jest.fn().mockResolvedValue(record),
+    save: jest.fn(),
+    update: jest.fn().mockResolvedValue({ affected: 1 }),
   };
-  return { service: new UsageService(repo as never), record, repo };
+  return { service: new UsageService(repo as never), repo };
 }
 
 describe('UsageService search credits', () => {
-  it('stores search credits passed to finalize', async () => {
-    const { service, record } = build();
-    await service.finalize('u1', {
-      promptTokens: 1,
-      completionTokens: 2,
+  it('stores search credits passed to finalizeOnce', async () => {
+    const { service, repo } = build();
+    await service.finalizeOnce('u1', {
+      inputTokens: 1,
+      outputTokens: 2,
       totalTokens: 3,
-      inputPricePer1k: 0,
-      outputPricePer1k: 0,
+      chargedCost: 0,
+      chargedCredits: 0,
       status: 'completed',
       searchCredits: 4,
     });
-    expect(record.searchCredits).toBe(4);
+    expect(repo.update).toHaveBeenCalledWith(
+      { id: 'u1', status: 'pending' },
+      expect.objectContaining({ searchCredits: 4 }),
+    );
   });
 
   it('defaults search credits to zero', async () => {
-    const { service, record } = build();
-    await service.finalize('u1', {
-      promptTokens: 0,
-      completionTokens: 0,
+    const { service, repo } = build();
+    await service.finalizeOnce('u1', {
+      inputTokens: 0,
+      outputTokens: 0,
       totalTokens: 0,
-      inputPricePer1k: 0,
-      outputPricePer1k: 0,
+      chargedCost: 0,
+      chargedCredits: 0,
       status: 'failed',
     });
-    expect(record.searchCredits).toBe(0);
+    expect(repo.update).toHaveBeenCalledWith(
+      { id: 'u1', status: 'pending' },
+      expect.objectContaining({ searchCredits: 0, chargedCredits: 0 }),
+    );
   });
 });
