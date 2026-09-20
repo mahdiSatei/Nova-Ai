@@ -21,7 +21,9 @@
     "migration:run": "typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts",
     "openapi:export": "ts-node scripts/export-openapi.ts",
-    "seed:admin": "ts-node scripts/seed-admin.ts"
+    "seed:admin": "ts-node scripts/seed-admin.ts",
+    "test:load:smoke": "k6 run test/load/chat-stream.js",
+    "test:load": "k6 run test/load/chat-stream.js -e PROFILE=load"
   },
   "dependencies": {
     "@nestjs/bullmq": "^12.0.0",
