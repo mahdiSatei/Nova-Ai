@@ -794,6 +794,12 @@ export class ChatService {
     const sourcesByUrl = new Map<string, WebSource>();
     const startedAt = Date.now();
 
+    this.logger.debug(
+      `[web-search] runToolLoop — webSearchEnabled=${webSearchEnabled} ` +
+        `userId="${userId}" modelName="${modelName}" ` +
+        `providerTimeout=${effectiveModel.provider?.name ?? 'inline'}`,
+    );
+
     // §3.8 boundary: balance at stream start + grace, checked against a
     // character-based estimate of answer + reasoning output. A rate of 0
     // (misconfigured pricing) disables the check.
@@ -1019,13 +1025,22 @@ export class ChatService {
             data: { phase: 'search_started', query },
           });
 
+          const elapsedSinceTurnStart = Date.now() - startedAt;
           const remainingMs =
-            WEB_SEARCH_LIMITS.MAX_TOTAL_SEARCH_MS -
-            (Date.now() - startedAt);
+            WEB_SEARCH_LIMITS.MAX_TOTAL_SEARCH_MS - elapsedSinceTurnStart;
+
+          this.logger.debug(
+            `[web-search] Search #${searchCount + 1} for query="${query}" ` +
+              `elapsedSinceTurnStart=${elapsedSinceTurnStart}ms remainingMs=${remainingMs}ms`,
+          );
 
           let toolOutput: string;
 
           if (remainingMs <= 0) {
+            this.logger.warn(
+              `[web-search] Time budget exhausted — remainingMs=${remainingMs} ` +
+                `elapsedSinceTurnStart=${elapsedSinceTurnStart}ms searchCount=${searchCount}`,
+            );
             this.broadcast(state, {
               type: 'status',
               data: {
@@ -1040,17 +1055,27 @@ export class ChatService {
               'Web search was skipped: the time budget for this turn was exhausted. Answer from what you already know.';
           } else {
             try {
+              const searchTimeoutMs = Math.min(
+                WEB_SEARCH_LIMITS.SEARCH_TIMEOUT_MS,
+                remainingMs,
+              );
+              this.logger.debug(
+                `[web-search] Calling webSearch.search() — ` +
+                  `timeoutMs=${searchTimeoutMs} query="${query}" startIndex=${sourcesByUrl.size + 1}`,
+              );
               const outcome =
                 await this.webSearch.search({
                   query,
                   startIndex:
                     sourcesByUrl.size + 1,
-                  timeoutMs: Math.min(
-                    WEB_SEARCH_LIMITS.SEARCH_TIMEOUT_MS,
-                    remainingMs,
-                  ),
+                  timeoutMs: searchTimeoutMs,
                   signal: abortController.signal,
                 });
+
+              this.logger.debug(
+                `[web-search] Search completed successfully — sources=${outcome.sources.length} ` +
+                  `empty=${outcome.empty} query="${outcome.query}"`,
+              );
 
               // §4.1/§4.2: one fixed, deployment-configured price per
               // *successful* search — never a function of result count,

@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { WEB_SEARCH_LIMITS } from './web-search.constants';
 import { WebSearchProvider, WEB_SEARCH_PROVIDER } from './web-search-provider.interface';
 import { WebSearchOutcome, WebSource } from './web-search.types';
@@ -10,6 +10,8 @@ import { WebSearchOutcome, WebSource } from './web-search.types';
  */
 @Injectable()
 export class WebSearchService {
+  private readonly logger = new Logger(WebSearchService.name);
+
   constructor(
     @Inject(WEB_SEARCH_PROVIDER)
     private readonly provider: WebSearchProvider,
@@ -26,6 +28,16 @@ export class WebSearchService {
     timeoutMs?: number;
     signal?: AbortSignal;
   }): Promise<WebSearchOutcome> {
+    const timeoutMs = input.timeoutMs ?? WEB_SEARCH_LIMITS.SEARCH_TIMEOUT_MS;
+
+    this.logger.debug(
+      `[web-search] WebSearchService.search() — query="${input.query}" ` +
+        `startIndex=${input.startIndex} timeoutMs=${timeoutMs} ` +
+        `signalProvided=${Boolean(input.signal)} maxResults=${WEB_SEARCH_LIMITS.MAX_RESULTS_PER_SEARCH}`,
+    );
+
+    const searchStartedAt = Date.now();
+
     const raw = await this.provider.search(
       {
         query: input.query,
@@ -34,8 +46,16 @@ export class WebSearchService {
       },
       {
         signal: input.signal,
-        timeoutMs: input.timeoutMs ?? WEB_SEARCH_LIMITS.SEARCH_TIMEOUT_MS,
+        timeoutMs,
       },
+    );
+
+    const searchElapsed = Date.now() - searchStartedAt;
+
+    this.logger.debug(
+      `[web-search] Provider search completed — ` +
+        `elapsed=${searchElapsed}ms rawResults=${raw.results.length} ` +
+        `fromCache=${raw.fromCache ?? false} status="${raw.status}"`,
     );
 
     const sources: WebSource[] = [];

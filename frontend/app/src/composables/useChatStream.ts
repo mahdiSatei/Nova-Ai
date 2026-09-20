@@ -930,6 +930,19 @@ export function useChatStream(): ChatStreamHandle {
               ...transcript.value.slice(retriedIdx + 1),
             ]
           }
+        } else {
+          // send() path: the assistant message was never added to transcript
+          // (only the user message was pushed). Insert it now with the
+          // server-assigned id so deltas and the final done event can update
+          // it. Without this, the message only lives in generation.value and
+          // disappears once generation.status becomes 'completed'.
+          transcript.value.push({
+            id: info.assistantMessageId,
+            role: 'assistant',
+            content: generation.value.content,
+            createdAt: new Date().toISOString(),
+            status: 'streaming',
+          })
         }
       }
 

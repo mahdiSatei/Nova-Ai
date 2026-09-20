@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppConfig } from '../../../config/configuration';
 import { SERPEX_CONTENT_RESULTS } from '../web-search.constants';
@@ -32,6 +32,7 @@ interface SerpexBody {
 @Injectable()
 export class SerpexProvider implements WebSearchProvider {
   readonly name = 'serpex';
+  private readonly logger = new Logger(SerpexProvider.name);
 
   constructor(private readonly config: ConfigService<AppConfig, true>) {}
 
@@ -40,15 +41,32 @@ export class SerpexProvider implements WebSearchProvider {
     options: { signal?: AbortSignal; timeoutMs?: number } = {},
   ): Promise<WebSearchRawResponse> {
     const apiKey = this.config.get('webSearch.serpexApiKey', { infer: true });
+    const baseUrl = this.config
+      .get('webSearch.serpexApiUrl', { infer: true })
+      .replace(/\/+$/, '');
+
+    // ── Diagnostic logging ─────────────────────────────────────────────
+    this.logger.debug(
+      `[web-search] search() called — query="${request.query}" ` +
+        `maxResults=${request.maxResults} includeContent=${request.includeContent} ` +
+        `timeoutMs=${options.timeoutMs ?? 'not set'} ` +
+        `apiKeySet=${Boolean(apiKey)} apiKeyLength=${apiKey?.length ?? 0} ` +
+        `baseUrl="${baseUrl}" signalProvided=${Boolean(options.signal)}`,
+    );
+
     if (!apiKey) {
+      this.logger.warn(
+        '[web-search] API key is not configured — cannot proceed.',
+      );
       throw new WebSearchError(
         'web_search_not_configured',
         'Web search is not configured on this server.',
       );
     }
-    const baseUrl = this.config
-      .get('webSearch.serpexApiUrl', { infer: true })
-      .replace(/\/+$/, '');
+
+    this.logger.debug(
+      `[web-search] API key present (${apiKey.length} chars), baseUrl="${baseUrl}"`,
+    );
 
     const controller = new AbortController();
     const onAbort = () => controller.abort();
@@ -56,15 +74,27 @@ export class SerpexProvider implements WebSearchProvider {
     const timeoutMs = options.timeoutMs;
     const timer =
       timeoutMs && timeoutMs > 0
-        ? setTimeout(() => controller.abort(), timeoutMs)
+        ? setTimeout(() => {
+            this.logger.warn(
+              `[web-search] Request timed out after ${timeoutMs}ms — query="${request.query}"`,
+            );
+            controller.abort();
+          }, timeoutMs)
         : undefined;
 
+    const fetchUrl = `${baseUrl}/api/search`;
+    this.logger.debug(
+      `[web-search] Sending POST request to ${fetchUrl} (timeout=${timeoutMs ?? 'none'}ms)`,
+    );
+
+    const requestStartedAt = Date.now();
+
     try {
-      const res = await fetch(`${baseUrl}/api/search`, {
+      const res = await fetch(fetchUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${apiKey.slice(0, 8)}...${apiKey.slice(-4)}`,
         },
         body: JSON.stringify({
           q: request.query,
@@ -74,7 +104,15 @@ export class SerpexProvider implements WebSearchProvider {
         signal: controller.signal,
       });
 
+      const elapsed = Date.now() - requestStartedAt;
+      this.logger.debug(
+        `[web-search] Response received — status=${res.status} statusText="${res.statusText}" elapsed=${elapsed}ms`,
+      );
+
       if (!res.ok) {
+        this.logger.warn(
+          `[web-search] Non-OK response — status=${res.status} statusText="${res.statusText}" elapsed=${elapsed}ms`,
+        );
         throw this.mapStatus(res.status);
       }
 
@@ -82,12 +120,26 @@ export class SerpexProvider implements WebSearchProvider {
       try {
         body = (await res.json()) as SerpexBody;
       } catch {
+        this.logger.warn(
+          `[web-search] Failed to parse JSON response — query="${request.query}"`,
+        );
         throw new WebSearchError(
           'web_search_bad_response',
           'Web search returned an invalid response.',
         );
       }
+
+      this.logger.debug(
+        `[web-search] Parsed response body — resultsCount=${body.results?.length ?? 'undefined'} ` +
+          `query="${body.query ?? ''}" status="${body.metadata?.status ?? 'unset'}" ` +
+          `fromCache=${body.metadata?.from_cache ?? false}`,
+      );
+
       if (!Array.isArray(body.results)) {
+        this.logger.warn(
+          `[web-search] Response does not contain results array — ` +
+            `body.results type=${typeof body.results}`,
+        );
         throw new WebSearchError(
           'web_search_bad_response',
           'Web search returned an invalid response.',
@@ -106,10 +158,30 @@ export class SerpexProvider implements WebSearchProvider {
         status,
       };
     } catch (err) {
-      if (err instanceof WebSearchError) throw err;
+      const elapsed = Date.now() - requestStartedAt;
+      if (err instanceof WebSearchError) {
+        this.logger.warn(
+          `[web-search] WebSearchError — code=${err.code} retryable=${err.retryable} ` +
+            `elapsed=${elapsed}ms query="${request.query}"`,
+        );
+        throw err;
+      }
       if (err instanceof Error && err.name === 'AbortError') {
+        this.logger.warn(
+          `[web-search] Request aborted (AbortError) after ${elapsed}ms — ` +
+            `query="${request.query}" signalAborted=${options.signal?.aborted ?? false}`,
+        );
         throw new WebSearchError('web_search_timeout', 'Web search timed out.', true);
       }
+
+      // Log the full error for debugging
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const errName = err instanceof Error ? err.name : 'Unknown';
+      this.logger.error(
+        `[web-search] Unexpected error — name="${errName}" message="${errMsg}" ` +
+          `elapsed=${elapsed}ms query="${request.query}" baseUrl="${baseUrl}"`,
+        err instanceof Error ? err.stack : undefined,
+      );
       throw new WebSearchError(
         'web_search_provider_error',
         'Web search provider is unavailable.',
@@ -122,6 +194,9 @@ export class SerpexProvider implements WebSearchProvider {
   }
 
   private mapStatus(status: number): WebSearchError {
+    this.logger.debug(
+      `[web-search] mapStatus(${status}) — mapping HTTP status to error code`,
+    );
     let code: WebSearchErrorCode = 'web_search_provider_error';
     let retryable = status >= 500;
     if (status === 400) {

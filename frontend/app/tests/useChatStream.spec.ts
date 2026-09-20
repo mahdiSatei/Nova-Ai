@@ -328,6 +328,58 @@ describe('useChatStream', () => {
     expect(chat.generation.value?.conversationId).toBe('conv-real')
   })
 
+  it('send persists assistant message in transcript after stream completes (FR-015)', async () => {
+    let startHandler:
+      | ((info: {
+          conversationId: string
+          assistantMessageId: string
+        }) => void)
+      | undefined
+    let deltaHandler: ((text: string, isFirst: boolean) => void) | undefined
+    let doneHandler: (() => void) | undefined
+
+    vi.mocked(streamChat).mockImplementation((_body, handlers) => {
+      startHandler = handlers.onStart
+      deltaHandler = handlers.onDelta
+      doneHandler = handlers.onDone
+      return new AbortController()
+    })
+
+    const chat = useChatStream()
+    chat.selectedModelId.value = 'model-1'
+
+    await chat.send('hello world')
+
+    expect(chat.generationState.value).toBe('streaming')
+
+    // Server assigns real IDs — different from the optimistic ones
+    startHandler?.({
+      conversationId: 'conv-real',
+      assistantMessageId: 'msg-real',
+    })
+
+    expect(chat.generation.value?.assistantMessageId).toBe('msg-real')
+
+    // Simulate streaming deltas
+    deltaHandler?.('Hello ', false)
+    deltaHandler?.('world!', false)
+
+    expect(chat.generation.value?.content).toBe('Hello world!')
+
+    // Stream completes
+    doneHandler?.()
+
+    expect(chat.generationState.value).toBe('completed')
+
+    // The assistant message must persist in transcript after completion
+    const assistantMsg = chat.transcript.value.find(
+      (m) => m.id === 'msg-real' && m.role === 'assistant',
+    )
+    expect(assistantMsg).toBeDefined()
+    expect(assistantMsg?.content).toBe('Hello world!')
+    expect(assistantMsg?.status).toBe('completed')
+  })
+
   it('retry streams from the targeted failed message and adopts the new ids', async () => {
     let startHandler:
       | ((info: {
