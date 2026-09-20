@@ -93,7 +93,7 @@ watch(filters, () => { page.value = 0; fetchData() }, { deep: true })
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="space-y-6 py-2">
     <div class="flex items-center gap-3">
       <PhChartBar class="size-6 text-accent" aria-hidden="true" />
       <h1 class="text-xl font-bold">گزارش مصرف</h1>
@@ -139,12 +139,13 @@ watch(filters, () => { page.value = 0; fetchData() }, { deep: true })
     </div>
 
     <!-- Error -->
-    <div v-else-if="error" class="rounded-lg bg-red-50 p-4 text-red-700 dark:bg-red-900/20 dark:text-red-400">
+    <div v-else-if="error" class="animate-fade-slide-in rounded-xl border border-danger/30 bg-danger-soft p-4 text-sm text-danger" role="alert">
       {{ error }}
+      <button type="button" class="ms-2 font-medium underline" @click="fetchData">تلاش مجدد</button>
     </div>
 
     <!-- Data Table -->
-    <BaseCard v-else-if="data" class="overflow-hidden">
+    <BaseCard v-else-if="data" class="overflow-hidden p-0">
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead class="border-b border-line bg-surface">

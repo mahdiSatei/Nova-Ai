@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { listAdminFiles, type AdminFileRecord } from '@/api/admin'
 import { formatFileSize } from '@/api/files'
 import { formatDateTime } from '@/utils/time'
-import { PhFile, PhWarning, PhCheckCircle, PhHourglass, PhArrowsClockwise, PhCaretRight, PhCaretLeft } from '@phosphor-icons/vue'
+import { PhFile, PhArrowsClockwise, PhCaretRight, PhCaretLeft } from '@phosphor-icons/vue'
 
 const files = ref<AdminFileRecord[]>([])
 const totalFiles = ref(0)

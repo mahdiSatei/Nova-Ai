@@ -241,7 +241,7 @@ watch(
   />
 
   <aside
-    class="fixed inset-y-0 start-0 z-40 flex flex-col border-e border-line bg-surface transition-[width,transform] duration-300 ease-out lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0!"
+    class="fixed inset-y-0 start-0 z-40 flex flex-col border-e border-line/70 bg-surface/90 shadow-2xl shadow-black/15 backdrop-blur-xl transition-[width,transform] duration-300 ease-out lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0!"
     :class="[
       rail ? 'w-16' : 'w-72',
       mobileOpen ? 'translate-x-0' : 'ltr:-translate-x-full rtl:translate-x-full',
@@ -280,7 +280,7 @@ watch(
     <div class="px-3">
       <button
         type="button"
-        class="flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary text-sm font-medium text-on-primary shadow-sm transition-colors hover:bg-primary-hover"
+        class="flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-primary to-primary-deep text-sm font-medium text-on-primary shadow-lg shadow-primary/20 transition-[transform,box-shadow] duration-200 hover:-translate-y-px hover:shadow-primary/30"
         :title="'گفتگوی جدید'"
         @click="onNewChat"
       >
@@ -353,7 +353,7 @@ watch(
       <div ref="userMenuRoot" class="relative">
         <button
           type="button"
-          class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1.5 text-start transition-colors hover:bg-hover"
+          class="flex w-full cursor-pointer items-center gap-2 rounded-xl px-1.5 py-1.5 text-start transition-[background-color,transform] duration-200 hover:bg-hover hover:-translate-y-px"
           :class="{ 'justify-center px-0': rail }"
           :aria-label="'منوی حساب کاربری'"
           :aria-haspopup="'menu'"

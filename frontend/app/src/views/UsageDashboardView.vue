@@ -65,24 +65,24 @@ onMounted(load)
       <PhSpinner class="size-7 animate-spin text-primary" aria-label="در حال بارگذاری" />
     </div>
 
-    <div v-else-if="error" class="rounded-xl border border-danger/20 bg-danger-soft px-4 py-3 text-sm text-danger">
+    <div v-else-if="error" class="animate-fade-slide-in rounded-xl border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger" role="alert">
       {{ error }}
       <button type="button" class="ms-2 underline" @click="load">تلاش مجدد</button>
     </div>
 
     <template v-else-if="data">
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div class="rounded-2xl border border-line bg-surface p-5 shadow-sm">
+        <div class="surface-card interactive-lift p-5">
           <div class="flex items-center gap-2 text-xs text-ink-muted"><PhTrendUp class="size-4 text-primary" /> کل توکن‌ها</div>
           <p class="mt-3 text-2xl font-bold text-ink">{{ format(data.totals.totalTokens) }}</p>
           <p class="mt-1 text-xs text-ink-muted">{{ format(data.totals.requestCount) }} درخواست</p>
         </div>
-        <div class="rounded-2xl border border-line bg-surface p-5 shadow-sm">
+        <div class="surface-card interactive-lift p-5">
           <div class="flex items-center gap-2 text-xs text-ink-muted"><PhCoins class="size-4 text-warning" /> اعتبار مصرف‌شده</div>
           <p class="mt-3 text-2xl font-bold text-ink">{{ format(data.totals.chargedCredits) }}</p>
           <p class="mt-1 text-xs text-ink-muted">اعتبار</p>
         </div>
-        <div class="rounded-2xl border border-line bg-surface p-5 shadow-sm">
+        <div class="surface-card interactive-lift p-5">
           <div class="flex items-center gap-2 text-xs text-ink-muted"><PhClock class="size-4 text-accent" /> آخرین فعالیت</div>
           <p class="mt-3 text-lg font-bold text-ink">{{ data.recent[0] ? date(data.recent[0].createdAt) : '—' }}</p>
           <p class="mt-1 text-xs text-ink-muted">بر اساس پاسخ‌های تکمیل‌شده</p>
@@ -90,7 +90,7 @@ onMounted(load)
       </div>
 
       <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div class="rounded-2xl border border-line bg-surface p-5 shadow-sm">
+        <div class="surface-card interactive-lift p-5">
           <h2 class="text-sm font-bold text-ink">ترکیب مصرف توکن</h2>
           <p class="mt-1 text-xs text-ink-muted">درصد هر بخش از کل توکن‌های مصرف‌شده</p>
           <div class="mt-6 space-y-4">
@@ -103,14 +103,14 @@ onMounted(load)
                 <span class="text-ink-muted">{{ item.label }} · {{ format(item.value) }}</span>
                 <strong class="text-ink">{{ item.percent }}٪</strong>
               </div>
-              <div class="h-2 overflow-hidden rounded-full bg-elevated">
-                <div class="h-full rounded-full transition-all" :class="item.color" :style="{ width: `${item.percent}%` }" />
+              <div class="h-2.5 overflow-hidden rounded-full bg-elevated/80">
+                <div class="h-full rounded-full transition-all duration-700 ease-out" :class="item.color" :style="{ width: `${item.percent}%` }" />
               </div>
             </div>
           </div>
         </div>
 
-        <div class="rounded-2xl border border-line bg-surface p-5 shadow-sm">
+        <div class="surface-card interactive-lift p-5">
           <h2 class="text-sm font-bold text-ink">آخرین درخواست‌ها</h2>
           <div v-if="data.recent.length === 0" class="py-10 text-center text-xs text-ink-muted">هنوز مصرفی ثبت نشده است.</div>
           <div v-else class="mt-3 divide-y divide-line/70">

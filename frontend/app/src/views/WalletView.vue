@@ -81,7 +81,7 @@ function formatAmount(toman: number): string {
 </script>
 
 <template>
-  <div class="space-y-8">
+  <div class="mx-auto w-full max-w-5xl space-y-8 py-4 sm:py-8">
     <div class="flex items-center justify-between gap-3">
       <RouterLink
         to="/chat"
@@ -93,7 +93,7 @@ function formatAmount(toman: number): string {
     </div>
 
     <!-- Balance Card -->
-    <div class="overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary-soft via-surface to-accent/5 p-6 shadow-sm">
+    <div class="surface-card interactive-lift overflow-hidden border-primary/20 bg-gradient-to-br from-primary-soft via-surface to-accent/5 p-6">
       <div class="flex flex-wrap items-center justify-between gap-4">
         <div class="flex items-center gap-3">
           <span class="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-accent/70 text-on-primary shadow-lg shadow-primary/20">
@@ -109,7 +109,7 @@ function formatAmount(toman: number): string {
     </div>
 
     <!-- Buy Credits -->
-    <div class="rounded-2xl border border-line bg-surface p-6 shadow-sm">
+    <div class="surface-card p-6">
       <div class="flex items-start justify-between gap-3">
         <div>
           <h2 class="text-base font-bold text-ink">افزایش اعتبار</h2>
@@ -120,7 +120,7 @@ function formatAmount(toman: number): string {
         </span>
       </div>
 
-      <div v-if="error" class="mt-4 rounded-xl border border-danger/20 bg-danger-soft px-4 py-3 text-xs text-danger">
+      <div v-if="error" class="mt-4 animate-fade-slide-in rounded-xl border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger" role="alert">
         {{ error }}
       </div>
 
@@ -166,7 +166,7 @@ function formatAmount(toman: number): string {
     </div>
 
     <!-- Payment History -->
-    <div class="rounded-xl border border-line bg-surface p-6">
+    <div class="surface-card p-6">
       <h2 class="mb-4 text-sm font-semibold text-ink">تاریخچه پرداخت</h2>
 
       <div v-if="loadingPayments" class="flex justify-center py-8">

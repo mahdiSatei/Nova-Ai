@@ -349,7 +349,7 @@ function useSuggestedPrompt(text: string): void {
 
       <!-- status chip + model picker + buttons -->
       <div
-        class="inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 py-1 pe-1 ps-3 text-xs shadow-sm backdrop-blur transition-colors"
+        class="inline-flex items-center gap-2 rounded-full border border-line/70 bg-surface/75 py-1 pe-1 ps-3 text-xs shadow-lg shadow-black/5 backdrop-blur-xl transition-[border-color,box-shadow] hover:border-primary/30"
       >
         <span
           class="size-1.5 rounded-full"
@@ -434,7 +434,7 @@ function useSuggestedPrompt(text: string): void {
         >
           <div class="flex flex-col items-center gap-4">
             <div
-              class="flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-accent/70 text-white shadow-lg shadow-primary/20"
+              class="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-accent/70 text-white shadow-xl shadow-primary/25 animate-fade-slide-in"
             >
               <PhBrain class="size-7" aria-hidden="true" />
             </div>
@@ -461,7 +461,7 @@ function useSuggestedPrompt(text: string): void {
             <li v-for="p in suggestedPrompts" :key="p.text">
               <button
                 type="button"
-                class="group flex h-full w-full cursor-pointer items-start gap-3 rounded-xl border border-line/70 bg-surface px-4 py-3.5 text-start shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md"
+                class="interactive-lift group flex h-full w-full cursor-pointer items-start gap-3 rounded-2xl border border-line/70 bg-surface/80 px-4 py-3.5 text-start shadow-sm"
                 @click="useSuggestedPrompt(p.text)"
               >
                 <span

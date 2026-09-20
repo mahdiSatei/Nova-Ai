@@ -16,13 +16,13 @@ withDefaults(
     :type="type"
     :disabled="disabled || loading"
     :aria-busy="loading || undefined"
-    class="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50"
+    class="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl font-medium shadow-sm transition-[transform,background-color,border-color,box-shadow] duration-200 hover:-translate-y-px hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-sm"
     :class="[
       size === 'sm' ? 'px-3 py-1.5 text-sm' : 'px-4 py-2.5 text-sm',
       {
-        'bg-primary text-on-primary hover:bg-primary-hover': variant === 'primary',
-        'border border-line bg-elevated text-ink hover:bg-line': variant === 'secondary',
-        'bg-danger text-white hover:opacity-90': variant === 'danger',
+        'bg-gradient-to-br from-primary to-primary-deep text-on-primary hover:shadow-primary/25': variant === 'primary',
+        'border border-line bg-elevated text-ink hover:border-primary/40 hover:bg-line': variant === 'secondary',
+        'bg-gradient-to-br from-danger to-danger/80 text-white hover:shadow-danger/20': variant === 'danger',
         'text-ink-muted hover:bg-elevated hover:text-ink': variant === 'ghost',
       },
     ]"

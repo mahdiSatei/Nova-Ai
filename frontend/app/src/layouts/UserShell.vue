@@ -13,13 +13,13 @@ watch(() => route.fullPath, () => (drawerOpen.value = false))
 </script>
 
 <template>
-  <div class="flex h-dvh overflow-hidden">
+  <div class="app-shell-bg flex h-dvh overflow-hidden">
     <ChatSidebar v-model:mobile-open="drawerOpen" @navigate="drawerOpen = false" />
 
     <div class="flex min-w-0 flex-1 flex-col">
       <!-- نوار بالایی موبایل -->
       <header
-        class="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-bg/90 px-3 backdrop-blur lg:hidden"
+        class="flex h-14 shrink-0 items-center gap-2 border-b border-line/70 bg-surface/75 px-3 shadow-sm backdrop-blur-xl lg:hidden"
       >
         <button
           type="button"
@@ -35,9 +35,8 @@ watch(() => route.fullPath, () => (drawerOpen.value = false))
         </span>
       </header>
 
-      <main class="flex min-h-0 flex-1 flex-col overflow-hidden px-2 sm:px-4">
-        <RouterView />
-      </main>
+      <main class="flex min-h-0 flex-1 flex-col overflow-hidden px-2 sm:px-4"><Transition name="page" mode="out-in"><RouterView />
+        </Transition></main>
     </div>
   </div>
 </template>

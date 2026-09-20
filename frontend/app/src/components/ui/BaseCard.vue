@@ -10,7 +10,7 @@ const props = withDefaults(
 
 <template>
   <div
-    class="rounded-lg bg-card text-ink border border-line hover:bg-elevated/50 transition-colors duration-150"
+    class="surface-card interactive-lift text-ink"
     :class="props.class"
   >
     <slot />

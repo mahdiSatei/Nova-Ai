@@ -45,9 +45,9 @@ async function onSignOut(): Promise<void> {
 </script>
 
 <template>
-  <div class="flex h-dvh overflow-hidden">
+  <div class="app-shell-bg flex h-dvh overflow-hidden">
     <!-- سایدبار ادمین -->
-    <aside class="flex w-72 shrink-0 flex-col border-r border-line bg-surface">
+    <aside class="flex w-72 shrink-0 flex-col border-r border-line/70 bg-surface/85 shadow-2xl shadow-black/10 backdrop-blur-xl">
       <div class="flex h-14 items-center gap-2 border-b border-line px-4 font-semibold">
         <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent/10">
           <PhGear class="size-4.5 text-accent" aria-hidden="true" />
@@ -122,7 +122,7 @@ async function onSignOut(): Promise<void> {
 
     <main class="min-w-0 flex-1 flex flex-col overflow-hidden">
       <!-- هدر بالای صفحه ادمین (دقیقا مشابه صفحه چت کاربر) -->
-      <header class="flex h-14 shrink-0 items-center justify-end px-6 border-line bg-surface/50 backdrop-blur">
+      <header class="flex h-14 shrink-0 items-center justify-end border-b border-line/70 bg-surface/55 px-6 backdrop-blur-xl">
         <button
           type="button"
           class="inline-flex size-9 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink focus-visible:text-ink"
@@ -135,7 +135,7 @@ async function onSignOut(): Promise<void> {
         </button>
       </header>
 
-      <div class="flex-1 overflow-y-auto px-6 py-10">
+      <div class="flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-10">
         <div class="mx-auto w-full max-w-4xl">
           <RouterView />
         </div>

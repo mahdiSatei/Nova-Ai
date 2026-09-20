@@ -5,13 +5,17 @@ const props = withDefaults(
     options: Array<{ value: any; label: string }>
     label?: string
     error?: string | null
-    hint?: string
+    hint?: string | null
     disabled?: boolean
   }>(),
   { label: '', error: null, hint: null, disabled: false }
 )
 
 const emit = defineEmits<{ 'update:modelValue': [value: any] }>()
+
+function onChange(event: Event): void {
+  emit('update:modelValue', (event.target as HTMLSelectElement).value)
+}
 </script>
 
 <template>
@@ -21,12 +25,11 @@ const emit = defineEmits<{ 'update:modelValue': [value: any] }>()
       <select
         :value="modelValue"
         :disabled="disabled"
-        class="w-full rounded-lg border bg-surface px-3.5 py-2.5 text-ink placeholder:text-ink-muted/50 transition-colors duration-150"
+        class="w-full cursor-pointer rounded-xl border bg-surface/80 px-3.5 py-2.5 text-ink shadow-inner shadow-black/5 placeholder:text-ink-muted/50 transition-[border-color,box-shadow,background-color] duration-200 focus:bg-surface focus:ring-4 focus:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
         :class="[
           error ? 'border-danger' : 'border-line focus:border-primary',
         ]"
-        @update:modelValue="emit('update:modelValue', $event.target.value)"
-        @change="emit('update:modelValue', $event.target.value)"
+        @change="onChange"
       >
         <option v-for="option in options" :key="option.value" :value="option.value">
           {{ option.label }}

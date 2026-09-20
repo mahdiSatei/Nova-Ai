@@ -11,7 +11,7 @@
  * remapped to 700 — the closest emphasis weight in the loaded set. */
 
 :root {
-  --app-bg: #0e1116;
+  --app-bg: #090d16;
   --app-surface: #151a21;
   --app-elevated: #1d242e;
   --app-line: #2b3340;
@@ -20,6 +20,7 @@
 
   --app-primary: #8b5cf6;
   --app-primary-hover: #a78bfa;
+  --app-primary-deep: #6d28d9;
   --app-primary-soft: rgba(139, 92, 246, 0.14);
   --app-on-primary: #ffffff;
   --app-accent: #22d3ee;
@@ -32,6 +33,7 @@
   --app-inline-code-bg: rgba(148, 163, 184, 0.14);
   --app-hover: rgba(148, 163, 184, 0.08);
   --app-shadow: rgba(0, 0, 0, 0.45);
+  --app-glow: rgba(139, 92, 246, 0.22);
 
   /* highlight.js token colors — one-One Dark inspired */
   --hl-keyword: #c678dd;
@@ -100,6 +102,7 @@ html.light {
 
   --color-primary: var(--app-primary);
   --color-primary-hover: var(--app-primary-hover);
+  --color-primary-deep: var(--app-primary-deep);
   --color-primary-soft: var(--app-primary-soft);
   --color-on-primary: var(--app-on-primary);
   --color-accent: var(--app-accent);
@@ -151,6 +154,63 @@ html.light {
 
 html {
   color-scheme: dark;
+  background: var(--app-bg);
+}
+
+/* Shared visual language: soft aurora surfaces, intentional depth and quick feedback. */
+.app-shell-bg {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 12% -10%, rgba(139, 92, 246, 0.16), transparent 32rem),
+    radial-gradient(circle at 92% 8%, rgba(34, 211, 238, 0.08), transparent 28rem),
+    var(--app-bg);
+}
+.app-shell-bg::before {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  content: '';
+  opacity: 0.25;
+  background-image: radial-gradient(var(--app-line) 0.7px, transparent 0.7px);
+  background-size: 24px 24px;
+  mask-image: linear-gradient(to bottom, black, transparent 75%);
+}
+.surface-card {
+  border: 1px solid color-mix(in srgb, var(--app-line) 82%, transparent);
+  border-radius: 1.25rem;
+  background: color-mix(in srgb, var(--app-surface) 88%, transparent);
+  box-shadow: 0 18px 48px -30px var(--app-shadow);
+  backdrop-filter: blur(14px);
+}
+.page-heading {
+  letter-spacing: -0.02em;
+}
+.interactive-lift {
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+.interactive-lift:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--app-primary) 46%, var(--app-line));
+  box-shadow: 0 18px 42px -28px var(--app-glow);
+}
+.table-shell {
+  overflow: hidden;
+  border: 1px solid var(--app-line);
+  border-radius: 1rem;
+  background: var(--app-surface);
+  box-shadow: 0 14px 36px -28px var(--app-shadow);
+}
+
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.page-enter-from,
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(5px);
 }
 html.light {
   color-scheme: light;
@@ -158,6 +218,20 @@ html.light {
 
 body {
   @apply bg-bg font-sans text-ink antialiased;
+  min-width: 320px;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  color: var(--app-on-primary);
+  background: var(--app-primary);
 }
 
 *:focus-visible {
@@ -431,5 +505,11 @@ body {
 
 table th,
 table td {
-  text-align: center !important;
+  vertical-align: middle;
+}
+
+@media (max-width: 640px) {
+  .surface-card {
+    border-radius: 1rem;
+  }
 }

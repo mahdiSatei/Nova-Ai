@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { PhSpinner } from '@phosphor-icons/vue'
+import { PhCreditCard, PhSpinner } from '@phosphor-icons/vue'
 import { listAdminPayments, reconcilePayment } from '@/api/admin'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
@@ -78,11 +78,14 @@ const total = totalPayments
 </script>
 
 <template>
-  <div class="space-y-6">
-    <h1 class="text-lg font-semibold text-ink">پرداخت‌ها</h1>
+  <div class="space-y-6 py-2">
+    <header class="flex items-center gap-3">
+      <span class="flex size-11 items-center justify-center rounded-xl bg-primary-soft text-primary"><PhCreditCard class="size-5" /></span>
+      <div><h1 class="page-heading text-xl font-bold text-ink">پرداخت‌ها</h1><p class="mt-1 text-xs text-ink-muted">مدیریت تراکنش‌ها و وضعیت پرداخت اعتبار کاربران</p></div>
+    </header>
 
     <!-- Error -->
-    <div v-if="error" class="rounded-lg bg-danger-soft px-4 py-2 text-xs text-danger">
+    <div v-if="error" class="animate-fade-slide-in rounded-xl border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger" role="alert">
       {{ apiErrorMessage(error) }}
     </div>
 
@@ -92,7 +95,7 @@ const total = totalPayments
     </div>
 
     <!-- Payments Table -->
-    <div v-else-if="payments.length > 0" class="overflow-x-auto rounded-xl border border-line bg-surface">
+    <div v-else-if="payments.length > 0" class="table-shell animate-fade-slide-in overflow-x-auto">
       <table class="w-full text-sm">
         <thead>
           <tr class="border-b border-line text-start text-xs text-ink-muted">
@@ -105,7 +108,7 @@ const total = totalPayments
           </tr>
         </thead>
         <tbody>
-          <tr v-for="p in payments" :key="p.id" class="border-b border-line/50">
+          <tr v-for="p in payments" :key="p.id" class="border-b border-line/50 transition-colors hover:bg-hover/50">
             <td class="whitespace-nowrap px-4 py-2.5 text-ink-muted">{{ formatDate(p.createdAt) }}</td>
             <td class="px-4 py-2.5 font-mono text-xs text-ink-muted">{{ p.id.slice(0, 8) }}...</td>
             <td class="px-4 py-2.5 font-mono text-xs text-ink-muted">{{ p.userId }}</td>
