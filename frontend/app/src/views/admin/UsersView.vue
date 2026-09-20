@@ -9,45 +9,47 @@ import {
   PhArrowsClockwise 
 } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
-import BaseInput from '@/components/ui/BaseInput.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import UserAvatar from '@/components/user/UserAvatar.vue'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
-import { listAdminUsers, setUserAccessTier } from '@/api/admin'
-import { formatDateTime, relativeTime } from '@/utils/time'
+import { listAdminUsers } from '@/api/admin'
+import { formatDateTime } from '@/utils/time'
 import { avatarValueFor } from '@/utils/avatar'
-import type { AdminUser, UserAccessTier } from '@/types/api'
+import type { AdminUser } from '@/types/api'
 
 const items = ref<AdminUser[]>([])
 const total = ref(0)
 const search = ref('')
+const selectedRole = ref('')
 const loading = ref(false)
 const initialLoading = ref(true)
 const pageError = ref<ApiError | null>(null)
-const actionError = ref<ApiError | null>(null)
-const savingId = ref<string | null>(null)
 
-// Pagination state
-const pageSize = 10
+// Pagination state (۵ کاربر در هر صفحه)
+const pageSize = 5
 const currentPage = ref(1)
+
+// فیلتر کردن کاربران بر اساس نقش و جستجوی متنی
+const filteredItems = computed(() => {
+  return items.value.filter(u => {
+    const matchesRole = !selectedRole.value || u.role === selectedRole.value
+    return matchesRole
+  })
+})
 
 const paginatedItems = computed(() => {
   const start = (currentPage.value - 1) * pageSize
-  return items.value.slice(start, start + pageSize)
+  return filteredItems.value.slice(start, start + pageSize)
 })
 
-const totalPages = computed(() => Math.ceil(items.value.length / pageSize) || 1)
-
-const TIER_LABELS: Record<UserAccessTier, string> = {
-  free: 'رایگان',
-  commercial: 'تجاری',
-}
+const totalPages = computed(() => Math.ceil(filteredItems.value.length / pageSize) || 1)
 
 async function load(): Promise<void> {
   loading.value = true
   pageError.value = null
+  currentPage.value = 1
   try {
     const res = await listAdminUsers({ query: search.value.trim() || undefined, limit: 100 })
     items.value = res.items
@@ -65,27 +67,7 @@ onMounted(() => {
   void load()
 })
 
-async function onTierChange(user: AdminUser, value: string): Promise<void> {
-  const next = value as UserAccessTier
-  if (next === user.accessTier) return
-  actionError.value = null
-  savingId.value = user.id
-  const previous = user.accessTier
-  // خوش‌بینانه: انتخابگر بی‌درنگ پاسخ می‌دهد و در صورت خطا برمی‌گردد.
-  user.accessTier = next
-  try {
-    const updated = await setUserAccessTier(user.id, next)
-    user.accessTier = updated.accessTier
-  } catch (err) {
-    user.accessTier = previous
-    actionError.value =
-      err instanceof ApiError ? err : new ApiError(0, null, 'خطا در ذخیره سطح دسترسی.')
-  } finally {
-    savingId.value = null
-  }
-}
-
-const isEmpty = computed(() => !initialLoading.value && items.value.length === 0 && !pageError.value)
+const isEmpty = computed(() => !initialLoading.value && filteredItems.value.length === 0 && !pageError.value)
 </script>
 
 <template>
@@ -96,8 +78,8 @@ const isEmpty = computed(() => !initialLoading.value && items.value.length === 0
           <PhUsers class="size-5" aria-hidden="true" />
         </span>
         <div>
-          <h1 class="text-xl font-bold text-ink">سطح دسترسی و مدیریت کاربران</h1>
-          <p class="text-sm text-ink-muted">مدیریت سطوح دسترسی کاربران و بررسی اطلاعات حساب‌ها (مجموعاً {{ total }} کاربر).</p>
+          <h1 class="text-xl font-bold text-ink">مدیریت کاربران</h1>
+          <p class="text-sm text-ink-muted">بررسی اطلاعات حساب‌ها و مدیریت کاربران (مجموعاً {{ total }} کاربر).</p>
         </div>
       </div>
       <button
@@ -110,23 +92,35 @@ const isEmpty = computed(() => !initialLoading.value && items.value.length === 0
       </button>
     </div>
 
-    <!-- فرم جست‌وجو -->
-    <form class="flex items-end gap-2" @submit.prevent="load">
-      <BaseInput v-model="search" label="جست‌وجو" hint="ایمیل یا نام کاربری" autocomplete="off" />
+    <!-- فرم جست‌وجو و فیلتر نقش -->
+    <form class="flex flex-wrap items-center gap-2" @submit.prevent="load">
+      <!-- جستجو -->
+      <div class="relative flex-1 min-w-[220px]">
+        <input
+          v-model="search"
+          type="text"
+          placeholder="جست‌وجو (ایمیل یا نام کاربری)"
+          autocomplete="off"
+          class="w-full rounded-lg border border-line bg-surface px-4 py-2.5 text-sm text-ink placeholder:text-ink-muted focus:border-primary focus:outline-none transition"
+        />
+      </div>
+
+      <!-- فیلتر نقش -->
+      <select
+        v-model="selectedRole"
+        class="cursor-pointer rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-ink focus:border-primary focus:outline-none transition"
+      >
+        <option value="">همه نقش‌ها</option>
+        <option value="admin">مدیر</option>
+        <option value="user">کاربر</option>
+      </select>
+
       <BaseButton type="submit" :loading="loading">
         <PhMagnifyingGlass class="size-4" aria-hidden="true" />
         <span>جست‌وجو</span>
       </BaseButton>
     </form>
 
-    <ErrorBanner
-      v-if="actionError"
-      :message="apiErrorMessage(actionError)"
-      :code="actionError.code"
-      :request-id="actionError.requestId"
-      :show-code="true"
-      class="mb-3"
-    />
     <ErrorBanner
       v-if="pageError"
       :message="apiErrorMessage(pageError)"
@@ -141,7 +135,7 @@ const isEmpty = computed(() => !initialLoading.value && items.value.length === 0
     <EmptyState
       v-else-if="isEmpty"
       title="کاربری پیدا نشد"
-      description="عبارت جست‌وجو را تغییر دهید."
+      description="عبارت جست‌وجو یا فیلتر را تغییر دهید."
     />
 
     <!-- جدول کاربران -->
@@ -153,7 +147,6 @@ const isEmpty = computed(() => !initialLoading.value && items.value.length === 0
             <th class="p-3.5 text-right">نام کاربری</th>
             <th class="p-3.5 text-right">ایمیل</th>
             <th class="p-3.5 text-right">نقش</th>
-            <th class="p-3.5 text-right">سطح دسترسی</th>
             <th class="p-3.5 text-right">تاریخ عضویت</th>
           </tr>
         </thead>
@@ -182,28 +175,15 @@ const isEmpty = computed(() => !initialLoading.value && items.value.length === 0
                 {{ u.role === 'admin' ? 'مدیر' : 'کاربر' }}
               </span>
             </td>
-            <td class="p-3.5">
-              <select
-                :value="u.accessTier"
-                :disabled="savingId === u.id"
-                :aria-label="`سطح دسترسی ${u.email}`"
-                class="cursor-pointer appearance-none rounded-lg border border-line bg-surface px-3 py-1.5 text-xs text-ink transition-colors focus:border-primary disabled:opacity-50"
-                @change="onTierChange(u, ($event.target as HTMLSelectElement).value)"
-              >
-                <option v-for="(label, value) in TIER_LABELS" :key="value" :value="value">
-                  {{ label }}
-                </option>
-              </select>
-            </td>
             <td class="p-3.5 text-xs text-ink-muted font-mono">{{ formatDateTime(u.createdAt) }}</td>
           </tr>
         </tbody>
       </table>
 
       <!-- نوار صفحه‌بندی (Pagination) -->
-      <div v-if="items.length > pageSize" class="flex items-center justify-between border-t border-line bg-elevated/50 px-4 py-3 text-sm">
+      <div v-if="filteredItems.length > pageSize" class="flex items-center justify-between border-t border-line bg-elevated/50 px-4 py-3 text-sm">
         <span class="text-xs text-ink-muted">
-          نمایش صفحه {{ currentPage }} از {{ totalPages }} (مجموعاً {{ items.length }} کاربر)
+          نمایش صفحه {{ currentPage }} از {{ totalPages }} (مجموعاً {{ filteredItems.length }} کاربر)
         </span>
         <div class="flex items-center gap-2">
           <button
