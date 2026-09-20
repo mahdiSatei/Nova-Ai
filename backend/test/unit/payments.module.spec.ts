@@ -13,6 +13,7 @@ import { FakeZibalProvider } from '../../src/modules/payments/providers/fake-zib
 import { Payment } from '../../src/modules/payments/entities/payment.entity';
 import { CreditPurchase } from '../../src/modules/payments/entities/credit-purchase.entity';
 import { Wallet } from '../../src/modules/wallet/entities/wallet.entity';
+import { AuditLog } from '../../src/modules/audit/entities/audit-log.entity';
 
 /**
  * Verifies that `PaymentsModule` actually resolves.
@@ -60,7 +61,7 @@ const build = async () => {
     ],
   });
 
-  for (const entity of [Payment, CreditPurchase, Wallet]) {
+  for (const entity of [Payment, CreditPurchase, Wallet, AuditLog]) {
     builder.overrideProvider(getRepositoryToken(entity)).useValue(fakeRepo);
   }
 

@@ -45,6 +45,7 @@ describe('PaymentsService.createPurchase', () => {
       { grantCreditsWithin: jest.fn() } as never,
       { get: jest.fn((key: string) => configured[key]) } as never,
       { transaction: jest.fn() } as never,
+      { log: jest.fn().mockResolvedValue(undefined) } as never,
     );
   };
 

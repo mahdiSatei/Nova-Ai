@@ -336,3 +336,71 @@ export interface UsageReport {
     requestCount: number
   }
 }
+
+// ─── audit ───────────────────────────────────────────────────────────────
+
+export interface AuditLogEntry {
+  id: string
+  actorId: string
+  actorEmail: string | null
+  action: string
+  targetType: string
+  targetId: string | null
+  result: string
+  metadata: Record<string, unknown>
+  createdAt: string
+}
+
+export interface AuditLogList {
+  items: AuditLogEntry[]
+  total: number
+}
+
+// ─── wallet & payments ────────────────────────────────────────────────────
+
+export interface WalletBalance {
+  creditBalance: number
+}
+
+export interface PaymentHistoryItem {
+  id: string
+  purchaseId: string
+  status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'CANCELLED'
+  provider: string
+  amountToman: number
+  trackId: string | null
+  reference: string | null
+  createdAt: string
+  paidAt: string | null
+}
+
+export interface PaymentHistoryList {
+  items: PaymentHistoryItem[]
+  total: number
+}
+
+// ─── sharing ─────────────────────────────────────────────────────────────
+
+export interface ShareSnapshotResult {
+  shareId: string
+  title: string | null
+  modelDisplayName: string | null
+  messageCount: number
+  createdAt: string
+}
+
+export interface SharedSnapshotMessage {
+  role: 'user' | 'assistant'
+  content: string
+  createdAt: string
+  citations: unknown[]
+  reasoningSummary: string | null
+  file: { id: string; originalName: string; mimeType: string; size: number } | null
+}
+
+export interface SharedSnapshot {
+  title: string | null
+  modelDisplayName: string | null
+  createdAt: string
+  messages: SharedSnapshotMessage[]
+}

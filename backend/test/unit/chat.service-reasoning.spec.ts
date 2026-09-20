@@ -95,6 +95,7 @@ function build(options: { model?: unknown; chunks?: unknown[][] } = {}) {
     } as never,
     { isConfigured: () => true, search: jest.fn() } as never,
     { getBalance: jest.fn().mockResolvedValue(0), deductCreditsWithGrace: jest.fn().mockResolvedValue({}), grantCredits: jest.fn().mockResolvedValue(undefined) } as never,
+    { log: jest.fn().mockResolvedValue(undefined) } as never,
   );
 
   return { service, runtime, conversations, usage, selected };

@@ -22,6 +22,7 @@ import {
   PaymentStatus,
 } from './payment-status';
 import { WalletService } from '../wallet/wallet.service';
+import { AuditService } from '../audit/audit.service';
 
 /** Upper bound on a single purchase, so a typo cannot create a 100M-Toman bill. */
 export const MAX_AMOUNT_TOMAN = 500_000_000;
@@ -105,6 +106,7 @@ export class PaymentsService {
     private readonly walletService: WalletService,
     private readonly config: ConfigService,
     private readonly dataSource: DataSource,
+    private readonly audit: AuditService,
   ) {}
 
   async createPurchase(userId: string, credits: number): Promise<CreatePurchaseResult> {
@@ -176,6 +178,15 @@ export class PaymentsService {
 
     await this.purchasesRepo.update({ id: purchase.id }, { paymentId: payment.id });
 
+    // Fire-and-forget audit: payment creation.
+    void this.audit.log({
+      actorId: userId,
+      action: 'payment_created',
+      targetType: 'payment',
+      targetId: payment.id,
+      metadata: { credits, amountToman, provider: this.provider.name },
+    });
+
     return {
       purchaseId: purchase.id,
       paymentId: payment.id,
@@ -220,12 +231,28 @@ export class PaymentsService {
         );
         return this.finalize(payment.id, 'FAILED', verification);
       }
-      return this.finalize(payment.id, 'SUCCESS', verification);
+      const result = await this.finalize(payment.id, 'SUCCESS', verification);
+      void this.audit.log({
+        actorId: payment.userId,
+        action: 'payment_succeeded',
+        targetType: 'payment',
+        targetId: payment.id,
+        metadata: { amountToman: payment.amountToman, provider: payment.provider },
+      });
+      return result;
     }
 
     const nextStatus: PaymentStatus =
       verification.status === 'NOT_PAID' ? 'CANCELLED' : 'FAILED';
-    return this.finalize(payment.id, nextStatus, verification);
+    const result = await this.finalize(payment.id, nextStatus, verification);
+    void this.audit.log({
+      actorId: payment.userId,
+      action: 'payment_failed',
+      targetType: 'payment',
+      targetId: payment.id,
+      metadata: { amountToman: payment.amountToman, provider: payment.provider, status: nextStatus },
+    });
+    return result;
   }
 
   /**

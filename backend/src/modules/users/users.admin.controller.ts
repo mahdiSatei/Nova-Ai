@@ -15,7 +15,6 @@ interface AdminUserResponse {
   displayName: string | null;
   avatarSeed: string | null;
   role: 'user' | 'admin';
-  accessTier?: string;
   createdAt: string;
   lastLoginAt: string | null;
 }

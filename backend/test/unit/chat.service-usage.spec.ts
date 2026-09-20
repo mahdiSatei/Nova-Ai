@@ -26,6 +26,7 @@ describe('ChatService usage recording', () => {
       {} as any, // failover (phase 6)
       { isConfigured: () => true, search: jest.fn().mockResolvedValue({ query: '', sources: [], empty: true }) } as any, // web search (phase 7)
       { getBalance: jest.fn(), deductCreditsWithGrace: jest.fn(), grantCredits: jest.fn() } as any, // wallet
+      { log: jest.fn() } as any, // audit
     );
   });
 
