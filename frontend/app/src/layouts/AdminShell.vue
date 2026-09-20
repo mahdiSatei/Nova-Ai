@@ -6,7 +6,6 @@ import {
   PhListBullets,
   PhPlugsConnected,
   PhSignOut,
-  PhStar,
   PhMoon,
   PhSun,
   PhUsers,
@@ -29,7 +28,6 @@ const nav = [
   { to: { name: 'admin-models' }, label: 'کاتالوگ مدل‌ها', icon: PhListBullets },
   { to: { name: 'admin-users' }, label: 'سطح دسترسی کاربران', icon: PhUsers },
   { to: { name: 'admin-usage' }, label: 'گزارش مصرف', icon: PhChartBar },
-  { to: { name: 'admin-default-model' }, label: 'مدل پیش‌فرض', icon: PhStar },
   { to: { name: 'admin-files' }, label: 'مدیریت فایل‌ها', icon: PhFileText },
 ]
 

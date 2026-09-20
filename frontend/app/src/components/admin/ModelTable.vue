@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // جدول مدل‌ها برای پنل ادمین. ستون‌ها: display name، actual name، enabled، is default.
 // عملیات: ویرایش، toggle enabled (با تأیید برای غیرفعال‌سازی مدل پیش‌فرض)، حذف (با تأیید).
-import { PhPencilSimple, PhStar, PhStarFour, PhToggleLeft } from '@phosphor-icons/vue'
+import { PhPencilSimple, PhStar, PhToggleLeft } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import type {
   ModelAdmin,
@@ -44,8 +44,43 @@ function reasoningSupportLabel(m: ModelAdmin): string {
   return 'نامشخص'
 }
 
-defineProps<{ models: ModelAdmin[]; defaultModelId: string | null }>()
-const emit = defineEmits<{ edit: [m: ModelAdmin]; toggle: [m: ModelAdmin]; remove: [m: ModelAdmin] }>()
+const props = defineProps<{
+  models: ModelAdmin[]
+  defaultModelId: string | null
+  /** id مدلی که عملیات پیش‌فرض روی آن در جریان است (برای غیرفعال‌کردن ستاره). */
+  defaultBusyId?: string | null
+}>()
+const emit = defineEmits<{
+  edit: [m: ModelAdmin]
+  toggle: [m: ModelAdmin]
+  remove: [m: ModelAdmin]
+  'set-default': [m: ModelAdmin]
+  'clear-default': [m: ModelAdmin]
+}>()
+
+function isCurrentDefault(m: ModelAdmin): boolean {
+  return m.isDefault || m.id === props.defaultModelId
+}
+
+function isEligible(m: ModelAdmin): boolean {
+  return m.enabled && (m.visibility ?? 'public') === 'public'
+}
+
+function onStarClick(m: ModelAdmin): void {
+  if (isCurrentDefault(m)) {
+    // ستاره طلایی → پاک‌کردن پیش‌فرض (با تأیید در صفحه والد).
+    emit('clear-default', m)
+  } else if (isEligible(m)) {
+    emit('set-default', m)
+  }
+}
+
+function starTitle(m: ModelAdmin): string {
+  if (isCurrentDefault(m)) return 'پیش‌فرض فعلی — برای پاک‌کردن کلیک کنید'
+  if (!m.enabled) return 'این مدل غیرفعال است و نمی‌تواند پیش‌فرض باشد'
+  if ((m.visibility ?? 'public') !== 'public') return 'این مدل عمومی نیست و نمی‌تواند پیش‌فرض باشد'
+  return 'تعیین به‌عنوان مدل پیش‌فرض'
+}
 </script>
 
 <template>
@@ -114,9 +149,33 @@ const emit = defineEmits<{ edit: [m: ModelAdmin]; toggle: [m: ModelAdmin]; remov
               {{ m.enabled ? 'فعال' : 'غیرفعال' }}
             </button>
           </td>
-          <td class="px-4 py-3">
-            <PhStar v-if="m.isDefault || m.id === defaultModelId" class="size-4 text-warning" :title="'مدل پیش‌فرض'" aria-hidden="true" />
-            <PhStarFour v-else class="size-4 text-ink-muted/30" aria-hidden="true" />
+          <td class="px-4 py-3 text-center">
+            <button
+              type="button"
+              class="inline-flex size-8 cursor-pointer items-center justify-center rounded-full transition-colors"
+              :class="
+                isCurrentDefault(m)
+                  ? 'text-warning'
+                  : isEligible(m)
+                    ? 'text-ink-muted/40 hover:bg-warning/10 hover:text-warning'
+                    : 'cursor-not-allowed text-ink-muted/20'
+              "
+              :disabled="defaultBusyId === m.id || (!isEligible(m) && !isCurrentDefault(m))"
+              :title="starTitle(m)"
+              :aria-label="
+                isCurrentDefault(m)
+                  ? 'پیش‌فرض فعلی — برای پاک‌کردن کلیک کنید'
+                  : starTitle(m)
+              "
+              :aria-pressed="isCurrentDefault(m)"
+              @click="onStarClick(m)"
+            >
+              <PhStar
+                class="size-5"
+                :weight="isCurrentDefault(m) ? 'fill' : 'regular'"
+                aria-hidden="true"
+              />
+            </button>
           </td>
           <td class="px-4 py-3 text-end">
             <div class="inline-flex items-center gap-1">
