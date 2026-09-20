@@ -26,7 +26,7 @@ interface AdminUserResponse {
   displayName: string | null;
   avatarSeed: string | null;
   role: 'user' | 'admin';
-  accessTier?: string; // اضافه شده از HEAD
+  accessTier?: string;
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -53,17 +53,36 @@ export class UsersAdminController {
       Number.isFinite(parsedLimit) && parsedLimit > 0
         ? Math.min(parsedLimit, MAX_LIMIT)
         : DEFAULT_LIMIT;
-    const safeOffset = Number.isFinite(parsedOffset) && parsedOffset > 0 ? parsedOffset : 0;
+    const safeOffset =
+      Number.isFinite(parsedOffset) && parsedOffset > 0 ? parsedOffset : 0;
 
-    // پشتیبانی از متد service هر دو نسخه (اگر متد listForAdmin وجود داشت یا findAll)
-    const result = await (this.usersService as any).listForAdmin
-      ? (this.usersService as any).listForAdmin({ query, limit: safeLimit, offset: safeOffset })
-      : { items: await this.usersService.findAll(safeLimit, safeOffset), total: undefined };
+    // Support both service versions: `listForAdmin` (paginated) or `findAll`.
+    const svc = this.usersService as any;
 
-    const items = result.items || result;
-    return { 
-      items: items.map((u: any) => this.toAdminShape(u)), 
-      ...(result.total !== undefined ? { total: result.total } : {}) 
+    let items: any[];
+    let total: number | undefined;
+
+    if (typeof svc.listForAdmin === 'function') {
+      // NOTE: `await` must apply to the call result, not to the method reference.
+      const result = await svc.listForAdmin({
+        query,
+        limit: safeLimit,
+        offset: safeOffset,
+      });
+
+      if (Array.isArray(result)) {
+        items = result;
+      } else {
+        items = result?.items ?? [];
+        total = result?.total;
+      }
+    } else {
+      items = await svc.findAll(safeLimit, safeOffset);
+    }
+
+    return {
+      items: items.map((u) => this.toAdminShape(u)),
+      ...(total !== undefined ? { total } : {}),
     };
   }
 
@@ -79,13 +98,20 @@ export class UsersAdminController {
     return {
       id: u.id,
       email: u.email,
-      username: u.username,
+      username: u.username ?? null,
       displayName: u.displayName ?? null,
       avatarSeed: u.avatarSeed ?? null,
       role: u.role,
       accessTier: u.accessTier,
-      createdAt: typeof u.createdAt === 'string' ? u.createdAt : u.createdAt.toISOString(),
-      lastLoginAt: u.lastLoginAt ? (typeof u.lastLoginAt === 'string' ? u.lastLoginAt : u.lastLoginAt.toISOString()) : null,
+      createdAt: this.toIso(u.createdAt) ?? '',
+      lastLoginAt: this.toIso(u.lastLoginAt),
     };
+  }
+
+  private toIso(value: unknown): string | null {
+    if (!value) return null;
+    if (typeof value === 'string') return value;
+    if (value instanceof Date) return value.toISOString();
+    return null;
   }
 }
