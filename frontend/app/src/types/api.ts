@@ -76,6 +76,9 @@ export interface ModelAdmin extends Omit<ModelPublic, 'reasoning'> {
   providerId: string
   visibility: ModelVisibility
   enabled: boolean
+  /** Toman per 1,000,000 input/output tokens. */
+  inputPricePer1m: number
+  outputPricePer1m: number
   fallbackModelId?: string | null
   preferredApiKeyId?: string | null
   createdAt: string
@@ -129,6 +132,8 @@ export interface ModelUpsertRequest {
   providerId?: string
   visibility?: ModelVisibility
   enabled?: boolean
+  inputPricePer1m?: number
+  outputPricePer1m?: number
   fallbackModelId?: string | null
   preferredApiKeyId?: string | null
   reasoning?: ModelReasoningRequest
@@ -323,6 +328,27 @@ export interface UsageRecord {
   status: 'pending' | 'completed' | 'failed'
   createdAt: string
   completedAt: string | null
+}
+
+export interface UserUsageSummary {
+  totals: {
+    inputTokens: number
+    outputTokens: number
+    reasoningTokens: number
+    totalTokens: number
+    chargedCredits: number
+    requestCount: number
+  }
+  recent: Array<{
+    id: string
+    modelName: string | null
+    inputTokens: number
+    outputTokens: number
+    reasoningTokens: number
+    totalTokens: number
+    chargedCredits: number
+    createdAt: string
+  }>
 }
 
 export interface UsageReport {

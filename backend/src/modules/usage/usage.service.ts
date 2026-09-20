@@ -103,6 +103,49 @@ export class UsageService {
     return (result.affected ?? 0) === 1;
   }
 
+  /** Return the authenticated user's aggregate usage and recent requests. */
+  async getUserSummary(userId: string) {
+    const totals = await this.repo
+      .createQueryBuilder('u')
+      .select('COALESCE(SUM(u.prompt_tokens), 0)', 'inputTokens')
+      .addSelect('COALESCE(SUM(u.completion_tokens), 0)', 'outputTokens')
+      .addSelect('COALESCE(SUM(u.reasoning_tokens), 0)', 'reasoningTokens')
+      .addSelect('COALESCE(SUM(u.total_tokens), 0)', 'totalTokens')
+      .addSelect('COALESCE(SUM(u.charged_credits), 0)', 'chargedCredits')
+      .addSelect('COUNT(*)', 'requestCount')
+      .where('u.userId = :userId', { userId })
+      .andWhere('u.status = :status', { status: 'completed' })
+      .getRawOne<Record<string, string>>();
+
+    const recent = await this.repo.find({
+      where: { userId, status: 'completed' },
+      relations: ['model'],
+      order: { createdAt: 'DESC' },
+      take: 10,
+    });
+
+    return {
+      totals: {
+        inputTokens: Number(totals?.inputTokens ?? 0),
+        outputTokens: Number(totals?.outputTokens ?? 0),
+        reasoningTokens: Number(totals?.reasoningTokens ?? 0),
+        totalTokens: Number(totals?.totalTokens ?? 0),
+        chargedCredits: Number(totals?.chargedCredits ?? 0),
+        requestCount: Number(totals?.requestCount ?? 0),
+      },
+      recent: recent.map((record) => ({
+        id: record.id,
+        modelName: record.model?.displayName ?? null,
+        inputTokens: record.promptTokens,
+        outputTokens: record.completionTokens,
+        reasoningTokens: record.reasoningTokens ?? 0,
+        totalTokens: record.totalTokens,
+        chargedCredits: Number(record.chargedCredits),
+        createdAt: record.createdAt.toISOString(),
+      })),
+    };
+  }
+
   /** List usage records for admin report with filters and pagination. */
   async listForAdmin(query: AdminUsageQuery) {
     const qb = this.repo

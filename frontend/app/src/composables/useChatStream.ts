@@ -9,6 +9,7 @@ import {
   type StreamStartInfo,
 } from '@/api/chat'
 import { getConversation, listConversations, setConversationModel } from '@/api/conversations'
+import { useWalletStore } from '@/stores/wallet'
 import { ApiError } from '@/api/http'
 import { streamErrorMessage } from '@/utils/errors'
 import type { CitationSource, MessagePublic, SearchPhase, SseStatus } from '@/types/api'
@@ -162,6 +163,14 @@ export function useChatStream(): ChatStreamHandle {
   const reasoningCompleted = ref<boolean>(false)
   const reasoningSummary = ref<string>('')
   const reasoningAvailable = computed(() => reasoningSummary.value.length > 0)
+
+  function refreshWalletBalance(): void {
+    try {
+      void useWalletStore().refresh()
+    } catch {
+      // Tests and non-mounted consumers may not have an active Pinia yet.
+    }
+  }
 
   let controller: AbortController | null = null
   let retryTimer: ReturnType<typeof setInterval> | null = null
@@ -590,6 +599,7 @@ export function useChatStream(): ChatStreamHandle {
         generationState.value = 'completed'
         controller = null
         stopWatchdog()
+        refreshWalletBalance()
       },
       onError: (err) => {
         connectionError.value = err
@@ -626,6 +636,7 @@ export function useChatStream(): ChatStreamHandle {
         generationState.value =
           err.code === 'generation_cancelled' ? 'cancelled' : 'failed'
 
+        if (err.code === 'credit_exhausted') refreshWalletBalance()
         controller = null
         stopWatchdog()
         void recoverFromModelRejection(err.code)
@@ -1050,6 +1061,7 @@ export function useChatStream(): ChatStreamHandle {
         generationState.value = 'completed'
         controller = null
         stopWatchdog()
+        refreshWalletBalance()
 
         if (!conversationId.value) {
           const id = await findLatestConversationId()
@@ -1101,6 +1113,7 @@ export function useChatStream(): ChatStreamHandle {
         generationState.value =
           err.code === 'generation_cancelled' ? 'cancelled' : 'failed'
 
+        if (err.code === 'credit_exhausted') refreshWalletBalance()
         controller = null
         stopWatchdog()
         void recoverFromModelRejection(err.code)

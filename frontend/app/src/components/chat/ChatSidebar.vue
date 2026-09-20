@@ -11,7 +11,6 @@ import {
   PhChatsCircle,
   PhUserGear,
   PhGear,
-  PhWallet,
 } from '@phosphor-icons/vue'
 import ConversationGroups from '@/components/chat/ConversationGroups.vue'
 import ProfileModal from '@/components/user/ProfileModal.vue'
@@ -349,18 +348,8 @@ watch(
       />
     </nav>
 
-    <!-- کیف پول و فوتر حساب کاربری -->
+    <!-- فوتر حساب کاربری -->
     <div class="mt-auto shrink-0 border-t border-line/70 p-2">
-      <RouterLink
-        to="/chat/wallet"
-        class="mb-1.5 flex items-center gap-2 rounded-lg px-2 py-2 text-sm text-ink-muted transition-colors hover:bg-primary-soft hover:text-primary"
-        :class="{ 'justify-center px-0': rail }"
-        :title="rail ? 'خرید اعتبار' : undefined"
-        @click="closeMobile"
-      >
-        <PhWallet class="size-4 shrink-0" aria-hidden="true" />
-        <span v-if="!rail">خرید اعتبار</span>
-      </RouterLink>
       <div ref="userMenuRoot" class="relative">
         <button
           type="button"

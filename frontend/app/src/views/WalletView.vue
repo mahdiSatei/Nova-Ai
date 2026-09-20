@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
-import { PhCheckCircle, PhCreditCard, PhWallet, PhSpinner } from '@phosphor-icons/vue'
+import { RouterLink } from 'vue-router'
+import { PhArrowRight, PhCheckCircle, PhCreditCard, PhWallet, PhSpinner } from '@phosphor-icons/vue'
 import { useWalletStore } from '@/stores/wallet'
 import { getMyPayments, createCreditPurchase } from '@/api/wallet'
 import type { PaymentHistoryItem } from '@/types/api'
@@ -81,6 +82,16 @@ function formatAmount(toman: number): string {
 
 <template>
   <div class="space-y-8">
+    <div class="flex items-center justify-between gap-3">
+      <RouterLink
+        to="/chat"
+        class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-ink-muted transition-colors hover:bg-hover hover:text-ink"
+      >
+        <PhArrowRight class="size-4" aria-hidden="true" />
+        <span>بازگشت به گفتگو</span>
+      </RouterLink>
+    </div>
+
     <!-- Balance Card -->
     <div class="overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary-soft via-surface to-accent/5 p-6 shadow-sm">
       <div class="flex flex-wrap items-center justify-between gap-4">

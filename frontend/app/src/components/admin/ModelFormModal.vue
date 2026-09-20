@@ -51,6 +51,8 @@ const form = reactive<{
   providerId: string
   visibility: ModelVisibility
   enabled: boolean
+  inputPricePer1m: string
+  outputPricePer1m: string
   reasoningMode: ReasoningConfigMode
   reasoningSupported: 'unknown' | 'supported' | 'unsupported'
   reasoningOutput: 'unknown' | ReasoningOutput
@@ -61,6 +63,8 @@ const form = reactive<{
   providerId: '',
   visibility: 'public',
   enabled: true,
+  inputPricePer1m: '0',
+  outputPricePer1m: '0',
   reasoningMode: 'automatic',
   reasoningSupported: 'unknown',
   reasoningOutput: 'unknown',
@@ -90,6 +94,8 @@ watch(
     form.providerId = props.model?.providerId ?? ''
     form.visibility = props.model?.visibility ?? 'public'
     form.enabled = props.model?.enabled ?? true
+    form.inputPricePer1m = String(props.model?.inputPricePer1m ?? 0)
+    form.outputPricePer1m = String(props.model?.outputPricePer1m ?? 0)
     // Only manual values are editable here; "automatic" keeps trusting the
     // provider, so the admin's unsaved values never leak into it.
     form.reasoningMode = props.model?.reasoning?.mode ?? 'automatic'
@@ -140,6 +146,12 @@ function validateActual(value: string): string | null {
 
 function validateProviderId(value: string): string | null {
   if (!value) return 'ارائه‌دهنده الزامی است.'
+  return null
+}
+
+function validatePrice(value: string): string | null {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0) return 'قیمت باید عددی بزرگ‌تر یا مساوی صفر باشد.'
   return null
 }
 
@@ -202,6 +214,14 @@ async function onSubmit(): Promise<void> {
   fieldErrors.providerId = validateProviderId(form.providerId)
   submitError.value = null
   if (fieldErrors.displayName || fieldErrors.actualName || fieldErrors.providerId) return
+  const inputPriceError = validatePrice(form.inputPricePer1m)
+  const outputPriceError = validatePrice(form.outputPricePer1m)
+  if (inputPriceError || outputPriceError) {
+    submitError.value = { message: inputPriceError ?? outputPriceError ?? 'قیمت مدل نامعتبر است.' }
+    return
+  }
+  const inputPricePer1m = Number(form.inputPricePer1m)
+  const outputPricePer1m = Number(form.outputPricePer1m)
 
   submitting.value = true
   try {
@@ -213,6 +233,8 @@ async function onSubmit(): Promise<void> {
         providerId: form.providerId,
         visibility: form.visibility,
         enabled: form.enabled,
+        inputPricePer1m,
+        outputPricePer1m,
         reasoning: reasoningPatch(),
       })
     } else {
@@ -222,6 +244,8 @@ async function onSubmit(): Promise<void> {
         providerId: form.providerId,
         visibility: form.visibility,
         enabled: form.enabled,
+        inputPricePer1m,
+        outputPricePer1m,
         reasoning: reasoningPatch(),
       })
     }
@@ -321,6 +345,29 @@ function onCancel(): void {
                 {{ fieldErrors.providerId }}
               </p>
             </label>
+
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <BaseInput
+                v-model="form.inputPricePer1m"
+                label="قیمت ورودی (تومان / ۱M توکن)"
+                type="number"
+                min="0"
+                step="0.01"
+                dir="ltr"
+                hint="صفر یعنی رایگان"
+                autocomplete="off"
+              />
+              <BaseInput
+                v-model="form.outputPricePer1m"
+                label="قیمت خروجی (تومان / ۱M توکن)"
+                type="number"
+                min="0"
+                step="0.01"
+                dir="ltr"
+                hint="استدلال هم با این نرخ محاسبه می‌شود"
+                autocomplete="off"
+              />
+            </div>
 
             <label class="flex flex-col gap-2 text-sm text-ink">
               <span class="text-xs font-medium text-ink-muted">سطح دسترسی</span>
