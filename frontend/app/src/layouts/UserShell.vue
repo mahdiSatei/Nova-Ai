@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // پوسته‌ی کاربر: نوار کنایی (جمع‌شونده/کشویی) + ناحیه‌ی اصلی تمام‌ارتفاع.
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 import { PhList, PhChatCircleText } from '@phosphor-icons/vue'
 import ChatSidebar from '@/components/chat/ChatSidebar.vue'
@@ -10,6 +10,12 @@ const drawerOpen = ref(false)
 
 // با تغییر مسیر، کشوی موبایل بسته شود.
 watch(() => route.fullPath, () => (drawerOpen.value = false))
+
+// صفحات کیف پول/گزارش محتوای بلند دارند و باید خودشان اسکرول داشته باشند؛
+// فضای چت اسکرول داخلی مخصوص پیام‌ها را حفظ می‌کند.
+const scrollablePage = computed(() =>
+  ['wallet', 'user-dashboard', 'payment-result', 'conversation'].includes(String(route.name)),
+)
 </script>
 
 <template>
@@ -35,7 +41,10 @@ watch(() => route.fullPath, () => (drawerOpen.value = false))
         </span>
       </header>
 
-      <main class="flex min-h-0 flex-1 flex-col overflow-hidden px-2 sm:px-4"><Transition name="page" mode="out-in"><RouterView />
+      <main
+        class="flex min-h-0 flex-1 flex-col px-2 sm:px-4"
+        :class="scrollablePage ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'"
+      ><Transition name="page" mode="out-in"><RouterView />
         </Transition></main>
     </div>
   </div>

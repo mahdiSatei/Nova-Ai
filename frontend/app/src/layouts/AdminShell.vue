@@ -11,7 +11,6 @@ import {
   PhUsers,
   PhChartBar,
   PhChatCircleText,
-  PhUserGear,
   PhFileText,
   PhCurrencyCircleDollar,
   PhClipboardText,
@@ -96,15 +95,6 @@ async function onSignOut(): Promise<void> {
               <PhChatCircleText class="size-4 shrink-0" aria-hidden="true" />
               <span>چت</span>
             </RouterLink>
-
-            <button
-              type="button"
-              class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-start text-sm text-ink transition-colors hover:bg-hover"
-              role="menuitem"
-            >
-              <PhUserGear class="size-4 shrink-0" aria-hidden="true" />
-              <span>ویرایش پروفایل</span>
-            </button>
 
             <button
               type="button"
