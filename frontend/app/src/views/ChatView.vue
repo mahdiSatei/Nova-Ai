@@ -8,7 +8,6 @@ import {
   PhSparkle,
   PhWarning,
   PhCaretDown,
-  PhBrain,
   PhCode,
   PhBookOpenText,
   PhTranslate,
@@ -18,7 +17,6 @@ import {
   PhCalculator,
   PhFlask,
   PhTerminal,
-  PhGlobeHemisphereWest,
 } from '@phosphor-icons/vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import ModelPicker from '@/components/chat/ModelPicker.vue'
@@ -393,51 +391,6 @@ function useSuggestedPrompt(text: string): void {
       </div>
 
       <div class="ms-auto flex items-center gap-1">
-        <!-- فاز ۷ — کلید جستجوی وب -->
-        <button
-          type="button"
-          class="inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-          :class="
-            chat.webSearchEnabled.value
-              ? 'border-primary/60 bg-primary-soft text-primary'
-              : 'border-line bg-surface/70 text-ink-muted hover:text-ink'
-          "
-          :aria-pressed="chat.webSearchEnabled.value"
-          :disabled="chat.inputDisabled.value"
-          :title="
-            chat.webSearchEnabled.value
-              ? 'جستجوی وب روشن است'
-              : 'جستجوی وب خاموش است'
-          "
-          @click="chat.setWebSearch(!chat.webSearchEnabled.value)"
-        >
-          <PhGlobeHemisphereWest class="size-3.5" aria-hidden="true" />
-          <span>جستجوی وب</span>
-        </button>
-
-        <!-- فاز ۸ — کلید استدلال (فقط برای مدل‌های پشتیبان) -->
-        <button
-          v-if="reasoningSupported"
-          type="button"
-          class="inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-          :class="
-            chat.reasoningEnabled.value
-              ? 'border-primary/60 bg-primary-soft text-primary'
-              : 'border-line bg-surface/70 text-ink-muted hover:text-ink'
-          "
-          :aria-pressed="chat.reasoningEnabled.value"
-          :disabled="chat.inputDisabled.value"
-          :title="
-            chat.reasoningEnabled.value
-              ? 'استدلال روشن است'
-              : 'استدلال خاموش است'
-          "
-          @click="chat.setReasoning(!chat.reasoningEnabled.value)"
-        >
-          <PhBrain class="size-3.5" aria-hidden="true" />
-          <span>استدلال</span>
-        </button>
-
         <CreditBalance />
 
         <button
@@ -611,6 +564,11 @@ function useSuggestedPrompt(text: string): void {
           "
           :disabled="chat.inputDisabled.value"
           :busy="chat.generationState.value === 'streaming'"
+          :web-search-enabled="chat.webSearchEnabled.value"
+          :reasoning-enabled="chat.reasoningEnabled.value"
+          :reasoning-supported="reasoningSupported"
+          @toggle:web-search="chat.setWebSearch(!chat.webSearchEnabled.value)"
+          @toggle:reasoning="chat.setReasoning(!chat.reasoningEnabled.value)"
           @submit="onSubmit"
           @stop="onStop"
         />

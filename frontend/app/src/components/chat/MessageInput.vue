@@ -9,6 +9,8 @@ import {
   PhCheckCircle,
   PhWarningCircle,
   PhSpinnerGap,
+  PhBrain,
+  PhGlobeHemisphereWest,
 } from '@phosphor-icons/vue'
 import {
   formatFileSize,
@@ -25,6 +27,9 @@ const props = withDefaults(
     disabled?: boolean
     busy?: boolean
     attachment?: UploadedFile | null
+    webSearchEnabled?: boolean
+    reasoningEnabled?: boolean
+    reasoningSupported?: boolean
   }>(),
   { placeholder: 'پیام خود را بنویسید…', disabled: false, busy: false, attachment: null },
 )
@@ -32,6 +37,8 @@ const props = withDefaults(
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   'update:attachment': [value: UploadedFile | null]
+  'toggle:web-search': []
+  'toggle:reasoning': []
   submit: []
   stop: []
 }>()
@@ -279,6 +286,37 @@ onBeforeUnmount(() => {
         @click="openFilePicker"
       >
         <PhPaperclip class="size-4" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        class="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+        :class="{
+          'bg-primary-soft text-primary': webSearchEnabled,
+          'hover:bg-hover hover:text-ink': !webSearchEnabled,
+        }"
+        :disabled="disabled"
+        :aria-pressed="webSearchEnabled"
+        :aria-label="webSearchEnabled ? 'جستجوی وب روشن است' : 'جستجوی وب خاموش است'"
+        :title="webSearchEnabled ? 'جستجوی وب روشن است' : 'جستجوی وب خاموش است'"
+        @click="emit('toggle:web-search')"
+      >
+        <PhGlobeHemisphereWest class="size-4" aria-hidden="true" />
+      </button>
+      <button
+        v-if="reasoningSupported"
+        type="button"
+        class="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-hover hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+        :class="{
+          'bg-primary-soft text-primary': reasoningEnabled,
+          'hover:bg-hover hover:text-ink': !reasoningEnabled,
+        }"
+        :disabled="disabled"
+        :aria-pressed="reasoningEnabled"
+        :aria-label="reasoningEnabled ? 'استدلال روشن است' : 'استدلال خاموش است'"
+        :title="reasoningEnabled ? 'استدلال روشن است' : 'استدلال خاموش است'"
+        @click="emit('toggle:reasoning')"
+      >
+        <PhBrain class="size-4" aria-hidden="true" />
       </button>
       <textarea
         ref="textarea"
