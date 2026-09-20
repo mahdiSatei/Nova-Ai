@@ -29,7 +29,7 @@ interface Row {
   file?: MessagePublic['file'] | null
   status: MessageStatus
   showRecovery: boolean
-  recoveryStatus: GenerationStatus | null
+  recoveryStatus: MessageStatus | null
 }
 
 const rows = computed<Row[]>(() => {
@@ -53,7 +53,7 @@ const rows = computed<Row[]>(() => {
       file: m.file, // ✨ فایل پیوست پیام
       status: m.status,
       showRecovery: streamNeedsRecovery || m.status === 'failed' || m.status === 'cancelled',
-      recoveryStatus: m.status as GenerationStatus,
+      recoveryStatus: m.status as MessageStatus,
     })
   }
 

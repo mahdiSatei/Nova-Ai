@@ -203,6 +203,8 @@ paths:
           in: query
           schema:
             type: string
+<<<<<<< HEAD
+=======
         - name: status
           required: true
           in: query
@@ -218,6 +220,7 @@ paths:
           in: query
           schema:
             type: string
+>>>>>>> develop
       responses:
         "200":
           description: ""
@@ -296,6 +299,23 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/UpdateMeRequestDto"
+      responses:
+        "200":
+          description: ""
+  /v1/admin/users:
+    get:
+      operationId: UsersAdminController_findAll
+      parameters:
+        - name: limit
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: offset
+          required: true
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: ""

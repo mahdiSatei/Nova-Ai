@@ -13,6 +13,7 @@ import { useChatStream } from '@/composables/useChatStream'
 import { useNewChatSignal } from '@/composables/useNewChatSignal'
 import { useTheme } from '@/composables/useTheme'
 import { useModelsStore } from '@/stores/models'
+import { useAuthStore } from '@/stores/auth' // Add this
 import { apiErrorMessage } from '@/utils/errors'
 
 const { tick: newChatTick } = useNewChatSignal()
@@ -23,6 +24,7 @@ const route = useRoute()
 const router = useRouter()
 const models = useModelsStore()
 const chat = useChatStream()
+const auth = useAuthStore() // Add this
 const theme = useTheme()
 
 const inputText = ref('')
@@ -43,20 +45,23 @@ const hasMessages = computed(
 )
 
 // ✨ جملات رندوم برای عنوان خوش‌آمدگویی
-const welcomeHeadlines = [
-  'چطور می‌تونم کمکت کنم؟',
-  'امروز روی چه پروژه‌ای کار می‌کنیم؟',
-  'سوالی داری؟ از من بپرس!',
-  'آماده‌ام تا با هم ایده پردازی کنیم.',
-  'چه کمکی از دست من برمی‌آید؟',
-  'امروز دوست داری درباره چی صحبت کنیم؟'
-]
+const getWelcomeHeadline = () => {
+  const name = auth.user?.displayName ? `، ${auth.user.displayName}` : ''
+  const headlines = [
+    `چطور می‌تونم کمکت کنم${name}؟`,
+    `امروز روی چه پروژه‌ای کار می‌کنیم${name}؟`,
+    `سوالی داری${name}؟ از من بپرس!`,
+    `آماده‌ام تا با هم ایده پردازی کنیم${name}.`,
+    `چه کمکی از دست من برمی‌آید${name}؟`,
+    `امروز دوست داری درباره چی صحبت کنیم${name}؟`
+  ]
+  return headlines[Math.floor(Math.random() * headlines.length)]
+}
 
-const randomHeadline = ref('چطور می‌تونم کمکت کنم؟')
+const randomHeadline = ref(getWelcomeHeadline())
 
 function randomizeHeadline() {
-  const randomIndex = Math.floor(Math.random() * welcomeHeadlines.length)
-  randomHeadline.value = welcomeHeadlines[randomIndex]!
+  randomHeadline.value = getWelcomeHeadline()
 }
 
 // آرایه‌ای جامع از پرامپت‌های پیشنهادی برای انتخاب رندوم

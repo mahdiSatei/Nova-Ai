@@ -47,7 +47,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'models', name: 'admin-models', component: () => import('@/views/admin/ModelsView.vue') },
       { path: 'default-model', name: 'admin-default-model', component: () => import('@/views/admin/DefaultModelView.vue') },
       {path: 'files', name: 'admin-files', component: () => import('@/views/admin/FilesView.vue') 
-      }
+      },
+      { path: 'users', name: 'admin-users', component: () => import('@/views/admin/UsersView.vue') },
     ],
   },
 
