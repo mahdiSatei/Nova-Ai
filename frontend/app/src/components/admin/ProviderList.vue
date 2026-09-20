@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { PhPencilSimple, PhPlus, PhCheckCircle, PhToggleLeft, PhXCircle, PhTrash } from '@phosphor-icons/vue'
+import { PhPencilSimple, PhPlus, PhCheckCircle, PhToggleLeft, PhXCircle, PhTrash, PhX } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import { updateProvider, validateProvider } from '@/api/admin'
 import type { ProviderAdmin } from '@/types/api'
@@ -18,19 +18,36 @@ const emit = defineEmits<{
 
 const testingId = ref<string | null>(null)
 const togglingId = ref<string | null>(null)
-const testResults = ref<Record<string, { success: boolean; message: string }>>({})
+
+// سیستم Toast/Alert شناور
+const activeAlert = ref<{ id: string; success: boolean; message: string } | null>(null)
+let alertTimer: ReturnType<typeof setTimeout> | null = null
 
 async function testConnection(provider: ProviderAdmin): Promise<void> {
   testingId.value = provider.id
-  delete testResults.value[provider.id]
   try {
     await validateProvider(provider.id)
-    testResults.value[provider.id] = { success: true, message: 'اتصال موفق' }
+    showAlert(provider.id, true, `ارتباط با ارائه‌دهنده «${provider.name}» با موفقیت برقرار شد.`)
   } catch {
-    testResults.value[provider.id] = { success: false, message: 'خطا در اتصال' }
+    showAlert(provider.id, false, `خطا در برقراری ارتباط با ارائه‌دهنده «${provider.name}».`)
   } finally {
     testingId.value = null
   }
+}
+
+function showAlert(id: string, success: boolean, message: string) {
+  if (alertTimer) clearTimeout(alertTimer)
+  activeAlert.value = { id, success, message }
+  
+  // خودبه‌خود بعد از 5 ثانیه محو شود
+  alertTimer = setTimeout(() => {
+    activeAlert.value = null
+  }, 5000)
+}
+
+function closeAlert() {
+  if (alertTimer) clearTimeout(alertTimer)
+  activeAlert.value = null
 }
 
 async function toggleActive(provider: ProviderAdmin): Promise<void> {
@@ -46,11 +63,11 @@ async function toggleActive(provider: ProviderAdmin): Promise<void> {
 </script>
 
 <template>
-  <div>
+  <div class="relative">
     <div class="flex items-center justify-between mb-3">
       <h2 class="text-sm font-medium text-ink">ارائه‌دهندگان</h2>
       <button
-        class="flex items-center gap-1 text-sm text-primary hover:underline"
+        class="flex items-center gap-1 text-sm text-primary hover:underline cursor-pointer"
         @click="emit('create-provider')"
       >
         <PhPlus class="size-4" />
@@ -58,6 +75,7 @@ async function toggleActive(provider: ProviderAdmin): Promise<void> {
       </button>
     </div>
 
+    <!-- جدول ساده و تمیز بدون به‌هم‌ریختگی -->
     <div class="overflow-x-auto rounded-card border border-line bg-surface">
       <table class="w-full text-sm">
         <thead>
@@ -69,75 +87,94 @@ async function toggleActive(provider: ProviderAdmin): Promise<void> {
           </tr>
         </thead>
         <tbody>
-          <template v-for="provider in providers" :key="provider.id">
-            <tr class="border-b border-line last:border-b-0 transition-colors hover:bg-elevated/30">
-              <td class="px-4 py-3 font-medium text-ink">{{ provider.name }}</td>
-              <td class="px-4 py-3 font-mono text-xs text-ink-muted">{{ provider.baseUrl }}</td>
-              <td class="px-4 py-3">
-                <span
-                  class="rounded-full px-2.5 py-0.5 text-xs"
-                  :class="provider.isActive ? 'bg-success/15 text-success' : 'bg-line text-ink-muted'"
+          <tr v-for="provider in providers" :key="provider.id" class="border-b border-line last:border-b-0 transition-colors hover:bg-elevated/30">
+            <td class="px-4 py-3 font-medium text-ink">{{ provider.name }}</td>
+            <td class="px-4 py-3 font-mono text-xs text-ink-muted">{{ provider.baseUrl }}</td>
+            <td class="px-4 py-3">
+              <span
+                class="rounded-full px-2.5 py-0.5 text-xs font-medium"
+                :class="provider.isActive ? 'bg-success/15 text-success' : 'bg-line text-ink-muted'"
+              >
+                {{ provider.isActive ? 'فعال' : 'غیرفعال' }}
+              </span>
+            </td>
+            <td class="px-4 py-3 text-end">
+              <div class="inline-flex items-center gap-1">
+                <BaseButton
+                  variant="ghost"
+                  size="sm"
+                  :aria-label="'تست اتصال'"
+                  :title="'تست اتصال'"
+                  :loading="testingId === provider.id"
+                  @click="testConnection(provider)"
                 >
-                  {{ provider.isActive ? 'فعال' : 'غیرفعال' }}
-                </span>
-              </td>
-              <td class="px-4 py-3 text-end">
-                <div class="inline-flex items-center gap-1">
-                  <BaseButton
-                    variant="ghost"
-                    size="sm"
-                    :aria-label="'تست اتصال'"
-                    :title="'تست اتصال'"
-                    :loading="testingId === provider.id"
-                    @click="testConnection(provider)"
-                  >
-                    <PhCheckCircle class="size-4" aria-hidden="true" />
-                  </BaseButton>
-                  <BaseButton
-                    variant="ghost"
-                    size="sm"
-                    :aria-label="provider.isActive ? 'غیرفعال کردن' : 'فعال کردن'"
-                    :title="provider.isActive ? 'غیرفعال کردن' : 'فعال کردن'"
-                    :loading="togglingId === provider.id"
-                    @click="toggleActive(provider)"
-                  >
-                    <PhToggleLeft
-                      class="size-4"
-                      :class="provider.isActive ? 'text-success' : 'text-ink-muted'"
-                      aria-hidden="true"
-                    />
-                  </BaseButton>
-                  <BaseButton
-                    variant="ghost"
-                    size="sm"
-                    :aria-label="'حذف'"
-                    class="text-ink-muted hover:text-danger"
-                    @click="emit('delete-provider', provider)"
-                  >
-                    <PhTrash class="size-4" aria-hidden="true" />
-                  </BaseButton>
-                  <BaseButton variant="ghost" size="sm" :aria-label="'ویرایش'" @click="emit('edit-provider', provider)">
-                    <PhPencilSimple class="size-4" aria-hidden="true" />
-                  </BaseButton>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="testResults[provider.id]" class="border-b border-line last:border-b-0">
-              <td colspan="4" class="px-4 py-2">
-                <div
-                  class="flex items-center gap-1.5 text-xs"
-                  :class="testResults[provider.id].success ? 'text-success' : 'text-danger'"
+                  <PhCheckCircle class="size-4" aria-hidden="true" />
+                </BaseButton>
+                <BaseButton
+                  variant="ghost"
+                  size="sm"
+                  :aria-label="provider.isActive ? 'غیرفعال کردن' : 'فعال کردن'"
+                  :title="provider.isActive ? 'غیرفعال کردن' : 'فعال کردن'"
+                  :loading="togglingId === provider.id"
+                  @click="toggleActive(provider)"
                 >
-                  <PhCheckCircle v-if="testResults[provider.id].success" class="size-3.5" />
-                  <PhXCircle v-else class="size-3.5" />
-                  {{ testResults[provider.id].message }}
-                </div>
-              </td>
-            </tr>
-          </template>
+                  <PhToggleLeft
+                    class="size-4"
+                    :class="provider.isActive ? 'text-success' : 'text-ink-muted'"
+                    aria-hidden="true"
+                  />
+                </BaseButton>
+                <BaseButton
+                  variant="ghost"
+                  size="sm"
+                  :aria-label="'حذف'"
+                  class="text-ink-muted hover:text-danger"
+                  @click="emit('delete-provider', provider)"
+                >
+                  <PhTrash class="size-4" aria-hidden="true" />
+                </BaseButton>
+                <BaseButton variant="ghost" size="sm" :aria-label="'ویرایش'" @click="emit('edit-provider', provider)">
+                  <PhPencilSimple class="size-4" aria-hidden="true" />
+                </BaseButton>
+              </div>
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>
+
+    <!-- بنر/آلرت شناور (Toast) در گوشه صفحه -->
+    <Transition
+      enter-active-class="transition duration-300 ease-out"
+      enter-from-class="translate-y-2 opacity-0"
+      enter-to-class="translate-y-0 opacity-100"
+      leave-active-class="transition duration-200 ease-in"
+      leave-from-class="translate-y-0 opacity-100"
+      leave-to-class="translate-y-2 opacity-0"
+    >
+      <div
+        v-if="activeAlert"
+        class="fixed bottom-6 end-6 z-50 flex items-center gap-3 rounded-xl border px-4 py-3 text-sm shadow-xl backdrop-blur-md"
+        :class="
+          activeAlert.success
+            ? 'border-success/40 bg-success/15 text-success'
+            : 'border-danger/40 bg-danger-soft text-danger'
+        "
+      >
+        <component
+          :is="activeAlert.success ? PhCheckCircle : PhXCircle"
+          class="size-5 shrink-0"
+        />
+        <span class="font-medium">{{ activeAlert.message }}</span>
+        <button
+          type="button"
+          class="ms-2 rounded-lg p-1 opacity-70 hover:opacity-100 transition"
+          @click="closeAlert"
+        >
+          <PhX class="size-4" />
+        </button>
+      </div>
+    </Transition>
 
     <p v-if="providers.length === 0" class="text-sm text-ink-muted text-center py-4">
       هنوز ارائه‌دهنده‌ای پیکربندی نشده است.
