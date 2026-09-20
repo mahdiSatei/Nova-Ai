@@ -100,6 +100,16 @@ watch(
       manual?.supported === true ? 'supported' : manual?.supported === false ? 'unsupported' : 'unknown'
     form.reasoningOutput = manual?.output ?? 'unknown'
     form.reasoningStreaming = manual?.streaming === true
+    // The backend rejects any manual triple that is not internally coherent
+    // (e.g. an output/streaming value next to an unknown "supported").
+    // Normalize the prefill so the form can only ever submit a valid triple.
+    if (form.reasoningSupported === 'unknown') {
+      form.reasoningOutput = 'unknown'
+      form.reasoningStreaming = false
+    } else if (form.reasoningSupported === 'unsupported') {
+      if (form.reasoningOutput === 'summary') form.reasoningOutput = 'unknown'
+      form.reasoningStreaming = false
+    }
     discoveredInfo.value = props.model?.reasoning ?? null
     fieldErrors.displayName = null
     fieldErrors.actualName = null
@@ -166,14 +176,25 @@ function reasoningPatch(): {
   output: ReasoningOutput | null
   streaming: boolean | null
 } {
+  // A coherent triple only: an unknown/absent "supported" forces the other
+  // capabilities to unknown as well, matching the backend's write guard —
+  // otherwise the whole save (including a visibility change) is rejected.
+  const supported =
+    form.reasoningSupported === 'unknown' ? null : form.reasoningSupported === 'supported'
+  const output =
+    supported === true
+      ? form.reasoningOutput === 'unknown'
+        ? null
+        : form.reasoningOutput
+      : supported === false
+        ? 'none'
+        : null
   return {
     mode: form.reasoningMode,
-    supported:
-      form.reasoningSupported === 'unknown' ? null : form.reasoningSupported === 'supported',
-    output: form.reasoningOutput === 'unknown' ? null : form.reasoningOutput,
-    // Streaming only means anything for a supported summary, so a stale checkbox
-    // can never describe a contradiction.
-    streaming: form.reasoningSupported === 'supported' ? form.reasoningStreaming : false,
+    supported,
+    output,
+    // null when support is unknown; false (never true) when unsupported.
+    streaming: supported === true ? form.reasoningStreaming : supported === false ? false : null,
   }
 }
 
@@ -364,7 +385,7 @@ function onCancel(): void {
                   </select>
                 </label>
 
-                <label v-if="form.reasoningSupported !== 'unsupported'" class="flex flex-col gap-1.5 text-xs">
+                <label v-if="form.reasoningSupported === 'supported'" class="flex flex-col gap-1.5 text-xs">
                   <span class="text-ink-muted">خروجی قابل نمایش</span>
                   <select
                     v-model="form.reasoningOutput"
