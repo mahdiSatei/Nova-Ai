@@ -27,7 +27,7 @@ const { theme, toggleTheme } = useTheme()
 const nav = [
   { to: { name: 'admin-provider' }, label: 'ارائه‌دهنده', icon: PhPlugsConnected },
   { to: { name: 'admin-models' }, label: 'کاتالوگ مدل‌ها', icon: PhListBullets },
-  { to: { name: 'admin-users' }, label: 'سطح دسترسی کاربران', icon: PhUsers },
+  { to: { name: 'admin-users' }, label: 'مدیریت کاربران', icon: PhUsers },
   { to: { name: 'admin-usage' }, label: 'گزارش مصرف', icon: PhChartBar },
   { to: { name: 'admin-payments' }, label: 'پرداخت‌ها', icon: PhCurrencyCircleDollar },
   { to: { name: 'admin-audit' }, label: 'گزارش عملیات', icon: PhClipboardText },
