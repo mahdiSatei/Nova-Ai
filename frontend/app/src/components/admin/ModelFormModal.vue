@@ -33,11 +33,9 @@ function reasoningSupportLabelFrom(info: ModelAdmin['reasoning']): string {
   return 'نامشخص'
 }
 
-// فاز ۳: سطح دسترسی مدل. «عمومی» برای همه، «تجاری» فقط کاربران با سطح دسترسی
-// تجاری، «خصوصی» تنها برای مدیران.
+// سطح دسترسی مدل. «عمومی» برای همه کاربران، «خصوصی» تنها برای مدیران.
 const VISIBILITY_OPTIONS: Array<{ value: ModelVisibility; label: string; hint: string }> = [
   { value: 'public', label: 'عمومی', hint: 'در دسترس همه کاربران' },
-  { value: 'commercial', label: 'تجاری', hint: 'فقط کاربران با سطح دسترسی تجاری' },
   { value: 'private', label: 'خصوصی', hint: 'فقط برای مدیران' },
 ]
 

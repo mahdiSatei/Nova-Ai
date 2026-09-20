@@ -108,7 +108,6 @@ function select(id: string) {
                         default
                       </span>
                     </div>
-                    <span class="mt-0.5 block truncate font-mono text-[11px] text-ink-muted/60">{{ m.actualName }}</span>
                   </div>
 
                   <div

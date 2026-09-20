@@ -507,6 +507,7 @@ describe('ChatService', () => {
         userId: 'user-1',
         modelId: 'm1',
         userMessage: 'Hi there',
+        fileId: null,
       });
 
       expect(conversations.appendMessage).toHaveBeenCalledWith(
@@ -635,6 +636,7 @@ describe('ChatService', () => {
             },
           ],
         },
+        undefined,
       );
 
       expect(
@@ -758,6 +760,7 @@ describe('ChatService', () => {
             },
           ],
         },
+        undefined,
       );
 
       expect(conversations.create).toHaveBeenCalledWith({
@@ -1702,6 +1705,7 @@ describe('ChatService', () => {
             },
           ],
         },
+        undefined,
       );
 
       expect(

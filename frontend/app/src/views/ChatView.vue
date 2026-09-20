@@ -29,8 +29,8 @@ import { useChatStream } from '@/composables/useChatStream'
 import { useNewChatSignal } from '@/composables/useNewChatSignal'
 import { useTheme } from '@/composables/useTheme'
 import { useModelsStore } from '@/stores/models'
+import { useAuthStore } from '@/stores/auth'
 import { apiErrorMessage } from '@/utils/errors'
-import { useQuota } from '@/composables/useQuota'
 
 const { tick: newChatTick } = useNewChatSignal()
 
@@ -40,6 +40,7 @@ const route = useRoute()
 const router = useRouter()
 const models = useModelsStore()
 const chat = useChatStream()
+const auth = useAuthStore()
 const theme = useTheme()
 
 const inputText = ref('')
@@ -49,16 +50,7 @@ const attachedFile = ref<UploadedFile | null>(null)
 
 const justStartedConversation = ref(false)
 
-// فاز ۵ — مانده سهمیه توکن، پیش از ارسال نمایش داده می‌شود.
-const quota = useQuota()
-
-onMounted(() => {
-  void quota.loadQuota()
-})
-
 // فاز ۸ — کنترل استدلال فقط برای مدل‌هایی که پیکربندی مؤثرشان پشتیبانی را می‌گوید.
-// (سرور مقدار ناشناخته را به «پشتیبانی نمی‌شود» تبدیل می‌کند، پس اینجا فقط
-// supported===true معنا دارد.)
 const reasoningSupported = computed(
   () => models.byId(chat.selectedModelId.value)?.reasoning?.supported === true,
 )
@@ -87,21 +79,24 @@ const activeModelName = computed(() =>
   models.displayName(chat.selectedModelId.value, ''),
 )
 
-// ✨ جملات رندوم برای عنوان خوش‌آمدگویی
-const welcomeHeadlines = [
-  'چطور می‌تونم کمکت کنم؟',
-  'امروز روی چه پروژه‌ای کار می‌کنیم؟',
-  'سوالی داری؟ از من بپرس!',
-  'آماده‌ام تا با هم ایده پردازی کنیم.',
-  'چه کمکی از دست من برمی‌آید؟',
-  'امروز دوست داری درباره چی صحبت کنیم؟',
-]
+// جملات رندوم برای عنوان خوش‌آمدگویی با نام کاربر
+const getWelcomeHeadline = () => {
+  const name = auth.user?.displayName ? `، ${auth.user.displayName}` : ''
+  const headlines = [
+    `چطور می‌تونم کمکت کنم${name}؟`,
+    `امروز روی چه پروژه‌ای کار می‌کنیم${name}؟`,
+    `سوالی داری${name}؟ از من بپرس!`,
+    `آماده‌ام تا با هم ایده پردازی کنیم${name}.`,
+    `چه کمکی از دست من برمی‌آید${name}؟`,
+    `امروز دوست داری درباره چی صحبت کنیم${name}؟`
+  ]
+  return headlines[Math.floor(Math.random() * headlines.length)]
+}
 
-const randomHeadline = ref('چطور می‌تونم کمکت کنم؟')
+const randomHeadline = ref(getWelcomeHeadline())
 
 function randomizeHeadline() {
-  const randomIndex = Math.floor(Math.random() * welcomeHeadlines.length)
-  randomHeadline.value = welcomeHeadlines[randomIndex]!
+  randomHeadline.value = getWelcomeHeadline()
 }
 
 // آرایه‌ای جامع از پرامپت‌های پیشنهادی برای انتخاب رندوم
@@ -156,7 +151,6 @@ function scrollToBottom(smooth = true): void {
   showScrollButton.value = false
 }
 
-// auto-scroll به پایین هنگام تغییر ترنسکریپت یا streaming text (اگر کاربر چسبیده باشد)
 watch(
   () => [chat.transcript.value, chat.generation.value?.content],
   async () => {
@@ -169,12 +163,6 @@ watch(
 onMounted(async () => {
   refreshWelcomeState()
 
-  console.debug('[ChatView] onMounted start', {
-    routeName: route.name,
-    resolvedId: resolvedId(),
-    propsId: props.id,
-  })
-
   await models.load(true)
 
   if (!chat.selectedModelId.value) {
@@ -186,13 +174,9 @@ onMounted(async () => {
 
   const id = resolvedId()
 
-  console.debug('[ChatView] onMounted resolvedId', { id })
-
   if (id) {
     await chat.loadConversation(id)
 
-    // The conversation was deleted (404): loadConversation already reset
-    // state and set the banner — just move the URL back to new-chat.
     if (chat.connectionError.value?.code === 'conversation_not_found') {
       void router.replace({ name: 'chat' })
     }
@@ -209,11 +193,6 @@ onMounted(async () => {
     }
   }
 
-  console.debug('[ChatView] onMounted after load', {
-    transcriptLen: chat.transcript.value.length,
-    generation: chat.generation.value,
-  })
-
   pinnedToBottom.value = true
   await nextTick()
   scrollToBottom(false)
@@ -222,12 +201,7 @@ onMounted(async () => {
 watch(
   () => resolvedId(),
   async (id) => {
-    console.debug('[ChatView] route watch resolvedId', { id })
-
     if (id) {
-      // If we're already streaming this conversation (the id was just
-      // adopted via the SSE start event), only sync the URL — reloading
-      // would tear down and re-subscribe the live stream.
       if (
         chat.generationState.value === 'streaming' &&
         chat.generation.value?.conversationId === id
@@ -241,8 +215,6 @@ watch(
         void router.replace({ name: 'chat' })
       }
     } else {
-      // Returning to /chat right after a stale-conversation 404: the
-      // banner was just set — don't wipe it with a full reset.
       refreshWelcomeState()
 
       if (chat.connectionError.value?.code !== 'conversation_not_found') {
@@ -274,7 +246,6 @@ watch(
   },
 )
 
-// «گفتگوی جدید» از سایدبار وقتی همین‌جا هستیم: reset مستقیم (بدون تغییر مسیر)
 watch(newChatTick, () => {
   if (resolvedId() || route.name !== 'chat') return
 
@@ -617,41 +588,6 @@ function useSuggestedPrompt(text: string): void {
     <!-- پایین: ورودی شناور -->
     <div class="shrink-0 px-1 pb-2 pt-1 sm:pb-3">
       <div class="mx-auto w-full max-w-3xl">
-        <!-- فاز ۵ — سهمیه باقی‌مانده / حالت اتمام سهمیه -->
-        <div
-          v-if="quota.quota.value && !quota.isUnlimited.value"
-          class="mb-2 flex items-center justify-between gap-3 rounded-lg border border-line bg-surface px-3 py-2 text-xs"
-        >
-          <span
-            v-if="quota.isExhausted.value"
-            class="text-danger"
-          >
-            سهمیه توکن شما به اتمام رسیده است. برای ادامه با مدیر سیستم تماس بگیرید.
-          </span>
-
-          <span
-            v-else
-            class="text-ink-muted"
-          >
-            {{ quota.remainingLabel.value }}
-          </span>
-
-          <div
-            class="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-elevated"
-            role="presentation"
-          >
-            <div
-              class="h-full rounded-full transition-all"
-              :class="
-                quota.percentUsed.value >= 90
-                  ? 'bg-danger'
-                  : 'bg-accent'
-              "
-              :style="{ width: `${quota.percentUsed.value}%` }"
-            />
-          </div>
-        </div>
-
         <p
           v-if="chat.retrying.value"
           class="px-4 py-1 text-sm text-muted-foreground"
@@ -666,13 +602,11 @@ function useSuggestedPrompt(text: string): void {
           v-model="inputText"
           v-model:attachment="attachedFile"
           :placeholder="
-            quota.isExhausted.value
-              ? 'سهمیه توکن شما به اتمام رسیده است.'
-              : noModels
-                ? 'مدلی برای گفتگو موجود نیست.'
-                : 'پیام خود را بنویسید…'
+            noModels
+              ? 'مدلی برای گفتگو موجود نیست.'
+              : 'پیام خود را بنویسید…'
           "
-          :disabled="chat.inputDisabled.value || quota.isExhausted.value"
+          :disabled="chat.inputDisabled.value"
           :busy="chat.generationState.value === 'streaming'"
           @submit="onSubmit"
           @stop="onStop"

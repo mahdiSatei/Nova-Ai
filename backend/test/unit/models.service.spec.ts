@@ -32,15 +32,25 @@ describe('ModelsService', () => {
     };
     // EntityManager stand-in: getRepository(Entity).update() returns scripted
     // affected counts, delete() is recorded, counts run through the shared qb.
+    const repoStubs: Record<string, { update: jest.Mock }> = {};
     const em: any = {
       createQueryBuilder: () => qb,
-      getRepository: (entity: any) => ({
-        update: jest.fn(async () => ({
-          affected: (em.__updates[entity?.name] ?? []).shift() ?? 0,
-        })),
-      }),
+      // Cache one stub per entity so tests can assert the exact update a
+      // transaction issued (e.g. clearing AppConfig.defaultModelId).
+      getRepository: (entity: any) => {
+        const name = entity?.name as string;
+        if (!repoStubs[name]) {
+          repoStubs[name] = {
+            update: jest.fn(async () => ({
+              affected: (em.__updates[name] ?? []).shift() ?? 0,
+            })),
+          };
+        }
+        return repoStubs[name];
+      },
       delete: jest.fn(async () => ({ affected: 1 })),
       __updates: {} as Record<string, number[]>,
+      __repoStubs: repoStubs,
     };
     return {
       find: jest.fn(async ({ where, order }: any) => {
@@ -165,6 +175,33 @@ describe('ModelsService', () => {
       expect(updated.isDefault).toBe(false); // invariant: disabled model can't be default
     });
 
+    it('clears the AppConfig default pointer when the configured default is disabled', async () => {
+      const row: Model = {
+        id: 'm1',
+        displayName: 'A',
+        actualName: 'a',
+        enabled: true,
+        isDefault: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as Model;
+      repo.__setRows([row]);
+      repo.__qb.getOne.mockResolvedValue(null);
+      // The enabled=false branch reads the AppConfig pointer; it names this model.
+      repo.__qb.getRawOne.mockResolvedValueOnce({ default_model_id: 'm1' });
+      repo.__em.__updates = { AppConfig: [1] };
+
+      const updated = await svc.update('m1', { enabled: false });
+
+      expect(updated.isDefault).toBe(false);
+      // The runtime default pointer must be cleared too, or a re-enabled model
+      // would be the runtime default while the public listing showed none.
+      expect(repo.__em.__repoStubs.AppConfig.update).toHaveBeenCalledWith(
+        { id: 'singleton' },
+        { defaultModelId: null },
+      );
+    });
+
     it('rejects a duplicate display name on rename', async () => {
       const a: Model = { id: 'm1', displayName: 'A', actualName: 'a', enabled: true, isDefault: false, createdAt: new Date(), updatedAt: new Date() } as Model;
       const b: Model = { id: 'm2', displayName: 'B', actualName: 'b', enabled: true, isDefault: false, createdAt: new Date(), updatedAt: new Date() } as Model;
@@ -173,6 +210,64 @@ describe('ModelsService', () => {
       repo.__qb.getOne.mockResolvedValue(b);
 
       await expect(svc.update('m1', { displayName: 'B' })).rejects.toBeInstanceOf(ConflictException);
+    });
+  });
+
+  describe('preferred API key ownership', () => {
+    it('rejects a preferred key that does not belong to the model provider on create', async () => {
+      // Preferred-key lookup finds nothing for this provider.
+      repo.__qb.getRawOne.mockResolvedValueOnce(undefined);
+
+      const err = await svc
+        .create({
+          displayName: 'Keyed',
+          actualName: 'keyed',
+          providerId: 'p1',
+          preferredApiKeyId: 'key-from-another-provider',
+        })
+        .catch((e) => e);
+
+      expect(err.getStatus()).toBe(422);
+      expect(err.getResponse()).toMatchObject({ code: 'invalid_preferred_api_key' });
+    });
+
+    it('accepts a preferred key owned by the model provider', async () => {
+      repo.__qb.getRawOne
+        .mockResolvedValueOnce({ id: 'key-1' }) // preferred key belongs to p1
+        .mockResolvedValueOnce({ is_active: true }); // provider active
+
+      const created = await svc.create({
+        displayName: 'Keyed',
+        actualName: 'keyed',
+        providerId: 'p1',
+        preferredApiKeyId: 'key-1',
+      });
+
+      expect(created.preferredApiKeyId).toBe('key-1');
+    });
+
+    it('clears a stale pin when the provider changes', async () => {
+      repo.__setRows([
+        {
+          id: 'm1',
+          displayName: 'A',
+          actualName: 'a',
+          providerId: 'p1',
+          enabled: true,
+          isDefault: false,
+          preferredApiKeyId: 'key-1',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ] as any);
+      repo.__qb.getOne.mockResolvedValue(null);
+      repo.__qb.getRawOne.mockResolvedValue({ is_active: true });
+
+      const updated = await svc.update('m1', { providerId: 'p2' });
+
+      expect(updated.providerId).toBe('p2');
+      // The pin belonged to p1 and must not survive onto p2.
+      expect(updated.preferredApiKeyId).toBeNull();
     });
   });
 

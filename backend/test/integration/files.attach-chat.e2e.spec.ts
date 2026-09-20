@@ -8,7 +8,8 @@ import request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 import { MINIO_CLIENT } from '../../src/modules/files/storage.service';
-import { OpenAICompatibleClient } from '../../src/modules/chat/provider/openai-compatible.client';
+import { ProviderRuntimeService } from '../../src/modules/provider/provider-runtime.service';
+import { ProviderFailoverService } from '../../src/modules/provider/provider-failover.service';
 
 /** Builds a minimal valid single-page PDF with the given text line. */
 function buildSimplePdf(text: string): Buffer {
@@ -80,11 +81,16 @@ describe('Files attach to chat — e2e', () => {
 
     pdfBuffer = buildSimplePdf('The capital of France is Paris.');
 
-    streamSpy = jest.fn(async () =>
+    streamSpy = jest.fn(async (_provider: unknown, _params: unknown) =>
       (async function* () {
         yield { choices: [{ delta: { content: 'Paris.' } }] } as any;
       })(),
     );
+
+    const fakeConnection = {
+      provider: { id: 'attach-provider', baseUrl: 'http://localhost:9999' },
+      adapter: { stream: streamSpy },
+    };
 
     const minio = {
       bucketExists: jest.fn(() => Promise.resolve(true)),
@@ -109,8 +115,28 @@ describe('Files attach to chat — e2e', () => {
     })
       .overrideProvider(MINIO_CLIENT)
       .useValue(minio)
-      .overrideProvider(OpenAICompatibleClient)
-      .useValue({ getClient: async () => ({}), stream: streamSpy })
+      .overrideProvider(ProviderRuntimeService)
+      .useValue({
+        assertReady: jest.fn().mockResolvedValue(fakeConnection),
+        stream: jest.fn((connection: typeof fakeConnection, params: unknown) =>
+          connection.adapter.stream(connection.provider, params),
+        ),
+      })
+      // The real failover layer is exercised by chat.stream / provider-fallback
+      // e2e; here it only needs to hand back the serving model so the attachment
+      // assertions observe exactly one consumed provider stream.
+      .overrideProvider(ProviderFailoverService)
+      .useValue({
+        establish: jest.fn(async (input: { model: unknown }) => ({
+          model: input.model,
+          connection: fakeConnection,
+          stream: (async function* () {
+            /* unused: ChatService opens the consumed stream via runtime.stream */
+          })(),
+          attempts: 1,
+          failures: [],
+        })),
+      })
       .compile();
 
     app = moduleRef.createNestApplication();
@@ -121,11 +147,14 @@ describe('Files attach to chat — e2e', () => {
     const ds = app.get(DataSource);
     await ds.runMigrations();
 
-    const { CentralProvider } = await import('../../src/modules/provider/entities/central-provider.entity');
-    await ds.getRepository(CentralProvider).save({
-      id: 'singleton',
+    const { Provider } = await import('../../src/modules/provider/entities/provider.entity');
+    await ds.getRepository(Provider).save({
+      id: 'attach-provider',
+      name: 'Attach Provider',
+      type: 'openai-compatible',
       baseUrl: 'http://localhost:9999',
       apiKeyEncrypted: Buffer.from('test-api-key').toString('base64'),
+      isActive: true,
       lastValidatedAt: null,
     } as any);
 
@@ -134,6 +163,8 @@ describe('Files attach to chat — e2e', () => {
       id: 'model-1',
       displayName: 'Test Model',
       actualName: 'test-model-v1',
+      providerId: 'attach-provider',
+      visibility: 'public',
       enabled: true,
       isDefault: true,
     } as any);
@@ -193,7 +224,7 @@ describe('Files attach to chat — e2e', () => {
     expect(events[events.length - 1].event).toBe('done');
 
     expect(streamSpy).toHaveBeenCalledTimes(1);
-    const call = streamSpy.mock.calls[0][0];
+    const call = streamSpy.mock.calls[0][1] as { messages: Array<{ role: string; content: string }> };
     expect(call.messages).toEqual([
       { role: 'user', content: expect.stringContaining('The capital of France is Paris.') },
     ]);

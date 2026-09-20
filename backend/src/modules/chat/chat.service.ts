@@ -471,7 +471,7 @@ export class ChatService {
           observer,
           isActive,
           'provider_not_configured',
-          'Central provider is not configured. Ask an admin to set it up.',
+          'The model provider is not available. Ask an admin to configure it.',
         );
       }
 
@@ -1475,7 +1475,7 @@ export class ChatService {
           observer,
           isActive,
           'provider_not_configured',
-          'Central provider is not configured. Ask an admin to set it up.',
+          'The model provider is not available. Ask an admin to configure it.',
         );
       }
 

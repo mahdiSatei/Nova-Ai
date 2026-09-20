@@ -12,7 +12,6 @@ import {
   PhUserGear,
   PhGear,
 } from '@phosphor-icons/vue'
-import ConfirmModal from '@/components/ConfirmModal.vue'
 import ConversationGroups from '@/components/chat/ConversationGroups.vue'
 import ProfileModal from '@/components/user/ProfileModal.vue'
 import UserAvatar from '@/components/user/UserAvatar.vue'
@@ -36,8 +35,6 @@ const collapsed = ref(localStorage.getItem('mmcb.sidebar') === 'collapsed')
 const items = ref<ConversationSummary[]>([])
 const loading = ref(false)
 const pinBusyIds = ref<Set<string>>(new Set())
-const deletingId = ref<string | null>(null)
-const deleteBusy = ref(false)
 const profileOpen = ref(false)
 
 // منوی حساب کاربری (پروفایل/خروج)
@@ -182,23 +179,10 @@ async function onTogglePin(c: ConversationSummary): Promise<void> {
   }
 }
 
-function startDelete(id: string): void {
-  deletingId.value = id
-}
-
-async function onConfirmDelete(): Promise<void> {
-  const id = deletingId.value
-  if (!id) return
-
-  deleteBusy.value = true
-
+async function onDelete(id: string): Promise<void> {
   try {
     await deleteConversation(id)
     items.value = items.value.filter((c) => c.id !== id)
-    deletingId.value = null
-
-    // Keep the persisted last-conversation id from pointing at a deleted
-    // row — otherwise the next reload 404-loops on it.
     if (chat.loadSavedConversationId() === id) chat.clearSavedConversationId()
 
     if (activeId.value === id) {
@@ -208,8 +192,6 @@ async function onConfirmDelete(): Promise<void> {
     }
   } catch {
     await refresh()
-  } finally {
-    deleteBusy.value = false
   }
 }
 
@@ -343,7 +325,7 @@ watch(
             :pin-busy-ids="pinBusyIds"
             @open="go"
             @toggle-pin="onTogglePin"
-            @remove="startDelete"
+            @remove="onDelete"
           />
         </div>
       </div>
@@ -362,7 +344,7 @@ watch(
         :pin-busy-ids="pinBusyIds"
         @open="go"
         @toggle-pin="onTogglePin"
-        @remove="startDelete"
+        @remove="onDelete"
       />
     </nav>
 
@@ -432,16 +414,6 @@ watch(
       </div>
     </div>
   </aside>
-
-  <ConfirmModal
-    :open="deletingId !== null"
-    title="حذف گفتگو"
-    description="این گفتگو و تمام پیام‌های آن برای همیشه حذف می‌شوند. این عملیات قابل بازگشت نیست."
-    confirm-label="حذف"
-    :busy="deleteBusy"
-    @update:open="(v: boolean) => { if (!v) deletingId = null }"
-    @confirm="onConfirmDelete"
-  />
 
   <ProfileModal :open="profileOpen" @update:open="profileOpen = $event" />
 </template>

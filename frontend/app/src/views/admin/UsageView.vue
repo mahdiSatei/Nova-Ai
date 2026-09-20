@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { PhMagnifyingGlass, PhX, PhChartBar } from '@phosphor-icons/vue'
+import { PhX, PhChartBar } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseCard from '@/components/ui/BaseCard.vue'
 import BaseSpinner from '@/components/ui/BaseSpinner.vue'
 import { listAdminUsage } from '@/api/admin'
-import type { UsageRecord, UsageReport } from '@/types/api'
+import type { UsageReport } from '@/types/api'
 
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -108,8 +108,8 @@ watch(filters, () => { page.value = 0; fetchData() }, { deep: true })
         <div class="text-2xl font-bold text-ink">{{ formatTokens(data.totals.totalTokens) }}</div>
       </BaseCard>
       <BaseCard class="p-4 text-center">
-        <div class="text-sm text-ink-muted">کل هزینه (USD)</div>
-        <div class="text-2xl font-bold text-ink">${{ formatCost(data.totals.totalCost) }}</div>
+        <div class="text-sm text-ink-muted">کل هزینه (تومان)</div>
+        <div class="text-2xl font-bold text-ink">{{ formatCost(data.totals.totalCost) }} تومان</div>
       </BaseCard>
     </div>
 
@@ -153,7 +153,7 @@ watch(filters, () => { page.value = 0; fetchData() }, { deep: true })
               <th class="px-4 py-3 text-right font-medium text-ink-muted">ورودی</th>
               <th class="px-4 py-3 text-right font-medium text-ink-muted">خروجی</th>
               <th class="px-4 py-3 text-right font-medium text-ink-muted">کل</th>
-              <th class="px-4 py-3 text-right font-medium text-ink-muted">هزینه</th>
+              <th class="px-4 py-3 text-right font-medium text-ink-muted">هزینه (تومان)</th>
               <th class="px-4 py-3 text-right font-medium text-ink-muted">وضعیت</th>
               <th class="px-4 py-3 text-right font-medium text-ink-muted">تاریخ</th>
             </tr>
@@ -166,7 +166,7 @@ watch(filters, () => { page.value = 0; fetchData() }, { deep: true })
               <td class="px-4 py-3 text-ink">{{ formatTokens(item.promptTokens) }}</td>
               <td class="px-4 py-3 text-ink">{{ formatTokens(item.completionTokens) }}</td>
               <td class="px-4 py-3 text-ink">{{ formatTokens(item.totalTokens) }}</td>
-              <td class="px-4 py-3 text-ink">${{ formatCost(item.estimatedCost) }}</td>
+              <td class="px-4 py-3 text-ink">{{ formatCost(item.chargedCost) }} تومان</td>
               <td class="px-4 py-3">
                 <span
                   :class="{

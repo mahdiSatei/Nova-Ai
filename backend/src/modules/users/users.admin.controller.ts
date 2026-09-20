@@ -8,20 +8,22 @@ import type { User } from './entities/user.entity';
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
-/**
- * Admin-only user directory (spec 003 §Scope — "Associate models with the
- * required role, subscription, or user group").
- *
- * Deliberately narrow: this surface lists accounts and their role. The former
- * entitlement-tier assignment was removed in phase 5 (the credit wallet
- * replaced access tiers). It is NOT account administration (no create, disable,
- * delete, or password reset) — that remains out of scope per spec 001.
- */
+interface AdminUserResponse {
+  id: string;
+  email: string;
+  username: string | null;
+  displayName: string | null;
+  avatarSeed: string | null;
+  role: 'user' | 'admin';
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
 @Controller('v1/admin/users')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin')
 export class UsersAdminController {
-  constructor(private readonly users: UsersService) {}
+  constructor(private readonly usersService: UsersService) {}
 
   @Get()
   async list(
@@ -31,27 +33,39 @@ export class UsersAdminController {
   ) {
     const parsedLimit = Number.parseInt(limit ?? '', 10);
     const parsedOffset = Number.parseInt(offset ?? '', 10);
+
     const safeLimit =
       Number.isFinite(parsedLimit) && parsedLimit > 0
         ? Math.min(parsedLimit, MAX_LIMIT)
         : DEFAULT_LIMIT;
-    const safeOffset = Number.isFinite(parsedOffset) && parsedOffset > 0 ? parsedOffset : 0;
 
-    const { items, total } = await this.users.listForAdmin({
+    const safeOffset =
+      Number.isFinite(parsedOffset) && parsedOffset > 0
+        ? parsedOffset
+        : 0;
+
+    const result = await this.usersService.listForAdmin({
       query,
       limit: safeLimit,
       offset: safeOffset,
     });
-    return { items: items.map((u) => this.toAdminUser(u)), total };
+
+    return {
+      items: result.items.map((u) => this.toAdminShape(u)),
+      total: result.total,
+    };
   }
 
-  private toAdminUser(u: User) {
+  private toAdminShape(u: User): AdminUserResponse {
     return {
       id: u.id,
       email: u.email,
       username: u.username,
+      displayName: u.displayName ?? null,
+      avatarSeed: u.avatarSeed ?? null,
       role: u.role,
       createdAt: u.createdAt.toISOString(),
+      lastLoginAt: u.lastLoginAt ? u.lastLoginAt.toISOString() : null,
     };
   }
 }

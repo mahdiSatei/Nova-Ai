@@ -73,6 +73,14 @@ export class UsersService {
     return user;
   }
 
+  async findAll(limit = 20, offset = 0): Promise<User[]> {
+    return this.repo.find({
+      order: { createdAt: 'DESC' },
+      take: limit,
+      skip: offset,
+    });
+  }
+
   /**
    * Apply a partial profile patch (display name and/or avatar seed).
    * Only provided keys change; returns the updated user; throws

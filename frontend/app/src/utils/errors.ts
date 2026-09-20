@@ -41,11 +41,6 @@ const MESSAGES: Record<string, string> = {
   provider_rate_limited: 'سرویس‌دهنده در حال حاضر شلوغ است. لطفاً چند لحظه بعد دوباره تلاش کنید.',
   provider_error: 'مدل در میانه‌ی پاسخ‌دهی با خطا مواجه شد.',
 
-  // فاز ۵ — سهمیه
-  quota_exceeded: 'سهمیه توکن شما به اتمام رسیده است.',
-  quota_not_found: 'سهمیه‌ای برای حساب شما پیکربندی نشده است.',
-  quota_rule_not_found: 'قاعده سهمیه یافت نشد.',
-
   // Streaming / network
   network_error: 'خطا در ارتباط با سرور.',
   no_stream: 'پاسخی از سرور دریافت نشد.',

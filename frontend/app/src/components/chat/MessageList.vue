@@ -72,9 +72,9 @@ const rows = computed<Row[]>(() => {
       citations: m.citations,
       // A persisted turn that reasoned but produced no user-visible summary is
       // still worth labelling, so "reasoning was on" is never silently lost.
-      reasoningEnabled: m.reasoningEnabled ?? false,
-      reasoningCompleted: Boolean(m.reasoningEnabled && !m.reasoningSummary),
-      reasoningSummary: m.reasoningSummary ?? null,
+      reasoningEnabled: (m as any).reasoningEnabled ?? false,
+      reasoningCompleted: Boolean((m as any).reasoningEnabled && !(m as any).reasoningSummary),
+      reasoningSummary: (m as any).reasoningSummary ?? null,
     })
   }
 

@@ -15,7 +15,6 @@ import {
   PhUserGear,
   PhFileText,
 } from '@phosphor-icons/vue'
-import BaseButton from '@/components/ui/BaseButton.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useTheme } from '@/composables/useTheme'
 import UserAvatar from '@/components/user/UserAvatar.vue'

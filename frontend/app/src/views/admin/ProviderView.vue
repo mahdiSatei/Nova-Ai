@@ -2,9 +2,9 @@
 import { onMounted, ref } from 'vue'
 import { PhPlugsConnected } from '@phosphor-icons/vue'
 import ProviderList from '@/components/admin/ProviderList.vue'
-import ProviderForm from '@/components/admin/ProviderForm.vue'
+import ProviderFormModal from '@/components/admin/ProviderFormModal.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
-import { listProviders } from '@/api/admin'
+import { listProviders, deleteProvider } from '@/api/admin'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
 import type { ProviderAdmin } from '@/types/api'
@@ -12,7 +12,8 @@ import type { ProviderAdmin } from '@/types/api'
 const providers = ref<ProviderAdmin[]>([])
 const loading = ref(true)
 const loadError = ref<ApiError | null>(null)
-const showCreateForm = ref(false)
+const showForm = ref(false)
+const editingProvider = ref<ProviderAdmin | null>(null)
 
 async function load(): Promise<void> {
   loading.value = true
@@ -29,8 +30,31 @@ async function load(): Promise<void> {
 
 onMounted(load)
 
+function openCreate(): void {
+  editingProvider.value = null
+  showForm.value = true
+}
+
+function openEdit(provider: ProviderAdmin): void {
+  editingProvider.value = provider
+  showForm.value = true
+}
+
+async function onDelete(provider: ProviderAdmin): Promise<void> {
+  if (!confirm(`آیا از حذف ${provider.name} مطمئن هستید؟`)) return
+  try {
+    await deleteProvider(provider.id)
+    await load()
+  } catch (err) {
+    if (err instanceof ApiError) {
+      alert(apiErrorMessage(err))
+    }
+  }
+}
+
 function onSaved(): void {
-  showCreateForm.value = false
+  showForm.value = false
+  editingProvider.value = null
   load()
 }
 </script>
@@ -57,12 +81,17 @@ function onSaved(): void {
     <template v-else>
       <ProviderList
         :providers="providers"
-        @create-provider="showCreateForm = true"
+        @create-provider="openCreate"
+        @edit-provider="openEdit"
+        @delete-provider="onDelete"
+        @refresh="load"
       />
 
-      <div v-if="showCreateForm" class="mt-6">
-        <ProviderForm @saved="onSaved" @cancel="showCreateForm = false" />
-      </div>
+      <ProviderFormModal
+        v-model:open="showForm"
+        :provider="editingProvider"
+        @saved="onSaved"
+      />
     </template>
   </section>
 </template>

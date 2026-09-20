@@ -2,42 +2,48 @@ openapi: 3.1.0
 info:
   title: Multi-Model Chatbot MVP API
   version: 2.0.0
-  description: |
-    Public and admin API for the MVP. Public endpoints serve end users;
+  description: 'Public and admin API for the MVP. Public endpoints serve end users;
+
     admin endpoints under `/v1/admin` require an admin JWT. SSE streaming
+
     is documented under the chat endpoint.
+
+    '
 servers:
-  - url: http://localhost:3000
-    description: Local development
-  - url: https://{host}
-    description: Production
-    variables:
-      host:
-        default: api.example.com
-
+- url: http://localhost:3000
+  description: Local development
+- url: https://{host}
+  description: Production
+  variables:
+    host:
+      default: api.example.com
 tags:
-  - name: auth
-    description: Identity endpoints (public)
-  - name: user
-    description: End-user chat and history endpoints
-  - name: admin
-    description: Admin-only configuration endpoints
-  - name: health
-    description: Liveness and readiness
-
+- name: auth
+  description: Identity endpoints (public)
+- name: user
+  description: End-user profile, chat, history, models, files and payments
+- name: admin
+  description: Admin-only configuration and operational endpoints
+- name: payments
+  description: Credit purchases and payment status
+- name: admin-payments
+  description: Admin payment and purchase operations
+- name: health
+  description: Liveness and readiness
 paths:
   /healthz:
     get:
-      tags: [health]
+      tags:
+      - health
       summary: Liveness probe
       security: []
       responses:
         '200':
           description: Service is alive
-
   /readyz:
     get:
-      tags: [health]
+      tags:
+      - health
       summary: Readiness probe (checks DB connectivity)
       security: []
       responses:
@@ -45,10 +51,14 @@ paths:
           description: Service is ready
         '503':
           description: Service is not ready
-
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/auth/register:
     post:
-      tags: [auth]
+      tags:
+      - auth
       summary: Register a new end-user account
       security: []
       requestBody:
@@ -67,15 +77,15 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
         '409':
-          description: Email already in use
+          description: Username or email already in use
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-
   /v1/auth/login:
     post:
-      tags: [auth]
+      tags:
+      - auth
       summary: Authenticate and receive tokens
       security: []
       requestBody:
@@ -92,15 +102,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '401':
-          description: Invalid credentials (no email enumeration)
+          description: Invalid credentials (no email/username enumeration)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-
   /v1/auth/refresh:
     post:
-      tags: [auth]
+      tags:
+      - auth
       summary: Exchange a refresh token for a new access + refresh pair
       security: []
       requestBody:
@@ -108,11 +118,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [refreshToken]
-              properties:
-                refreshToken:
-                  type: string
+              $ref: '#/components/schemas/RefreshRequest'
       responses:
         '200':
           description: New tokens issued; old refresh token revoked
@@ -121,35 +127,35 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '401':
-          description: Refresh token invalid or expired
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
+          $ref: '#/components/responses/Unauthorized'
   /v1/auth/logout:
     post:
-      tags: [auth]
+      tags:
+      - auth
       summary: Invalidate the caller's refresh token
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       responses:
         '204':
           description: Logged out
         '401':
           $ref: '#/components/responses/Unauthorized'
-
   /v1/models:
     get:
-      tags: [user]
+      tags:
+      - user
       summary: List the enabled models the caller is entitled to use
-      description: |
-        Returns every enabled model whose visibility the caller satisfies:
+      description: 'Returns every enabled model whose visibility the caller satisfies:
+
         `public` for any authenticated user and `private` for admins. Models the
+
         caller may not use are never returned. Spend is governed by the credit
+
         wallet, not by a per-user access tier.
+
+        '
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       responses:
         '200':
           description: List of enabled models
@@ -157,7 +163,8 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [items]
+                required:
+                - items
                 properties:
                   items:
                     type: array
@@ -165,27 +172,27 @@ paths:
                       $ref: '#/components/schemas/ModelPublic'
         '401':
           $ref: '#/components/responses/Unauthorized'
-
   /v1/conversations:
     get:
-      tags: [user]
+      tags:
+      - user
       summary: List the caller's conversations (most recent activity first)
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - in: query
-          name: limit
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 20
-        - in: query
-          name: offset
-          schema:
-            type: integer
-            minimum: 0
-            default: 0
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - in: query
+        name: offset
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
       responses:
         '200':
           description: Conversations list
@@ -193,7 +200,8 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [items]
+                required:
+                - items
                 properties:
                   items:
                     type: array
@@ -201,20 +209,20 @@ paths:
                       $ref: '#/components/schemas/ConversationSummary'
         '401':
           $ref: '#/components/responses/Unauthorized'
-
   /v1/conversations/{id}:
     get:
-      tags: [user]
+      tags:
+      - user
       summary: Get a single conversation with its full transcript
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Conversation with messages
@@ -233,17 +241,18 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     delete:
-      tags: [user]
+      tags:
+      - user
       summary: Delete a conversation (cascades messages)
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '204':
           description: Deleted
@@ -253,20 +262,327 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/chat/stream:
+    post:
+      tags:
+      - user
+      summary: Stream a chat completion as Server-Sent Events
+      description: 'Send a user message and receive a streaming chat completion over Server-Sent Events.
 
+        '
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: Event stream established
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: No model available
+  /v1/chat/{conversationId}/cancel:
+    post:
+      tags:
+      - user
+      summary: Cancel an ongoing generation for a conversation
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: conversationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Generation canceled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationCancelResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/chat/{conversationId}/retry:
+    post:
+      tags:
+      - user
+      summary: Retry the last generation step in a conversation
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: conversationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: SSE stream established for the retry
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetryRequest'
+  /v1/admin/auth/login:
+    post:
+      tags:
+      - admin
+      summary: Admin authentication
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated as admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials or non-admin account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/admin/models:
+    get:
+      tags:
+      - admin
+      summary: List all models (admin)
+      security:
+      - bearerAdminAuth: []
+      responses:
+        '200':
+          description: Complete list of models
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelAdminList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+      - admin
+      summary: Create a model
+      security:
+      - bearerAdminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelCreateRequest'
+      responses:
+        '201':
+          description: Model created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelAdmin'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Display name conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Provider or reasoning configuration is invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/admin/models/{id}:
+    patch:
+      tags:
+      - admin
+      summary: Edit a model
+      security:
+      - bearerAdminAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelPatchRequest'
+      responses:
+        '200':
+          description: Updated model
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelAdmin'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Model name/default/visibility conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Provider/reasoning configuration invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+      - admin
+      summary: Delete a model
+      security:
+      - bearerAdminAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: migrateTo
+        in: query
+        required: false
+        description: Replacement model id to re-point references before deletion.
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '204':
+          description: Deleted without migration
+        '200':
+          description: Deleted after migration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelDeleteMigrationResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Model is referenced elsewhere and no migration id was provided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Invalid replacement model
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/admin/config:
+    get:
+      tags:
+      - admin
+      summary: Get the AppConfig (default model id)
+      security:
+      - bearerAdminAuth: []
+      responses:
+        '200':
+          description: App config
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppConfigPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      tags:
+      - admin
+      summary: Set or clear the default model
+      security:
+      - bearerAdminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppConfigUpdateRequest'
+      responses:
+        '200':
+          description: Updated config
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppConfigPublic'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          description: Referenced model is missing, disabled, or not public
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/conversations/{id}/pin:
     patch:
-      tags: [user]
+      tags:
+      - user
       summary: Pin or unpin a conversation
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
       requestBody:
         required: true
         content:
@@ -279,30 +595,32 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ConversationSummary'
+                $ref: '#/components/schemas/ConversationPinResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
-
   /v1/conversations/{id}/model:
     patch:
-      tags: [user]
+      tags:
+      - user
       summary: Change the model used by a conversation
-      description: |
-        Updates `Conversation.modelId`. Future turns in this conversation
+      description: 'Updates `Conversation.modelId`. Future turns in this conversation
+
         use the new model. Existing message history is retained as-is.
+
+        '
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
       requestBody:
         required: true
         content:
@@ -338,49 +656,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-
-  /v1/chat/stream:
-    post:
-      tags: [user]
-      summary: Stream a chat completion as Server-Sent Events
-      description: |
-        Send a user message and receive a streaming chat completion over Server-Sent Events.
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ChatRequestDto'
-      responses:
-        '200':
-          description: Event stream established
-          content:
-            text/event-stream:
-              schema:
-                type: string
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '422':
-          description: No model available
-
   /v1/chat/{conversationId}/resume:
     post:
-      tags: [user]
+      tags:
+      - user
       summary: Resume a interrupted stream generation for a conversation
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - name: conversationId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: conversationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
-          description: Stream generation resumed
+          description: SSE stream resumed
           content:
             text/event-stream:
               schema:
@@ -389,69 +681,13 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
-
-  /v1/chat/{conversationId}/cancel:
-    post:
-      tags: [user]
-      summary: Cancel an ongoing generation for a conversation
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: conversationId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Generation canceled successfully
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /v1/chat/{conversationId}/retry:
-    post:
-      tags: [user]
-      summary: Retry the last generation step in a conversation
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: conversationId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: New generation started
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [messageId, status]
-                properties:
-                  messageId:
-                    type: string
-                    format: uuid
-                  status:
-                    type: string
-                    example: streaming
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
   /v1/users/me/model-preference:
     patch:
-      tags: [user]
+      tags:
+      - user
       summary: Set or clear the caller's preferred model
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -465,7 +701,8 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [modelId]
+                required:
+                - modelId
                 properties:
                   modelId:
                     type: string
@@ -477,136 +714,26 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '422':
           description: Model not available
-
-  /v1/admin/auth/login:
-    post:
-      tags: [admin]
-      summary: Admin authentication
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/LoginRequest'
-      responses:
-        '200':
-          description: Authenticated as admin
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '401':
-          description: Invalid credentials or non-admin account
-
-  /v1/admin/models:
-    get:
-      tags: [admin]
-      summary: List all models (admin)
-      security:
-        - bearerAdminAuth: []
-      responses:
-        '200':
-          description: Complete list of models
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ModelAdmin'
-    post:
-      tags: [admin]
-      summary: Create a model
-      security:
-        - bearerAdminAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ModelCreateRequest'
-      responses:
-        '201':
-          description: Model created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ModelAdmin'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '409':
-          description: Display name conflict
-
-  /v1/admin/models/{id}:
-    patch:
-      tags: [admin]
-      summary: Edit a model
-      security:
-        - bearerAdminAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ModelPatchRequest'
-      responses:
-        '200':
-          description: Updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ModelAdmin'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    delete:
-      tags: [admin]
-      summary: Delete a model
-      security:
-        - bearerAdminAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: migrateTo
-          in: query
-          required: false
-          description: Replacement model ID to re-point references before deletion.
-          schema:
-            type: string
-      responses:
-        '204':
-          description: Deleted
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          description: Model is referenced elsewhere and no migration ID was provided.
-
   /v1/credit-purchases:
     post:
-      tags: [payments]
+      tags:
+      - payments
       summary: Start a credit purchase
-      description: >
-        Creates a CreditPurchase and a provider payment attempt, then returns the
-        URL the browser must be sent to. Credits are priced with the deployment's
-        CREDIT_PRICE_TOMAN.
+      description: 'Creates a CreditPurchase and a provider payment attempt, then returns the URL the browser must be sent
+        to. Credits are priced with the deployment''s CREDIT_PRICE_TOMAN.
+
+        '
       operationId: createCreditPurchase
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [credits]
+              required:
+              - credits
               properties:
                 credits:
                   type: integer
@@ -623,38 +750,43 @@ paths:
         '400':
           description: Invalid credit amount, or the purchase exceeds the amount ceiling
         '401':
-          description: Authentication required
+          $ref: '#/components/responses/Unauthorized'
         '503':
-          description: >
-            Payments are not configured on this deployment (`payment_not_configured`)
-            or the provider is unavailable (`payment_provider_unavailable`)
+          description: 'Payments are not configured on this deployment (`payment_not_configured`) or the provider is unavailable
+            (`payment_provider_unavailable`)
 
+            '
   /v1/payments:
     get:
-      tags: [payments]
+      tags:
+      - payments
       summary: List the caller's payments
       operationId: listMyPayments
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - name: status
-          in: query
-          schema:
-            type: string
-            enum: [PENDING, SUCCESS, FAILED, CANCELLED]
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 20
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            minimum: 0
-            default: 0
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - PENDING
+          - SUCCESS
+          - FAILED
+          - CANCELLED
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
       responses:
         '200':
           description: Paginated payments belonging to the caller
@@ -662,50 +794,53 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedPayments'
-
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /v1/payments/zibal/callback:
     get:
-      tags: [payments]
+      tags:
+      - payments
       summary: Zibal browser callback
-      description: >
-        Public. Verifies the transaction with the provider and redirects the
-        browser to the configured result page with `paymentId` and `status`
-        (`success`, `failed`, `cancelled`, `pending`, `not_found`). `pending`
-        means the provider could not be reached, so the payment is still open.
-        The `success` query parameter is NOT trusted; only the server-to-server
-        verify decides the outcome.
+      description: 'Public. Verifies the transaction with the provider and redirects the browser to the configured result
+        page with `paymentId` and `status` (`success`, `failed`, `cancelled`, `pending`, `not_found`). `pending` means the
+        provider could not be reached, so the payment is still open. The `success` query parameter is NOT trusted; only the
+        server-to-server verify decides the outcome.
+
+        '
       operationId: zibalCallback
       security: []
       parameters:
-        - name: trackId
-          in: query
-          required: true
-          schema:
-            type: string
-        - name: success
-          in: query
-          description: Informational only.
-          schema:
-            type: string
-            enum: ['0', '1']
+      - name: trackId
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: success
+        in: query
+        description: Informational only.
+        schema:
+          type: string
+          enum:
+          - '0'
+          - '1'
       responses:
         '302':
           description: Redirect to the configured PAYMENT_RESULT_REDIRECT_URL
-
   /v1/payments/{id}:
     get:
-      tags: [payments]
+      tags:
+      - payments
       summary: Read one of the caller's payments
       operationId: getMyPayment
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: The payment
@@ -715,38 +850,44 @@ paths:
                 $ref: '#/components/schemas/PaymentView'
         '404':
           description: Not found (also returned for another user's payment)
-
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /v1/admin/payments:
     get:
-      tags: [admin-payments]
+      tags:
+      - admin-payments
       summary: List payments
       operationId: adminListPayments
       security:
-        - bearerAuth: []
+      - bearerAdminAuth: []
       parameters:
-        - name: status
-          in: query
-          schema:
-            type: string
-            enum: [PENDING, SUCCESS, FAILED, CANCELLED]
-        - name: userId
-          in: query
-          schema:
-            type: string
-            format: uuid
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 20
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            minimum: 0
-            default: 0
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - PENDING
+          - SUCCESS
+          - FAILED
+          - CANCELLED
+      - name: userId
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
       responses:
         '200':
           description: Paginated payments
@@ -756,38 +897,44 @@ paths:
                 $ref: '#/components/schemas/PaginatedPayments'
         '403':
           description: Admin role required
-
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /v1/admin/credit-purchases:
     get:
-      tags: [admin-payments]
+      tags:
+      - admin-payments
       summary: List credit purchases
       operationId: adminListCreditPurchases
       security:
-        - bearerAuth: []
+      - bearerAdminAuth: []
       parameters:
-        - name: status
-          in: query
-          schema:
-            type: string
-            enum: [PENDING, COMPLETED, FAILED, CANCELLED]
-        - name: userId
-          in: query
-          schema:
-            type: string
-            format: uuid
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 20
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            minimum: 0
-            default: 0
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - PENDING
+          - COMPLETED
+          - FAILED
+          - CANCELLED
+      - name: userId
+        in: query
+        schema:
+          type: string
+          format: uuid
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
       responses:
         '200':
           description: Paginated credit purchases
@@ -797,25 +944,27 @@ paths:
                 $ref: '#/components/schemas/PaginatedCreditPurchases'
         '403':
           description: Admin role required
-
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /v1/admin/payments/{id}/reconcile:
     post:
-      tags: [admin-payments]
+      tags:
+      - admin-payments
       summary: Re-verify a pending payment with the provider
-      description: >
-        Recovery path for a payment left PENDING by a provider outage during the
-        browser callback. Idempotent: a payment that is already terminal is
-        returned unchanged.
+      description: 'Recovery path for a payment left PENDING by a provider outage during the browser callback. Idempotent:
+        a payment that is already terminal is returned unchanged.
+
+        '
       operationId: adminReconcilePayment
       security:
-        - bearerAuth: []
+      - bearerAdminAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: The payment after reconciliation
@@ -827,18 +976,1135 @@ paths:
           description: Admin role required
         '404':
           description: Payment not found
-
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/users/me:
+    get:
+      tags:
+      - user
+      summary: Get the caller's profile
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    patch:
+      tags:
+      - user
+      summary: Update the caller's profile
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMeRequest'
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/admin/users:
+    get:
+      tags:
+      - admin
+      summary: List users (admin)
+      security:
+      - bearerAdminAuth: []
+      parameters:
+      - name: query
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Paginated admin user list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /v1/admin/providers:
+    get:
+      tags:
+      - admin
+      summary: List configured providers
+      security:
+      - bearerAdminAuth: []
+      parameters:
+      - name: page
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+      - name: pageSize
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Providers ordered by name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+      - admin
+      summary: Create a provider
+      security:
+      - bearerAdminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderCreateRequest'
+      responses:
+        '201':
+          description: Provider created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderPublic'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Provider id or name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Provider URL violates deployment policy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/admin/providers/{id}:
+    get:
+      tags:
+      - admin
+      summary: Read one provider
+      security:
+      - bearerAdminAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Provider
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+      - admin
+      summary: Update a provider
+      security:
+      - bearerAdminAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderUpdateRequest'
+      responses:
+        '200':
+          description: Updated provider
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderPublic'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Provider name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Provider URL violates deployment policy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+      - admin
+      summary: Delete a provider
+      security:
+      - bearerAdminAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Provider is still referenced by models
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/admin/providers/{id}/validate:
+    post:
+      tags:
+      - admin
+      summary: Validate a provider connection
+      security:
+      - bearerAdminAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Provider after successful validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Provider validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Provider unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          description: Provider validation timed out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/admin/providers/{id}/api-keys:
+    get:
+      tags:
+      - admin
+      summary: List provider API keys
+      security:
+      - bearerAdminAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Provider API keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApiKeyPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags:
+      - admin
+      summary: Add a provider API key
+      security:
+      - bearerAdminAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiKeyCreateRequest'
+      responses:
+        '201':
+          description: API key created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyPublic'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: API key label already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/admin/providers/{id}/api-keys/{keyId}:
+    patch:
+      tags:
+      - admin
+      summary: Update a provider API key
+      security:
+      - bearerAdminAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: keyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiKeyUpdateRequest'
+      responses:
+        '200':
+          description: Updated API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyPublic'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: API key label already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+      - admin
+      summary: Delete a provider API key
+      security:
+      - bearerAdminAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: keyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/admin/providers/{id}/api-keys/{keyId}/validate:
+    post:
+      tags:
+      - admin
+      summary: Validate one provider API key
+      security:
+      - bearerAdminAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: keyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: API key after successful validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: API key validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Provider unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '504':
+          description: Provider validation timed out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/files/upload:
+    post:
+      tags:
+      - user
+      summary: Upload a chat file
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FileUploadRequest'
+      responses:
+        '201':
+          description: File uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileUploadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          description: File exceeds the 15 MB application limit
+  /v1/files/{id}/status:
+    get:
+      tags:
+      - user
+      summary: Get file processing status
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: File status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileStatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/admin/files:
+    get:
+      tags:
+      - admin
+      summary: List uploaded files
+      security:
+      - bearerAdminAuth: []
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - UPLOADED
+          - PROCESSING
+          - READY
+          - FAILED
+      - name: mimeType
+        in: query
+        schema:
+          type: string
+      - name: userId
+        in: query
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Admin file list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminFileList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /v1/admin/provider-metrics:
+    get:
+      tags:
+      - admin
+      summary: Read provider fallback metrics
+      security:
+      - bearerAdminAuth: []
+      responses:
+        '200':
+          description: Current process counters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderMetricsSnapshot'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /v1/admin/usage:
+    get:
+      tags:
+      - admin
+      summary: List usage records with filters
+      security:
+      - bearerAdminAuth: []
+      parameters:
+      - name: userId
+        in: query
+        schema:
+          type: string
+      - name: modelId
+        in: query
+        schema:
+          type: string
+      - name: providerId
+        in: query
+        schema:
+          type: string
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum:
+          - pending
+          - completed
+          - failed
+      - name: from
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: offset
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Paginated usage report with aggregates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /v1/admin/billing/config:
+    get:
+      tags:
+      - admin
+      summary: Read deployment billing prices
+      security:
+      - bearerAdminAuth: []
+      responses:
+        '200':
+          description: Read-only billing configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /v1/admin/models/{id}/reasoning/discover:
+    post:
+      tags:
+      - admin
+      summary: Rediscover model reasoning capability
+      security:
+      - bearerAdminAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Model with refreshed reasoning discovery
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelAdmin'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Reasoning discovery failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    bearerAdminAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT carrying role=admin
+  parameters:
+    PathId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PathConversationId:
+      in: path
+      name: conversationId
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    BadRequest:
+      description: Invalid request body
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Authenticated but not authorized for this resource or operation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
   schemas:
+    Error:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+          example: invalid_credentials
+        message:
+          type: string
+        requestId:
+          type: string
+          format: uuid
+    RegisterRequest:
+      type: object
+      required:
+      - username
+      - email
+      - password
+      properties:
+        username:
+          type: string
+          pattern: ^[a-zA-Z0-9_]{3,20}$
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+    LoginRequest:
+      type: object
+      required:
+      - identifier
+      - password
+      properties:
+        identifier:
+          type: string
+          minLength: 3
+          maxLength: 128
+          description: Email or username.
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+    AuthResponse:
+      type: object
+      required:
+      - user
+      - accessToken
+      - refreshToken
+      - expiresIn
+      properties:
+        user:
+          $ref: '#/components/schemas/UserPublic'
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+    UserPublic: &id001
+      type: object
+      required:
+      - id
+      - email
+      - username
+      - displayName
+      - avatarSeed
+      - role
+      - createdAt
+      - lastLoginAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        username:
+          type:
+          - string
+          - 'null'
+        displayName:
+          type:
+          - string
+          - 'null'
+        avatarSeed:
+          type:
+          - string
+          - 'null'
+        role:
+          type: string
+          enum:
+          - user
+          - admin
+        createdAt:
+          type: string
+          format: date-time
+        lastLoginAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    ModelPublic:
+      type: object
+      required:
+      - id
+      - displayName
+      - isDefault
+      - reasoning
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        isDefault:
+          type: boolean
+        reasoning:
+          $ref: '#/components/schemas/ReasoningCapabilityPublic'
+    ModelAdmin:
+      type: object
+      required:
+      - id
+      - displayName
+      - actualName
+      - providerId
+      - visibility
+      - enabled
+      - inputPricePer1m
+      - outputPricePer1m
+      - isDefault
+      - fallbackModelId
+      - preferredApiKeyId
+      - reasoning
+      - createdAt
+      - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          maxLength: 80
+        actualName:
+          type: string
+          maxLength: 200
+        providerId:
+          type: string
+        visibility:
+          type: string
+          enum:
+          - public
+          - private
+        enabled:
+          type: boolean
+        inputPricePer1m:
+          type: number
+          minimum: 0
+        outputPricePer1m:
+          type: number
+          minimum: 0
+        isDefault:
+          type: boolean
+        fallbackModelId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        preferredApiKeyId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        reasoning:
+          $ref: '#/components/schemas/ReasoningAdminShape'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ModelUpsertRequest:
+      type: object
+      required:
+      - displayName
+      - actualName
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        actualName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        enabled:
+          type: boolean
+          default: true
+    AppConfigPublic:
+      type: object
+      required:
+      - defaultModelId
+      properties:
+        defaultModelId:
+          type: string
+          format: uuid
+          nullable: true
+    AppConfigUpdateRequest:
+      type: object
+      required:
+      - defaultModelId
+      properties:
+        defaultModelId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          nullable: true
+    ConversationSummary:
+      type: object
+      required:
+      - id
+      - modelId
+      - modelDisplayName
+      - title
+      - pinned
+      - createdAt
+      - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        modelId:
+          type: string
+          format: uuid
+        modelDisplayName:
+          type:
+          - string
+          - 'null'
+        title:
+          type:
+          - string
+          - 'null'
+        pinned:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ConversationDetail:
+      allOf:
+      - $ref: '#/components/schemas/ConversationSummary'
+      - type: object
+        required:
+        - messages
+        properties:
+          messages:
+            type: array
+            items:
+              $ref: '#/components/schemas/MessagePublic'
+    MessagePublic:
+      type: object
+      required:
+      - id
+      - role
+      - content
+      - createdAt
+      - status
+      - citations
+      - reasoningEnabled
+      - reasoningSummary
+      properties:
+        id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum:
+          - user
+          - assistant
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum:
+          - pending
+          - streaming
+          - completed
+          - failed
+          - cancelled
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/CitationSource'
+        reasoningEnabled:
+          type: boolean
+        reasoningSummary:
+          type:
+          - string
+          - 'null'
+        file:
+          oneOf:
+          - $ref: '#/components/schemas/ConversationFile'
+          - type: 'null'
+    ChatRequest:
+      type: object
+      required:
+      - message
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 32000
+        conversationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        modelId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        webSearch:
+          type: boolean
+        reasoning:
+          type: boolean
+        fileId:
+          type: string
+          format: uuid
+    RetryRequest:
+      type: object
+      required:
+      - failedMessageId
+      properties:
+        failedMessageId:
+          type: string
+          format: uuid
+        webSearch:
+          type: boolean
+        reasoning:
+          type: boolean
     CreatePurchaseResult:
       type: object
       required:
-        [purchaseId, paymentId, credits, amountToman, pricePerCreditToman, trackId, paymentUrl]
+      - purchaseId
+      - paymentId
+      - credits
+      - amountToman
+      - pricePerCreditToman
+      - trackId
+      - paymentUrl
       properties:
         purchaseId:
           type: string
@@ -863,7 +2129,15 @@ components:
     PaymentView:
       type: object
       required:
-        [id, purchaseId, status, provider, amountToman, trackId, reference, createdAt, paidAt]
+      - id
+      - purchaseId
+      - status
+      - provider
+      - amountToman
+      - trackId
+      - reference
+      - createdAt
+      - paidAt
       properties:
         id:
           type: string
@@ -873,37 +2147,56 @@ components:
           format: uuid
         status:
           type: string
-          enum: [PENDING, SUCCESS, FAILED, CANCELLED]
+          enum:
+          - PENDING
+          - SUCCESS
+          - FAILED
+          - CANCELLED
         provider:
           type: string
           example: ZIBAL
         amountToman:
           type: integer
         trackId:
-          type: [string, 'null']
+          type:
+          - string
+          - 'null'
         reference:
-          type: [string, 'null']
+          type:
+          - string
+          - 'null'
           description: Provider reference number, set once the payment succeeded.
         createdAt:
           type: string
           format: date-time
         paidAt:
-          type: [string, 'null']
+          type:
+          - string
+          - 'null'
           format: date-time
     PaginatedPayments:
       allOf:
-        - $ref: '#/components/schemas/PaginationMeta'
-        - type: object
-          required: [items]
-          properties:
+      - $ref: '#/components/schemas/PaginationMeta'
+      - type: object
+        required:
+        - items
+        properties:
+          items:
+            type: array
             items:
-              type: array
-              items:
-                $ref: '#/components/schemas/PaymentView'
+              $ref: '#/components/schemas/PaymentView'
     CreditPurchaseView:
       type: object
       required:
-        [id, userId, credits, amountToman, pricePerCreditToman, status, paymentId, createdAt, completedAt]
+      - id
+      - userId
+      - credits
+      - amountToman
+      - pricePerCreditToman
+      - status
+      - paymentId
+      - createdAt
+      - completedAt
       properties:
         id:
           type: string
@@ -919,29 +2212,41 @@ components:
           type: integer
         status:
           type: string
-          enum: [PENDING, COMPLETED, FAILED, CANCELLED]
+          enum:
+          - PENDING
+          - COMPLETED
+          - FAILED
+          - CANCELLED
         paymentId:
-          type: [string, 'null']
+          type:
+          - string
+          - 'null'
           format: uuid
         createdAt:
           type: string
           format: date-time
         completedAt:
-          type: [string, 'null']
+          type:
+          - string
+          - 'null'
           format: date-time
     PaginatedCreditPurchases:
       allOf:
-        - $ref: '#/components/schemas/PaginationMeta'
-        - type: object
-          required: [items]
-          properties:
+      - $ref: '#/components/schemas/PaginationMeta'
+      - type: object
+        required:
+        - items
+        properties:
+          items:
+            type: array
             items:
-              type: array
-              items:
-                $ref: '#/components/schemas/CreditPurchaseView'
+              $ref: '#/components/schemas/CreditPurchaseView'
     PaginationMeta:
       type: object
-      required: [total, limit, offset]
+      required:
+      - total
+      - limit
+      - offset
       properties:
         total:
           type: integer
@@ -953,3 +2258,769 @@ components:
         offset:
           type: integer
           minimum: 0
+    RefreshRequest:
+      type: object
+      required:
+      - refreshToken
+      properties:
+        refreshToken:
+          type: string
+    UserProfile: *id001
+    UpdateMeRequest:
+      type: object
+      minProperties: 1
+      properties:
+        displayName:
+          type: string
+          maxLength: 50
+        avatarSeed:
+          type: string
+          minLength: 1
+          maxLength: 64
+    SetModelPreferenceRequest:
+      type: object
+      properties:
+        modelId:
+          type:
+          - string
+          - 'null'
+          description: UUID of an enabled usable model; null or omission clears the preference.
+    SetConversationModelRequest:
+      type: object
+      required:
+      - modelId
+      properties:
+        modelId:
+          type: string
+          format: uuid
+    PinConversationDto:
+      type: object
+      required:
+      - pinned
+      properties:
+        pinned:
+          type: boolean
+    ConversationPinResponse:
+      type: object
+      required:
+      - id
+      - pinned
+      properties:
+        id:
+          type: string
+          format: uuid
+        pinned:
+          type: boolean
+    ConversationFile:
+      type: object
+      required:
+      - id
+      - originalName
+      - mimeType
+      - size
+      properties:
+        id:
+          type: string
+          format: uuid
+        originalName:
+          type: string
+        mimeType:
+          type: string
+        size:
+          type: integer
+          minimum: 0
+        url:
+          type: string
+          format: uri
+    CitationSource:
+      type: object
+      additionalProperties: true
+    ReasoningCapabilityPublic:
+      type: object
+      required:
+      - supported
+      - output
+      - streaming
+      properties:
+        supported:
+          type: boolean
+        output:
+          type: string
+          enum:
+          - none
+          - summary
+        streaming:
+          type: boolean
+    ModelAdminList:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelAdmin'
+    ModelCreateRequest:
+      type: object
+      required:
+      - displayName
+      - actualName
+      - providerId
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        actualName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        providerId:
+          type: string
+          pattern: ^[a-z0-9-]+$
+        visibility:
+          type: string
+          enum:
+          - public
+          - private
+          default: public
+        enabled:
+          type: boolean
+          default: true
+        inputPricePer1m:
+          type: number
+          minimum: 0
+        outputPricePer1m:
+          type: number
+          minimum: 0
+        fallbackModelId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        preferredApiKeyId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        reasoning:
+          $ref: '#/components/schemas/ReasoningConfigInput'
+    ModelPatchRequest:
+      allOf:
+      - $ref: '#/components/schemas/ModelCreateRequest'
+      - type: object
+      description: All fields are optional on PATCH.
+    ReasoningConfigInput:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum:
+          - automatic
+          - manual
+        supported:
+          type:
+          - boolean
+          - 'null'
+        output:
+          type:
+          - string
+          - 'null'
+          enum:
+          - none
+          - summary
+          - null
+        streaming:
+          type:
+          - boolean
+          - 'null'
+    ReasoningAdminShape:
+      type: object
+      required:
+      - mode
+      - effective
+      - discovered
+      - manual
+      properties:
+        mode:
+          type: string
+          enum:
+          - automatic
+          - manual
+        effective:
+          $ref: '#/components/schemas/ResolvedReasoningCapability'
+        discovered:
+          $ref: '#/components/schemas/DiscoveredReasoningCapability'
+        manual:
+          $ref: '#/components/schemas/ReasoningCapabilityNullable'
+    ResolvedReasoningCapability:
+      type: object
+      required:
+      - supported
+      - output
+      - streaming
+      - configurationSource
+      properties:
+        supported:
+          type:
+          - boolean
+          - 'null'
+        output:
+          type:
+          - string
+          - 'null'
+          enum:
+          - none
+          - summary
+          - null
+        streaming:
+          type:
+          - boolean
+          - 'null'
+        configurationSource:
+          type: string
+          enum:
+          - automatic
+          - manual
+    DiscoveredReasoningCapability:
+      type: object
+      required:
+      - supported
+      - output
+      - streaming
+      - sources
+      - discoveredAt
+      properties:
+        supported:
+          type:
+          - boolean
+          - 'null'
+        output:
+          type:
+          - string
+          - 'null'
+          enum:
+          - none
+          - summary
+          - null
+        streaming:
+          type:
+          - boolean
+          - 'null'
+        sources:
+          type: object
+          additionalProperties:
+            type: string
+            enum:
+            - provider_api
+            - provider_rules
+            - manual
+            - unknown
+        discoveredAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    ReasoningCapabilityNullable:
+      type: object
+      required:
+      - supported
+      - output
+      - streaming
+      properties:
+        supported:
+          type:
+          - boolean
+          - 'null'
+        output:
+          type:
+          - string
+          - 'null'
+          enum:
+          - none
+          - summary
+          - null
+        streaming:
+          type:
+          - boolean
+          - 'null'
+    AdminUser:
+      type: object
+      required:
+      - id
+      - email
+      - username
+      - displayName
+      - avatarSeed
+      - role
+      - createdAt
+      - lastLoginAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        username:
+          type:
+          - string
+          - 'null'
+        displayName:
+          type:
+          - string
+          - 'null'
+        avatarSeed:
+          type:
+          - string
+          - 'null'
+        role:
+          type: string
+          enum:
+          - user
+          - admin
+        createdAt:
+          type: string
+          format: date-time
+        lastLoginAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    AdminUserList:
+      type: object
+      required:
+      - items
+      - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUser'
+        total:
+          type: integer
+          minimum: 0
+    ProviderPublic:
+      type: object
+      required:
+      - id
+      - name
+      - type
+      - baseUrl
+      - hasApiKey
+      - isActive
+      - lastValidatedAt
+      - createdAt
+      - updatedAt
+      properties:
+        id:
+          type: string
+          pattern: ^[a-z0-9-]{1,80}$
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        type:
+          type: string
+          enum:
+          - openai-compatible
+        baseUrl:
+          type: string
+          format: uri
+        hasApiKey:
+          type: boolean
+        isActive:
+          type: boolean
+        lastValidatedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        apiKeys:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiKeyPublic'
+    ProviderList:
+      type: object
+      required:
+      - items
+      - total
+      - page
+      - pageSize
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderPublic'
+        total:
+          type: integer
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+    ProviderCreateRequest:
+      type: object
+      required:
+      - id
+      - name
+      - type
+      - baseUrl
+      - apiKey
+      properties:
+        id:
+          type: string
+          pattern: ^[a-z0-9-]{1,80}$
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        type:
+          type: string
+          enum:
+          - openai-compatible
+        baseUrl:
+          type: string
+          format: uri
+        apiKey:
+          type: string
+          minLength: 8
+          maxLength: 500
+        isActive:
+          type: boolean
+          default: true
+    ProviderUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        type:
+          type: string
+          enum:
+          - openai-compatible
+        baseUrl:
+          type: string
+          format: uri
+        apiKey:
+          type: string
+          minLength: 8
+          maxLength: 500
+        isActive:
+          type: boolean
+    ApiKeyPublic:
+      type: object
+      required:
+      - id
+      - label
+      - isActive
+      - lastValidatedAt
+      - failureCount
+      - createdAt
+      - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+        isActive:
+          type: boolean
+        lastValidatedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        failureCount:
+          type: integer
+          minimum: 0
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ApiKeyCreateRequest:
+      type: object
+      required:
+      - label
+      - apiKey
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 80
+        apiKey:
+          type: string
+          minLength: 8
+          maxLength: 500
+        isActive:
+          type: boolean
+          default: true
+    ApiKeyUpdateRequest:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 80
+        apiKey:
+          type: string
+          minLength: 8
+          maxLength: 500
+        isActive:
+          type: boolean
+    FileUploadRequest:
+      type: object
+      required:
+      - file
+      properties:
+        file:
+          type: string
+          format: binary
+          description: PDF, XLS, XLSX, PNG, JPG or JPEG; application limit 15 MB.
+    FileUploadResponse:
+      type: object
+      required:
+      - id
+      - originalName
+      - mimeType
+      - size
+      - fileKey
+      - url
+      - status
+      - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        originalName:
+          type: string
+        mimeType:
+          type: string
+        size:
+          type: integer
+        fileKey:
+          type: string
+        url:
+          type: string
+        status:
+          type: string
+          enum:
+          - UPLOADED
+          - PROCESSING
+          - READY
+          - FAILED
+        createdAt:
+          type: string
+          format: date-time
+    FileStatusResponse:
+      type: object
+      required:
+      - id
+      - originalName
+      - status
+      - errorMessage
+      properties:
+        id:
+          type: string
+          format: uuid
+        originalName:
+          type: string
+        status:
+          type: string
+          enum:
+          - UPLOADED
+          - PROCESSING
+          - READY
+          - FAILED
+        errorMessage:
+          type:
+          - string
+          - 'null'
+    AdminFileList:
+      type: object
+      description: Shape returned by FilesService.findAllAdmin.
+      additionalProperties: true
+    ProviderMetricsSnapshot:
+      type: object
+      required:
+      - attempts
+      - successes
+      - failures
+      - fallbacks
+      - failuresByCode
+      properties:
+        attempts:
+          type: integer
+        successes:
+          type: integer
+        failures:
+          type: integer
+        fallbacks:
+          type: integer
+        failuresByCode:
+          type: object
+          additionalProperties:
+            type: integer
+    UsageRecord:
+      type: object
+      required:
+      - id
+      - userId
+      - conversationId
+      - messageId
+      - modelId
+      - modelName
+      - providerId
+      - providerName
+      - promptTokens
+      - completionTokens
+      - totalTokens
+      - reasoningTokens
+      - estimatedCost
+      - chargedCost
+      - chargedCredits
+      - attempts
+      - status
+      - createdAt
+      - completedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+        conversationId:
+          type: string
+        messageId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        modelId:
+          type: string
+        modelName:
+          type:
+          - string
+          - 'null'
+        providerId:
+          type: string
+        providerName:
+          type:
+          - string
+          - 'null'
+        promptTokens:
+          type: integer
+        completionTokens:
+          type: integer
+        totalTokens:
+          type: integer
+        reasoningTokens:
+          type: integer
+        estimatedCost:
+          type: number
+        chargedCost:
+          type: number
+        chargedCredits:
+          type: number
+        attempts:
+          type: integer
+        status:
+          type: string
+          enum:
+          - pending
+          - completed
+          - failed
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    UsageTotals:
+      type: object
+      required:
+      - totalTokens
+      - totalCost
+      - totalCredits
+      - requestCount
+      properties:
+        totalTokens:
+          type: integer
+        totalCost:
+          type: number
+        totalCredits:
+          type: number
+        requestCount:
+          type: integer
+    UsageReport:
+      type: object
+      required:
+      - items
+      - total
+      - totals
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageRecord'
+        total:
+          type: integer
+        totals:
+          $ref: '#/components/schemas/UsageTotals'
+    BillingConfig:
+      type: object
+      required:
+      - creditPriceToman
+      - webSearchPriceToman
+      properties:
+        creditPriceToman:
+          type: number
+        webSearchPriceToman:
+          type: number
+    GenerationCancelResponse:
+      type: object
+      required:
+      - messageId
+      - status
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          example: cancelled
+    ModelDeleteMigrationResult:
+      type: object
+      required:
+      - deleted
+      - migrated
+      properties:
+        deleted:
+          type: boolean
+          const: true
+        migrated:
+          type: object
+          required:
+          - conversations
+          - users
+          - defaultSwitched
+          properties:
+            conversations:
+              type: integer
+            users:
+              type: integer
+            defaultSwitched:
+              type: boolean

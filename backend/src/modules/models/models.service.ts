@@ -204,6 +204,7 @@ export class ModelsService {
     const enabled = input.enabled ?? true;
 
     await this.assertValidFallback(null, input.fallbackModelId);
+    await this.assertPreferredApiKeyBelongsToProvider(input.providerId, input.preferredApiKeyId);
 
     // Display name uniqueness: case-insensitive lookup catches the
     // common mistake of "GPT-4o Mini" vs "gpt-4o mini".
@@ -303,6 +304,34 @@ export class ModelsService {
   }
 
   /**
+   * A preferred API key is only meaningful for the provider that owns it. A
+   * key from another provider (or an unknown id) would be stored and then
+   * silently ignored at runtime, because key selection only considers keys of
+   * the model's provider — so refuse it at write time instead.
+   */
+  private async assertPreferredApiKeyBelongsToProvider(
+    providerId: string,
+    preferredApiKeyId: string | null | undefined,
+  ): Promise<void> {
+    if (preferredApiKeyId === undefined || preferredApiKeyId === null) return;
+
+    const key = await this.repo.manager
+      .createQueryBuilder()
+      .select('k.id', 'id')
+      .from('provider_api_keys', 'k')
+      .where('k.id = :kid', { kid: preferredApiKeyId })
+      .andWhere('k.provider_id = :pid', { pid: providerId })
+      .getRawOne<{ id: string }>();
+
+    if (!key) {
+      throw new UnprocessableEntityException({
+        code: 'invalid_preferred_api_key',
+        message: "The preferred API key does not exist or does not belong to the model's provider.",
+      });
+    }
+  }
+
+  /**
    * Admin: partial update of a model. Enforces the "only enabled
    * model can be isDefault" invariant: if the model is currently
    * the default and the admin disables it, isDefault is cleared.
@@ -315,9 +344,7 @@ export class ModelsService {
     if (input.fallbackModelId !== undefined) {
       model.fallbackModelId = input.fallbackModelId;
     }
-    if (input.preferredApiKeyId !== undefined) {
-      model.preferredApiKeyId = input.preferredApiKeyId;
-    }
+    const previousProviderId = model.providerId;
     if (input.inputPricePer1m !== undefined) {
       model.inputPricePer1m = input.inputPricePer1m;
     }
@@ -384,13 +411,45 @@ export class ModelsService {
       }
       model.visibility = input.visibility;
     }
+    let clearConfiguredDefault = false;
     if (input.enabled !== undefined) {
       model.enabled = input.enabled;
       // Invariant: a disabled model cannot be the default. Toggling
-      // enabled=false on the current default clears isDefault.
-      if (input.enabled === false && model.isDefault) {
-        model.isDefault = false;
+      // enabled=false on the current default clears BOTH default pointers —
+      // the `is_default` mirror (read by the public model listing) and the
+      // AppConfig pointer (read by chat model resolution) — so the two can
+      // never disagree about which model is the default. Without this, a
+      // re-enabled model would be the runtime default while the picker showed
+      // no default at all.
+      if (input.enabled === false) {
+        const cfg = await this.repo.manager
+          .createQueryBuilder()
+          .select('ac.default_model_id', 'default_model_id')
+          .from('app_config', 'ac')
+          .where('ac.id = :sid', { sid: 'singleton' })
+          .getRawOne<{ default_model_id: string | null }>();
+        clearConfiguredDefault = cfg?.default_model_id === id;
+        if (model.isDefault) model.isDefault = false;
       }
+    }
+
+    // A preferred API key is provider-scoped: validate it against the model's
+    // (possibly new) provider and drop a stale pin when the provider changes,
+    // so a stored pin can never point at another provider's key and be silently
+    // ignored by runtime key selection.
+    await this.assertPreferredApiKeyBelongsToProvider(model.providerId, input.preferredApiKeyId);
+    if (input.preferredApiKeyId !== undefined) {
+      model.preferredApiKeyId = input.preferredApiKeyId ?? null;
+    } else if (input.providerId !== undefined && input.providerId !== previousProviderId) {
+      model.preferredApiKeyId = null;
+    }
+
+    if (clearConfiguredDefault) {
+      return this.repo.manager.transaction(async (em) => {
+        const saved = await this.repo.save(model);
+        await em.getRepository(AppConfig).update({ id: 'singleton' }, { defaultModelId: null });
+        return saved;
+      });
     }
 
     // After applying updates, validate that an enabled model references an active provider.

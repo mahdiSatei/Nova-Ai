@@ -47,6 +47,10 @@ export function deleteProvider(id: string): Promise<void> {
   return request<void>(`/v1/admin/providers/${id}`, { method: 'DELETE' })
 }
 
+export function validateProvider(id: string): Promise<ProviderAdmin> {
+  return request<ProviderAdmin>(`/v1/admin/providers/${id}/validate`, { method: 'POST' })
+}
+
 // ── API Keys ─────────────────────────────────────────────────────────────
 
 export function listApiKeys(providerId: string): Promise<ApiKeyAdmin[]> {
@@ -127,19 +131,9 @@ export function listAdminUsers(opts: {
   return request<{ items: AdminUser[]; total: number }>('/v1/admin/users', {
     query: {
       ...(opts.query ? { query: opts.query } : {}),
-      ...(opts.limit ? { limit: String(opts.limit) } : {}),
-      ...(opts.offset ? { offset: String(opts.offset) } : {}),
+      ...(opts.limit ? { limit: opts.limit } : {}),
+      ...(opts.offset ? { offset: opts.offset } : {}),
     },
-  })
-}
-
-export function setUserAccessTier(
-  userId: string,
-  accessTier: string,
-): Promise<AdminUser> {
-  return request<AdminUser>(`/v1/admin/users/${userId}/access-tier`, {
-    method: 'PATCH',
-    body: { accessTier },
   })
 }
 

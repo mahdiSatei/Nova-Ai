@@ -9,7 +9,7 @@ vi.mock('@/api/http', () => ({
   tokenStore: { load: () => null },
 }))
 
-import { listAdminUsers, setUserAccessTier } from '@/api/admin'
+import { listAdminUsers } from '@/api/admin'
 
 describe('admin user access API', () => {
   beforeEach(() => {
@@ -21,14 +21,6 @@ describe('admin user access API', () => {
     await listAdminUsers({ query: 'ali', limit: 20, offset: 40 })
     expect(mockRequest).toHaveBeenCalledWith('/v1/admin/users', {
       query: { query: 'ali', limit: 20, offset: 40 },
-    })
-  })
-
-  it('patches the access tier', async () => {
-    await setUserAccessTier('u-1', 'commercial')
-    expect(mockRequest).toHaveBeenCalledWith('/v1/admin/users/u-1/access-tier', {
-      method: 'PATCH',
-      body: { accessTier: 'commercial' },
     })
   })
 })
