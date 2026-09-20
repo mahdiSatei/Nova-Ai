@@ -7,7 +7,7 @@ describe('ChatService usage recording', () => {
   beforeEach(() => {
     mockUsageService = {
       create: jest.fn(async () => ({ id: 'usage-1' })),
-      finalize: jest.fn(async () => {}),
+      finalizeOnce: jest.fn(async () => {}),
     };
     // Minimal mocks for other dependencies
     service = new ChatService(
@@ -21,9 +21,11 @@ describe('ChatService usage recording', () => {
       {
         // Pricing must not interfere with the usage assertions.
         calculateLlmCost: jest.fn(async () => ({ chargedCost: 0, chargedCredits: 0 })),
+        getOutputCreditRate: jest.fn().mockResolvedValue(0),
       } as any, // PricingService (phase 5)
       {} as any, // failover (phase 6)
-      { isConfigured: () => true, search: jest.fn().mockResolvedValue({ query: '', sources: [], creditsUsed: 0, empty: true }) } as any, // web search (phase 7)
+      { isConfigured: () => true, search: jest.fn().mockResolvedValue({ query: '', sources: [], empty: true }) } as any, // web search (phase 7)
+      { getBalance: jest.fn(), deductCreditsWithGrace: jest.fn(), grantCredits: jest.fn() } as any, // wallet
     );
   });
 
@@ -32,8 +34,8 @@ describe('ChatService usage recording', () => {
     // The actual call happens inside runStream; this test verifies the mock shape
   });
 
-  it('UsageService.finalize is called after streaming completes', () => {
-    expect(mockUsageService.finalize).not.toHaveBeenCalled();
+  it('UsageService.finalizeOnce is called after streaming completes', () => {
+    expect(mockUsageService.finalizeOnce).not.toHaveBeenCalled();
     // Verified by the integration test in Task 7
   });
 });

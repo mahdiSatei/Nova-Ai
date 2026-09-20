@@ -119,6 +119,53 @@ export class WalletService {
     return { ...row, creditBalance: Number(row.creditBalance) } as Wallet;
   }
 
+  /**
+   * Spend Credits with a bounded overdraft, for chat generations (spec Phase 3
+   * §3.8): a turn may push the balance as low as `-graceCredits` but never
+   * below it.
+   *
+   * The floor rides inside the same UPDATE that applies the deduction, so a
+   * concurrent spend cannot slip the balance below the boundary between a
+   * check and a write. Wallet creation is race-free (INSERT ... ON CONFLICT
+   * DO NOTHING) so a first-ever generation can still charge within the grace.
+   * Throws `InsufficientCreditsError` when the boundary is already consumed.
+   */
+  async deductCreditsWithGrace(
+    userId: string,
+    amount: number,
+    graceCredits: number,
+  ): Promise<Wallet> {
+    this.assertValidAmount(amount);
+    if (graceCredits < 0) {
+      throw new UnprocessableEntityException({
+        code: 'invalid_amount',
+        message: 'Grace must be a non-negative number of credits.',
+      });
+    }
+
+    await this.repo.query(
+      `INSERT INTO wallets (id, user_id, credit_balance, created_at, updated_at)
+       VALUES (gen_random_uuid(), $1, 0, now(), now())
+       ON CONFLICT (user_id) DO NOTHING`,
+      [userId],
+    );
+
+    const rows: Array<{ id: string; userId: string; creditBalance: string }> =
+      await this.repo.query(
+        `UPDATE wallets
+         SET credit_balance = credit_balance - $1, updated_at = now()
+         WHERE user_id = $2 AND credit_balance - $1 >= $3
+         RETURNING id, user_id AS "userId", credit_balance AS "creditBalance"`,
+        [roundCredits(amount), userId, -graceCredits],
+      );
+
+    const row = rows[0];
+    if (!row) {
+      throw new InsufficientCreditsError(await this.getBalance(userId), amount);
+    }
+    return { ...row, creditBalance: Number(row.creditBalance) } as Wallet;
+  }
+
   private assertValidAmount(amount: number): void {
     if (typeof amount !== 'number' || !Number.isFinite(amount) || amount < 0) {
       throw new UnprocessableEntityException({

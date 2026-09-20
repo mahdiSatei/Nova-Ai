@@ -10,6 +10,12 @@ export interface CreateUsageInput {
   providerId: string;
   /** Provider attempts made, including retries and fallbacks. Defaults to 1. */
   attempts?: number;
+  /**
+   * The assistant message this generation produces. With the unique index on
+   * `usage_records.message_id`, two usage records for one generation are
+   * structurally impossible (spec Phase 3 §3.9).
+   */
+  messageId?: string;
 }
 
 export interface FinalizeUsageInput {
@@ -67,28 +73,34 @@ export class UsageService {
   }
 
   /**
-   * Finalize a usage record after the provider stream completes or fails.
+   * Finalize a usage record exactly once.
    *
-   * A failed request is never charged: cost and credits are forced to 0 so a
-   * mis-call cannot record revenue the wallet never collected.
+   * The `status: 'pending'` predicate rides inside the same UPDATE that applies
+   * the final values, so two concurrent calls can never both report success —
+   * the same exactly-once shape the payments module uses for
+   * `UPDATE payments ... WHERE status = 'PENDING'`. Returns true only for the
+   * call that actually transitioned the record; callers must treat `true` as
+   * the permission to charge the wallet (spec Phase 3 §3.9).
    */
-  async finalize(id: string, input: FinalizeUsageInput): Promise<void> {
-    const record = await this.repo.findOne({ where: { id } });
-    if (!record) return;
-
+  async finalizeOnce(id: string, input: FinalizeUsageInput): Promise<boolean> {
     const charged = input.status === 'completed';
 
-    record.promptTokens = input.inputTokens;
-    record.completionTokens = input.outputTokens;
-    record.totalTokens = input.totalTokens;
-    record.reasoningTokens = input.reasoningTokens ?? 0;
-    record.chargedCost = charged ? input.chargedCost : 0;
-    record.chargedCredits = charged ? input.chargedCredits : 0;
-    record.status = input.status;
-    record.searchCredits = input.searchCredits ?? 0;
-    record.completedAt = new Date();
+    const result = await this.repo.update(
+      { id, status: 'pending' },
+      {
+        promptTokens: input.inputTokens,
+        completionTokens: input.outputTokens,
+        totalTokens: input.totalTokens,
+        reasoningTokens: input.reasoningTokens ?? 0,
+        chargedCost: charged ? input.chargedCost : 0,
+        chargedCredits: charged ? input.chargedCredits : 0,
+        status: input.status,
+        searchCredits: input.searchCredits ?? 0,
+        completedAt: new Date(),
+      },
+    );
 
-    await this.repo.save(record);
+    return (result.affected ?? 0) === 1;
   }
 
   /** List usage records for admin report with filters and pagination. */

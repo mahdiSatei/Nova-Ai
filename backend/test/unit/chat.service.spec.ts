@@ -20,6 +20,7 @@ import { FilesService } from '../../src/modules/files/files.service';
 import { User } from '../../src/modules/users/entities/user.entity';
 import { UsageService } from '../../src/modules/usage/usage.service';
 import { UsagePricingService } from '../../src/modules/billing/usage-pricing.service';
+import { WalletService } from '../../src/modules/wallet/wallet.service';
 
 describe('ChatService', () => {
   let svc: ChatService;
@@ -179,13 +180,22 @@ describe('ChatService', () => {
           provide: UsageService,
           useValue: {
             create: jest.fn(async () => ({ id: 'usage-1' })),
-            finalize: jest.fn(async () => {}),
+            finalizeOnce: jest.fn(async () => true),
           },
         },
         {
           provide: UsagePricingService,
           useValue: {
             calculateLlmCost: jest.fn(async () => ({ chargedCost: 0, chargedCredits: 0 })),
+            getOutputCreditRate: jest.fn().mockResolvedValue(0),
+          },
+        },
+        {
+          provide: WalletService,
+          useValue: {
+            getBalance: jest.fn().mockResolvedValue(0),
+            deductCreditsWithGrace: jest.fn(),
+            grantCredits: jest.fn(),
           },
         },
         {

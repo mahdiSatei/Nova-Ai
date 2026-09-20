@@ -9,6 +9,7 @@ describe('UsageService', () => {
       create: jest.fn((data) => data),
       save: jest.fn(async (data) => ({ id: 'usage-1', ...data })),
       findOne: jest.fn(),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
       createQueryBuilder: jest.fn(() => ({
         leftJoinAndSelect: jest.fn().mockReturnThis(),
         select: jest.fn().mockReturnThis(),
@@ -52,25 +53,25 @@ describe('UsageService', () => {
     });
   });
 
-  describe('finalize', () => {
-    it('persists tokens, reasoning, and the charged amounts', async () => {
-      mockRepo.findOne.mockResolvedValue({
-        id: 'usage-1',
-        modelId: 'model-1',
-        status: 'pending',
-      });
+  describe('finalizeOnce', () => {
+    const completedInput = {
+      inputTokens: 100,
+      outputTokens: 50,
+      totalTokens: 150,
+      reasoningTokens: 10,
+      chargedCost: 200,
+      chargedCredits: 2,
+      status: 'completed' as const,
+    };
 
-      await service.finalize('usage-1', {
-        inputTokens: 100,
-        outputTokens: 50,
-        totalTokens: 150,
-        reasoningTokens: 10,
-        chargedCost: 200,
-        chargedCredits: 2,
-        status: 'completed',
-      });
+    it('atomically finalizes a pending record and reports success', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 1 });
 
-      expect(mockRepo.save).toHaveBeenCalledWith(
+      const recorded = await service.finalizeOnce('usage-1', completedInput);
+
+      expect(recorded).toBe(true);
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'usage-1', status: 'pending' },
         expect.objectContaining({
           promptTokens: 100,
           completionTokens: 50,
@@ -84,55 +85,28 @@ describe('UsageService', () => {
       );
     });
 
-    it('defaults reasoning tokens to zero when omitted', async () => {
-      mockRepo.findOne.mockResolvedValue({ id: 'usage-1', status: 'pending' });
+    it('reports false and writes nothing when the record is no longer pending', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 0 });
 
-      await service.finalize('usage-1', {
-        inputTokens: 1,
-        outputTokens: 1,
-        totalTokens: 2,
-        chargedCost: 0,
-        chargedCredits: 0,
-        status: 'completed',
-      });
+      const recorded = await service.finalizeOnce('usage-1', completedInput);
 
-      expect(mockRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({ reasoningTokens: 0 }),
-      );
+      expect(recorded).toBe(false);
     });
 
-    it('never charges a failed request, even if amounts are supplied', async () => {
-      mockRepo.findOne.mockResolvedValue({
-        id: 'usage-1',
-        modelId: 'model-1',
-        status: 'pending',
-      });
+    it('forces cost and credits to zero for a failed status', async () => {
+      mockRepo.update.mockResolvedValue({ affected: 1 });
 
-      await service.finalize('usage-1', {
-        inputTokens: 0,
-        outputTokens: 0,
-        totalTokens: 0,
+      await service.finalizeOnce('usage-1', {
+        ...completedInput,
+        status: 'failed' as const,
         chargedCost: 999,
-        chargedCredits: 9,
-        status: 'failed',
+        chargedCredits: 7,
       });
 
-      expect(mockRepo.save).toHaveBeenCalledWith(
+      expect(mockRepo.update).toHaveBeenCalledWith(
+        { id: 'usage-1', status: 'pending' },
         expect.objectContaining({ status: 'failed', chargedCost: 0, chargedCredits: 0 }),
       );
-    });
-
-    it('does nothing if record not found', async () => {
-      mockRepo.findOne.mockResolvedValue(null);
-      await service.finalize('nonexistent', {
-        inputTokens: 0,
-        outputTokens: 0,
-        totalTokens: 0,
-        chargedCost: 0,
-        chargedCredits: 0,
-        status: 'completed',
-      });
-      expect(mockRepo.save).not.toHaveBeenCalled();
     });
   });
 

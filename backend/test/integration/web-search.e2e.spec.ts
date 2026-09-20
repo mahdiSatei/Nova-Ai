@@ -89,7 +89,6 @@ describe('Web search — e2e', () => {
         name: 'fake',
         search: jest.fn().mockResolvedValue({
           query: 'cats',
-          creditsUsed: 2,
           fromCache: false,
           status: 'success',
           results: [

@@ -44,10 +44,11 @@ function build() {
   };
   const usage = {
     create: jest.fn().mockResolvedValue({ id: 'usage-1' }),
-    finalize: jest.fn().mockResolvedValue(undefined),
+    finalizeOnce: jest.fn().mockResolvedValue(true),
   };
   const pricing = {
     calculateLlmCost: jest.fn().mockResolvedValue({ chargedCost: 200, chargedCredits: 2 }),
+    getOutputCreditRate: jest.fn().mockResolvedValue(0),
   };
   const runtime = { assertReady: jest.fn().mockResolvedValue({ provider: { id: 'openai' }, adapter: {} }), stream: jest.fn() };
   // Establishment picks the serving model and reports how many attempts it
@@ -79,7 +80,8 @@ function build() {
     usage as never,
     pricing as never,
     failover as never,
-    { isConfigured: () => true, search: jest.fn().mockResolvedValue({ query: '', sources: [], creditsUsed: 0, empty: true }) } as never,
+    { isConfigured: () => true, search: jest.fn().mockResolvedValue({ query: '', sources: [], empty: true }) } as never,
+    { getBalance: jest.fn().mockResolvedValue(0), deductCreditsWithGrace: jest.fn().mockResolvedValue({}), grantCredits: jest.fn().mockResolvedValue(undefined) } as never,
   );
 
   return { service, conversations, usage, pricing, failover, models, access, runtime };
@@ -114,7 +116,7 @@ describe('ChatService fallback (spec 006)', () => {
     expect(usage.create).toHaveBeenCalledWith(
       expect.objectContaining({ modelId: 'model-1', providerId: 'openai', attempts: 1 }),
     );
-    expect(usage.finalize).toHaveBeenCalledWith(
+    expect(usage.finalizeOnce).toHaveBeenCalledWith(
       'usage-1',
       expect.objectContaining({ totalTokens: 15, status: 'completed' }),
     );
@@ -142,7 +144,7 @@ describe('ChatService fallback (spec 006)', () => {
     );
     // Cost is computed for the model that actually served (the fallback).
     expect(pricing.calculateLlmCost).toHaveBeenCalledWith('model-2', 4, 2, 0);
-    expect(usage.finalize).toHaveBeenCalledWith(
+    expect(usage.finalizeOnce).toHaveBeenCalledWith(
       'usage-1',
       expect.objectContaining({ chargedCost: 200, chargedCredits: 2, status: 'completed' }),
     );
@@ -238,7 +240,7 @@ describe('ChatService fallback (spec 006)', () => {
     expect(usage.create).toHaveBeenCalledWith(
       expect.objectContaining({ modelId: 'model-1', attempts: 2 }),
     );
-    expect(usage.finalize).toHaveBeenCalledWith(
+    expect(usage.finalizeOnce).toHaveBeenCalledWith(
       'usage-1',
       expect.objectContaining({ status: 'failed', totalTokens: 0 }),
     );

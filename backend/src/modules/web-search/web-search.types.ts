@@ -18,7 +18,6 @@ export interface WebSearchRawResult {
 export interface WebSearchRawResponse {
   query: string;
   results: WebSearchRawResult[];
-  creditsUsed: number;
   fromCache: boolean;
   status: 'success' | 'no_results' | 'error';
 }
@@ -45,6 +44,5 @@ export interface CitationSource {
 export interface WebSearchOutcome {
   query: string;
   sources: WebSource[];
-  creditsUsed: number;
   empty: boolean;
 }

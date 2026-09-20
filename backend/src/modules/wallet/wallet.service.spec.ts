@@ -9,6 +9,7 @@ describe('WalletService', () => {
     create: jest.Mock;
     save: jest.Mock;
     update: jest.Mock;
+    query: jest.Mock;
   };
 
   beforeEach(() => {
@@ -17,6 +18,7 @@ describe('WalletService', () => {
       create: jest.fn((data) => data),
       save: jest.fn(async (wallet: Wallet) => wallet),
       update: jest.fn(),
+      query: jest.fn(),
     };
     svc = new WalletService(repo as never);
   });
@@ -106,6 +108,50 @@ describe('WalletService', () => {
       repo.findOne.mockResolvedValue({ userId: 'u-1', creditBalance: 0.1 });
       const wallet = await svc.grantCredits('u-1', 0.2);
       expect(wallet.creditBalance).toBe(0.3);
+    });
+  });
+
+  describe('deductCreditsWithGrace', () => {
+    it('deducts atomically and returns the updated wallet with a numeric balance', async () => {
+      repo.query
+        .mockResolvedValueOnce([]) // race-free wallet creation (INSERT ... DO NOTHING)
+        .mockResolvedValueOnce([{ id: 'w-1', userId: 'u-1', creditBalance: '47.5000' }]);
+
+      const wallet = await svc.deductCreditsWithGrace('u-1', 2.5, 5);
+
+      expect(wallet).toMatchObject({ userId: 'u-1', creditBalance: 47.5 });
+      expect(repo.query).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining('UPDATE wallets'),
+        [2.5, 'u-1', -5],
+      );
+    });
+
+    it('allows the balance to land exactly on the grace floor', async () => {
+      repo.query
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'w-1', userId: 'u-1', creditBalance: '-5.0000' }]);
+
+      const wallet = await svc.deductCreditsWithGrace('u-1', 5, 5);
+
+      expect(wallet.creditBalance).toBe(-5);
+    });
+
+    it('throws InsufficientCreditsError when the floor would be crossed', async () => {
+      repo.query
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]); // UPDATE matched no row
+      repo.findOne.mockResolvedValue({ userId: 'u-1', creditBalance: 1 });
+
+      await expect(svc.deductCreditsWithGrace('u-1', 10, 5)).rejects.toBeInstanceOf(
+        InsufficientCreditsError,
+      );
+    });
+
+    it('rejects a negative amount and a negative grace without touching the database', async () => {
+      await expect(svc.deductCreditsWithGrace('u-1', -1, 5)).rejects.toThrow('non-negative');
+      await expect(svc.deductCreditsWithGrace('u-1', 1, -1)).rejects.toThrow('Grace must be');
+      expect(repo.query).not.toHaveBeenCalled();
     });
   });
 

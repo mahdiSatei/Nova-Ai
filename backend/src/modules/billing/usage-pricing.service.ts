@@ -43,6 +43,19 @@ export class UsagePricingService {
     return { chargedCost, chargedCredits };
   }
 
+  /**
+   * Unrounded credits per single output/reasoning token at the model's output
+   * rate — the unit the §3.8 mid-stream budget check estimates in. Returns 0
+   * when credit pricing is misconfigured (zero or negative credit price),
+   * which disables the budget check instead of stopping every generation.
+   */
+  async getOutputCreditRate(modelId: string): Promise<number> {
+    const { outputPricePer1m } = await this.pricing.getModelPricing(modelId);
+    const creditPriceToman = this.pricing.getCreditPriceToman();
+    if (creditPriceToman <= 0) return 0;
+    return outputPricePer1m / 1_000_000 / creditPriceToman;
+  }
+
   /** Credits charged for a single web search. */
   calculateWebSearchCost(): number {
     return this.tomanToCredits(
