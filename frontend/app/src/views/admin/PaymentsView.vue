@@ -97,7 +97,7 @@ const total = totalPayments
   <div class="space-y-6 py-2">
     <header class="flex items-center gap-3">
       <span class="flex size-11 items-center justify-center rounded-xl bg-primary-soft text-primary"><PhCreditCard class="size-5" /></span>
-      <div><h1 class="page-heading text-xl font-bold text-ink">پرداخت‌ها</h1><p class="mt-1 text-xs text-ink-muted">مدیریت تراکنش‌ها و وضعیت پرداخت اعتبار کاربران</p></div>
+      <div><h1 class="page-heading text-xl font-bold text-ink">پرداخت‌ها</h1><p class="mt-1 text-xs text-ink-muted">تراکنش‌ها، وضعیت پرداخت اعتبار و درخواست‌های نیازمند بررسی مجدد را مدیریت کنید.</p></div>
     </header>
 
     <!-- Error -->

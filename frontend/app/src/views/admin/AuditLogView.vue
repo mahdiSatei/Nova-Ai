@@ -111,7 +111,10 @@ function formatMeta(meta: Record<string, unknown>): string {
 
 <template>
   <div class="space-y-6">
-    <h1 class="text-lg font-semibold text-ink">گزارش عملیات</h1>
+    <header>
+      <h1 class="text-lg font-semibold text-ink">گزارش عملیات</h1>
+      <p class="mt-1 text-xs text-ink-muted">رویدادهای حساس سیستم، نتیجه عملیات و جزئیات تغییرات را پیگیری کنید.</p>
+    </header>
 
     <!-- Filters -->
     <div class="flex flex-wrap items-end gap-3 rounded-xl border border-line bg-surface p-4">

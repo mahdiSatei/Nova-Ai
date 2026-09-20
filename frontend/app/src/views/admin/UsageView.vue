@@ -96,7 +96,10 @@ watch(filters, () => { page.value = 0; fetchData() }, { deep: true })
   <div class="space-y-6 py-2">
     <div class="flex items-center gap-3">
       <PhChartBar class="size-6 text-accent" aria-hidden="true" />
-      <h1 class="text-xl font-bold">گزارش مصرف</h1>
+      <div>
+        <h1 class="text-xl font-bold">گزارش مصرف</h1>
+        <p class="mt-1 text-xs text-ink-muted">مصرف توکن، هزینه و وضعیت درخواست‌های کاربران را با فیلترهای مختلف بررسی کنید.</p>
+      </div>
     </div>
 
     <!-- Summary Cards -->

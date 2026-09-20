@@ -79,7 +79,7 @@ const isEmpty = computed(() => !initialLoading.value && filteredItems.value.leng
         </span>
         <div>
           <h1 class="text-xl font-bold text-ink">مدیریت کاربران</h1>
-          <p class="text-sm text-ink-muted">بررسی اطلاعات حساب‌ها و مدیریت کاربران (مجموعاً {{ total }} کاربر).</p>
+          <p class="text-sm text-ink-muted">اطلاعات حساب‌ها، نقش‌ها و دسترسی کاربران را جست‌وجو و مدیریت کنید.</p>
         </div>
       </div>
       <button

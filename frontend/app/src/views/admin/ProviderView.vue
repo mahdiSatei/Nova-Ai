@@ -63,7 +63,10 @@ function onSaved(): void {
   <section>
     <header class="mb-4 flex items-center gap-3">
       <PhPlugsConnected class="size-5 text-primary" aria-hidden="true" />
-      <h1 class="text-base font-semibold">پیکربندی ارائه‌دهندگان</h1>
+      <div>
+        <h1 class="text-base font-semibold">پیکربندی ارائه‌دهندگان</h1>
+        <p class="mt-1 text-xs text-ink-muted">ارائه‌دهندگان مدل، کلیدهای اتصال و وضعیت دسترسی به سرویس‌ها را مدیریت کنید.</p>
+      </div>
     </header>
 
     <div v-if="loading" class="h-48 animate-pulse rounded-card bg-surface" />

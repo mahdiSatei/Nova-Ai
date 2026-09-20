@@ -180,7 +180,10 @@ async function onConfirmMigrate(replacementId: string): Promise<void> {
   <section>
     <header class="mb-4 flex items-center gap-3">
       <PhListBullets class="size-5 text-primary" aria-hidden="true" />
-      <h1 class="text-base font-semibold">کاتالوگ مدل‌ها</h1>
+      <div>
+        <h1 class="text-base font-semibold">کاتالوگ مدل‌ها</h1>
+        <p class="mt-1 text-xs text-ink-muted">مدل‌های قابل استفاده، قیمت‌گذاری، قابلیت‌ها و مدل پیش‌فرض سیستم را تنظیم کنید.</p>
+      </div>
       <div class="ms-auto">
         <BaseButton size="sm" @click="openCreate">
           <PhPlus class="size-4" aria-hidden="true" />

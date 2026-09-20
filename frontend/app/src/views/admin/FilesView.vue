@@ -64,7 +64,7 @@ onMounted(() => {
     <div class="flex items-center justify-between">
       <div>
         <h1 class="text-xl font-bold text-ink">مدیریت فایل‌های پیوست</h1>
-        <p class="text-sm text-ink-muted">مشاهده وضعیت پردازش، استخراج متن و خطاهای فایل‌های آپلود شده کاربران.</p>
+        <p class="text-sm text-ink-muted">وضعیت پردازش، استخراج متن و خطاهای فایل‌های آپلودشده کاربران را بررسی کنید.</p>
       </div>
       <button
         type="button"
