@@ -450,6 +450,38 @@ export class ChatService {
         }
       }
 
+      // ── credit gate ─────────────────────────────────────────────────────
+      // A paid model must not start a generation for an empty/overdrawn wallet.
+      // The bounded grace is intentionally only available after a user has a
+      // positive balance; otherwise a new user could consume paid models for
+      // free up to the grace limit.
+      const modelRequiresCredits =
+        Number(model.inputPricePer1m) > 0 || Number(model.outputPricePer1m) > 0;
+
+      if (modelRequiresCredits) {
+        let balance: number;
+        try {
+          balance = await this.wallet.getBalance(userId);
+        } catch (err) {
+          this.logger.warn(`Failed to read wallet for user ${userId}: ${String(err)}`);
+          return this.failStream(
+            observer,
+            isActive,
+            'wallet_unavailable',
+            'اعتبار حساب قابل بررسی نیست. لطفاً دوباره تلاش کنید.',
+          );
+        }
+
+        if (balance <= 0) {
+          return this.failStream(
+            observer,
+            isActive,
+            'insufficient_credits',
+            'برای استفاده از این مدل باید ابتدا اعتبار خود را شارژ کنید.',
+          );
+        }
+      }
+
       // ── reasoning capability gate (Phase 8) ──────────────────
       // Explicit reasoning on a model that is not configured as reasoning-capable
       // is rejected, never silently downgraded.

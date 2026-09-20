@@ -15,6 +15,20 @@ jest.mock('bullmq', () => ({
 import { buildChatHarness, collect, contentChunk } from './helpers/chat-stream-harness';
 
 describe('ChatService billing (Phase 3 §3.1/§3.3/§3.9)', () => {
+  it('rejects a paid model before creating a generation when the wallet is empty', async () => {
+    const h = buildChatHarness();
+    h.wallet.getBalance.mockResolvedValue(0);
+
+    const events = await collect(h.service, 'user-1', { message: 'hi', modelId: 'model-1' });
+
+    expect(events.at(-1)).toMatchObject({
+      type: 'error',
+      data: { code: 'insufficient_credits' },
+    });
+    expect(h.conversations.create).not.toHaveBeenCalled();
+    expect(h.failover.establish).not.toHaveBeenCalled();
+  });
+
   it('deducts the priced credits once for a completed generation and records them', async () => {
     const h = buildChatHarness();
     h.runtime.stream.mockResolvedValue(

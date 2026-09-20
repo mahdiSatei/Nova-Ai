@@ -33,6 +33,8 @@ const MESSAGES: Record<string, string> = {
   provider_unreachable: 'ارائه‌دهنده در دسترس نیست یا کلید API نامعتبر است.',
   duplicate_display_name: 'این نام نمایشی قبلاً استفاده شده است.',
   no_model_available: 'هیچ مدل فعالی برای گفتگو وجود ندارد.',
+  insufficient_credits: 'برای استفاده از این مدل باید ابتدا اعتبار خود را شارژ کنید.',
+  wallet_unavailable: 'اعتبار حساب قابل بررسی نیست. لطفاً دوباره تلاش کنید.',
 
   // فاز ۶ — جایگزینی ارائه‌دهنده
   all_providers_unavailable:

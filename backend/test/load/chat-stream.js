@@ -1,6 +1,7 @@
 import http from 'k6/http';
 import { check, fail } from 'k6';
 import { Trend, Rate } from 'k6/metrics';
+import { htmlReport } from './k6-reporter-bundle.js';
 
 // Load test: Auth (register) + Chat streaming (POST /v1/chat/stream).
 //
@@ -100,4 +101,16 @@ export default function (data) {
     timeToFirstByte.add(res.timings.waiting);
     streamDuration.add(res.timings.duration);
   }
+}
+
+// Every run writes test/load/report/<timestamp>-summary.html + .json
+// next to the script, so each load test leaves a shareable report.
+export function handleSummary(data) {
+  const dir = 'test/load/report';
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return {
+    [`${dir}/${PROFILE}-${stamp}.html`]: htmlReport(data),
+    [`${dir}/${PROFILE}-${stamp}.json`]: JSON.stringify(data, null, 2),
+    stdout: `\nReport written to ${dir}/${PROFILE}-${stamp}.html\n`,
+  };
 }

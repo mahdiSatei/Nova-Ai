@@ -509,16 +509,6 @@ function useSuggestedPrompt(text: string): void {
               :show-code="true"
             />
 
-            <div
-              v-if="chat.transcript.value.length > 0"
-              class="mt-2 mb-1 flex items-center gap-1.5 px-3 text-[11px] text-warning"
-            >
-              <PhWarning
-                class="size-3"
-                aria-hidden="true"
-              />
-              پاسخ ناقص — متن قبل از خطا حفظ شده است.
-            </div>
           </div>
 
           <MessageList
