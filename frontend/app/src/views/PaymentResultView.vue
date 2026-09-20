@@ -61,8 +61,8 @@ const statusConfig = computed(() => {
 </script>
 
 <template>
-  <div class="flex min-h-dvh items-center justify-center bg-background p-4">
-    <div class="w-full max-w-sm rounded-2xl border border-line bg-surface p-8 text-center">
+  <div class="app-shell-bg flex min-h-full items-center justify-center p-4 py-10">
+    <div class="surface-card w-full max-w-sm p-8 text-center">
       <span
         class="mx-auto flex size-16 items-center justify-center rounded-full"
         :class="statusConfig.bg"
