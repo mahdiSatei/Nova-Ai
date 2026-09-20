@@ -6,13 +6,15 @@ import { AuditLog, AuditAction } from './entities/audit-log.entity';
 /** Sentinel actor ID for system-initiated events (e.g. cron, webhook). */
 export const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
 
+export type AuditResult = 'success' | 'failure' | 'system';
+
 export interface AuditEvent {
   actorId: string;
   actorEmail?: string;
   action: AuditAction;
   targetType: string;
   targetId?: string;
-  result?: string;
+  result?: AuditResult;
   metadata?: Record<string, unknown>;
 }
 
@@ -53,7 +55,10 @@ export class AuditService {
           action: event.action,
           targetType: event.targetType,
           targetId: event.targetId ?? null,
-          result: event.result ?? 'success',
+          // Keep the result meaningful even when callers omit it. Older
+          // call sites historically relied on the column default, which made
+          // `payment_failed` appear successful in the admin report.
+          result: event.result ?? this.defaultResultFor(event),
           metadata: event.metadata ?? {},
         }),
       );
@@ -101,6 +106,25 @@ export class AuditService {
       .take(limit)
       .getMany();
 
-    return { items, total };
+    return {
+      // Normalize legacy rows too: records written before result inference was
+      // added may still contain the database default `success`.
+      items: items.map((item) => ({
+        ...item,
+        result: this.defaultResultFor({
+          actorId: item.actorId,
+          action: item.action,
+          result: item.result === 'success' ? undefined : (item.result as AuditResult),
+        }),
+      })),
+      total,
+    };
+  }
+
+  private defaultResultFor(event: Pick<AuditEvent, 'actorId' | 'action' | 'result'>): AuditResult {
+    if (event.result) return event.result;
+    if (event.actorId === SYSTEM_ACTOR_ID) return 'system';
+    if (event.action.endsWith('_failed')) return 'failure';
+    return 'success';
   }
 }

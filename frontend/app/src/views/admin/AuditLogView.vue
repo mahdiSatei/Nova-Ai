@@ -45,6 +45,12 @@ const ACTION_LABELS: Record<string, string> = Object.fromEntries(
   ACTION_OPTIONS.filter(o => o.value).map(o => [o.value, o.label]),
 )
 
+const RESULT_LABELS: Record<string, string> = {
+  success: 'موفق',
+  failure: 'ناموفق',
+  system: 'سیستمی',
+}
+
 async function load(): Promise<void> {
   loading.value = true
   error.value = null
@@ -199,9 +205,10 @@ function formatMeta(meta: Record<string, unknown>): string {
                   'bg-success-soft text-success': item.result === 'success',
                   'bg-danger-soft text-danger': item.result === 'failure',
                   'bg-elevated text-ink-muted': item.result === 'system',
+                  'bg-warning-soft text-warning': !['success', 'failure', 'system'].includes(item.result),
                 }"
               >
-                {{ item.result }}
+                {{ RESULT_LABELS[item.result] ?? item.result }}
               </span>
             </td>
             <td class="max-w-xs truncate px-4 py-2.5 text-xs text-ink-muted">{{ formatMeta(item.metadata) }}</td>
