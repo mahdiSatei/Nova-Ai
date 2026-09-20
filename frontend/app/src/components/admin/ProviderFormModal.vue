@@ -3,7 +3,7 @@ import BaseModal from '@/components/ui/BaseModal.vue'
 import ProviderForm from './ProviderForm.vue'
 import type { ProviderAdmin } from '@/types/api'
 
-defineProps<{ open: boolean }>()
+defineProps<{ open: boolean; provider?: ProviderAdmin | null }>()
 const emit = defineEmits<{
   'update:open': [value: boolean]
   'saved': [provider: ProviderAdmin]
@@ -21,6 +21,6 @@ function onCancel() {
 
 <template>
   <BaseModal :open="open" @close="onCancel">
-    <ProviderForm @saved="onSaved" @cancel="onCancel" />
+    <ProviderForm :provider="provider" @saved="onSaved" @cancel="onCancel" />
   </BaseModal>
 </template>
