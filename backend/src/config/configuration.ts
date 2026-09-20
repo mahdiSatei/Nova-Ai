@@ -41,6 +41,15 @@ export interface AppConfig {
     creditPriceToman: number;
     webSearchPriceToman: number;
   };
+  payment: {
+    resultRedirectUrl: string;
+    zibal: {
+      merchant: string;
+      baseUrl: string;
+      callbackUrl: string;
+      timeoutMs: number;
+    };
+  };
   webSearch: {
     serpexApiKey: string;
     serpexApiUrl: string;
@@ -89,6 +98,16 @@ export default (): AppConfig => ({
   billing: {
     creditPriceToman: Number(process.env.CREDIT_PRICE_TOMAN ?? 100),
     webSearchPriceToman: Number(process.env.WEB_SEARCH_PRICE_TOMAN ?? 1000),
+  },
+  payment: {
+    resultRedirectUrl: process.env.PAYMENT_RESULT_REDIRECT_URL ?? '',
+    zibal: {
+      merchant: process.env.ZIBAL_MERCHANT ?? '',
+      // Trailing slashes would produce `//v1/request` in the provider URLs.
+      baseUrl: (process.env.ZIBAL_BASE_URL ?? 'https://gateway.zibal.ir').replace(/\/+$/, ''),
+      callbackUrl: process.env.ZIBAL_CALLBACK_URL ?? '',
+      timeoutMs: Number(process.env.ZIBAL_TIMEOUT_MS ?? 10_000),
+    },
   },
   webSearch: {
     serpexApiKey: process.env.SERPEX_API_KEY ?? '',

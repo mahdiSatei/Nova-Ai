@@ -31,6 +31,7 @@ import { ProviderModule } from './modules/provider/provider.module';
 import { AppConfigModule } from './modules/app-config/app-config.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 import { BullModule } from '@nestjs/bullmq';
 
 @Module({
@@ -136,6 +137,7 @@ import { BullModule } from '@nestjs/bullmq';
     AppConfigModule,
     WalletModule,
     BillingModule,
+    PaymentsModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

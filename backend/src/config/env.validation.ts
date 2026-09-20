@@ -141,6 +141,40 @@ export class EnvironmentVariables {
   @IsOptional()
   WEB_SEARCH_PRICE_TOMAN = 1000;
 
+  /**
+   * Credit purchase (Zibal) — all optional.
+   *
+   * Optional, like `SERPEX_*`: a deployment that has not enabled credit
+   * purchases must still boot. A purchase attempt without this configuration
+   * fails loudly at the endpoint (`payment_not_configured`) instead of silently
+   * selling credits for nothing.
+   */
+
+  /** Where the browser is sent once our Zibal callback has finished. */
+  @IsString()
+  @IsOptional()
+  PAYMENT_RESULT_REDIRECT_URL = '';
+
+  /** Zibal merchant code. */
+  @IsString()
+  @IsOptional()
+  ZIBAL_MERCHANT = '';
+
+  @IsString()
+  @IsOptional()
+  ZIBAL_BASE_URL = 'https://gateway.zibal.ir';
+
+  /** Public URL of this API's Zibal callback endpoint. */
+  @IsString()
+  @IsOptional()
+  ZIBAL_CALLBACK_URL = '';
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1000)
+  @IsOptional()
+  ZIBAL_TIMEOUT_MS = 10_000;
+
   @IsString()
   @IsOptional()
   REDIS_HOST = 'localhost';
@@ -168,5 +202,18 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
       .join('\n  ');
     throw new Error(`Environment validation failed:\n  ${formatted}`);
   }
+
+  // "A URL, or empty" cannot be expressed with `@IsUrl()` + a `''` default:
+  // `@IsOptional()` only skips `null`/`undefined`, so an empty default would
+  // fail validation and force every deployment to configure payments.
+  for (const key of ['PAYMENT_RESULT_REDIRECT_URL', 'ZIBAL_CALLBACK_URL'] as const) {
+    const value = validated[key];
+    if (value && !/^https?:\/\/[^\s]+$/.test(value)) {
+      throw new Error(
+        `Environment validation failed:\n  ${key}: must be an absolute http(s) URL`,
+      );
+    }
+  }
+
   return validated;
 }

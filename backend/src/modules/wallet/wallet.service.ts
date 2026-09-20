@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { Wallet } from './entities/wallet.entity';
 
 /**
@@ -84,6 +84,39 @@ export class WalletService {
     const wallet = await this.getOrCreateForUser(userId);
     wallet.creditBalance = roundCredits(Number(wallet.creditBalance) + amount);
     return this.repo.save(wallet);
+  }
+
+  /**
+   * Add Credits using the caller's transaction.
+   *
+   * The caller MUST already hold the lock that makes the grant happen exactly
+   * once (for a purchase, the `UPDATE payments ... WHERE status = 'PENDING'`
+   * guard). This method guarantees the wallet mutation itself is atomic: it
+   * never read-modify-writes, it increments in place, so a concurrent chat
+   * spend cannot interleave into a lost update.
+   */
+  async grantCreditsWithin(
+    manager: EntityManager,
+    userId: string,
+    amount: number,
+  ): Promise<Wallet> {
+    this.assertValidAmount(amount);
+
+    // `EntityManager.query` is untyped (`any`), so the row shape is declared
+    // here rather than cast afterwards — the cast would be a no-op.
+    const rows: Array<{ id: string; userId: string; creditBalance: string }> =
+      await manager.query(
+        `INSERT INTO wallets (id, user_id, credit_balance, created_at, updated_at)
+       VALUES (gen_random_uuid(), $1, $2, now(), now())
+       ON CONFLICT (user_id) DO UPDATE
+         SET credit_balance = wallets.credit_balance + EXCLUDED.credit_balance,
+             updated_at = now()
+       RETURNING id, user_id AS "userId", credit_balance AS "creditBalance"`,
+        [userId, roundCredits(amount)],
+      );
+
+    const row = rows[0];
+    return { ...row, creditBalance: Number(row.creditBalance) } as Wallet;
   }
 
   private assertValidAmount(amount: number): void {

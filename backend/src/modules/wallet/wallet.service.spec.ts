@@ -116,4 +116,44 @@ describe('WalletService', () => {
       expect(roundCredits(-0)).toBe(0);
     });
   });
+
+  describe('grantCreditsWithin', () => {
+    it('upserts the balance through the caller-provided manager', async () => {
+      const manager = {
+        query: jest
+          .fn()
+          .mockResolvedValue([{ id: 'w-1', userId: 'u-1', creditBalance: '125.0000' }]),
+      };
+
+      const wallet = await svc.grantCreditsWithin(manager as never, 'u-1', 25);
+
+      expect(wallet.creditBalance).toBe(125);
+      expect(manager.query).toHaveBeenCalledTimes(1);
+      const [sql, params] = manager.query.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain('ON CONFLICT (user_id) DO UPDATE');
+      expect(params).toEqual(['u-1', 25]);
+    });
+
+    it('rounds the granted amount to the wallet scale', async () => {
+      const manager = {
+        query: jest
+          .fn()
+          .mockResolvedValue([{ id: 'w-1', userId: 'u-1', creditBalance: '0.0001' }]),
+      };
+
+      await svc.grantCreditsWithin(manager as never, 'u-1', 0.00012);
+
+      const [, params] = manager.query.mock.calls[0] as [string, unknown[]];
+      expect(params).toEqual(['u-1', 0.0001]);
+    });
+
+    it('rejects a negative amount before touching the database', async () => {
+      const manager = { query: jest.fn() };
+
+      await expect(svc.grantCreditsWithin(manager as never, 'u-1', -5)).rejects.toThrow(
+        'non-negative',
+      );
+      expect(manager.query).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -588,3 +588,368 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           description: Model is referenced elsewhere and no migration ID was provided.
+
+  /v1/credit-purchases:
+    post:
+      tags: [payments]
+      summary: Start a credit purchase
+      description: >
+        Creates a CreditPurchase and a provider payment attempt, then returns the
+        URL the browser must be sent to. Credits are priced with the deployment's
+        CREDIT_PRICE_TOMAN.
+      operationId: createCreditPurchase
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [credits]
+              properties:
+                credits:
+                  type: integer
+                  minimum: 1
+                  maximum: 1000000
+                  example: 100
+      responses:
+        '201':
+          description: Purchase created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatePurchaseResult'
+        '400':
+          description: Invalid credit amount, or the purchase exceeds the amount ceiling
+        '401':
+          description: Authentication required
+        '503':
+          description: >
+            Payments are not configured on this deployment (`payment_not_configured`)
+            or the provider is unavailable (`payment_provider_unavailable`)
+
+  /v1/payments:
+    get:
+      tags: [payments]
+      summary: List the caller's payments
+      operationId: listMyPayments
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, SUCCESS, FAILED, CANCELLED]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Paginated payments belonging to the caller
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPayments'
+
+  /v1/payments/zibal/callback:
+    get:
+      tags: [payments]
+      summary: Zibal browser callback
+      description: >
+        Public. Verifies the transaction with the provider and redirects the
+        browser to the configured result page with `paymentId` and `status`
+        (`success`, `failed`, `cancelled`, `pending`, `not_found`). `pending`
+        means the provider could not be reached, so the payment is still open.
+        The `success` query parameter is NOT trusted; only the server-to-server
+        verify decides the outcome.
+      operationId: zibalCallback
+      security: []
+      parameters:
+        - name: trackId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: success
+          in: query
+          description: Informational only.
+          schema:
+            type: string
+            enum: ['0', '1']
+      responses:
+        '302':
+          description: Redirect to the configured PAYMENT_RESULT_REDIRECT_URL
+
+  /v1/payments/{id}:
+    get:
+      tags: [payments]
+      summary: Read one of the caller's payments
+      operationId: getMyPayment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The payment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentView'
+        '404':
+          description: Not found (also returned for another user's payment)
+
+  /v1/admin/payments:
+    get:
+      tags: [admin-payments]
+      summary: List payments
+      operationId: adminListPayments
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, SUCCESS, FAILED, CANCELLED]
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Paginated payments
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPayments'
+        '403':
+          description: Admin role required
+
+  /v1/admin/credit-purchases:
+    get:
+      tags: [admin-payments]
+      summary: List credit purchases
+      operationId: adminListCreditPurchases
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, COMPLETED, FAILED, CANCELLED]
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Paginated credit purchases
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCreditPurchases'
+        '403':
+          description: Admin role required
+
+  /v1/admin/payments/{id}/reconcile:
+    post:
+      tags: [admin-payments]
+      summary: Re-verify a pending payment with the provider
+      description: >
+        Recovery path for a payment left PENDING by a provider outage during the
+        browser callback. Idempotent: a payment that is already terminal is
+        returned unchanged.
+      operationId: adminReconcilePayment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The payment after reconciliation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentView'
+        '403':
+          description: Admin role required
+        '404':
+          description: Payment not found
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    CreatePurchaseResult:
+      type: object
+      required:
+        [purchaseId, paymentId, credits, amountToman, pricePerCreditToman, trackId, paymentUrl]
+      properties:
+        purchaseId:
+          type: string
+          format: uuid
+        paymentId:
+          type: string
+          format: uuid
+        credits:
+          type: integer
+          minimum: 1
+        amountToman:
+          type: integer
+          description: Whole Toman. Credits multiplied by the credit price.
+        pricePerCreditToman:
+          type: integer
+        trackId:
+          type: string
+          description: Provider transaction id, used as the callback correlation key.
+        paymentUrl:
+          type: string
+          format: uri
+    PaymentView:
+      type: object
+      required:
+        [id, purchaseId, status, provider, amountToman, trackId, reference, createdAt, paidAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        purchaseId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [PENDING, SUCCESS, FAILED, CANCELLED]
+        provider:
+          type: string
+          example: ZIBAL
+        amountToman:
+          type: integer
+        trackId:
+          type: [string, 'null']
+        reference:
+          type: [string, 'null']
+          description: Provider reference number, set once the payment succeeded.
+        createdAt:
+          type: string
+          format: date-time
+        paidAt:
+          type: [string, 'null']
+          format: date-time
+    PaginatedPayments:
+      allOf:
+        - $ref: '#/components/schemas/PaginationMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/PaymentView'
+    CreditPurchaseView:
+      type: object
+      required:
+        [id, userId, credits, amountToman, pricePerCreditToman, status, paymentId, createdAt, completedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        credits:
+          type: integer
+        amountToman:
+          type: integer
+        pricePerCreditToman:
+          type: integer
+        status:
+          type: string
+          enum: [PENDING, COMPLETED, FAILED, CANCELLED]
+        paymentId:
+          type: [string, 'null']
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: [string, 'null']
+          format: date-time
+    PaginatedCreditPurchases:
+      allOf:
+        - $ref: '#/components/schemas/PaginationMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/CreditPurchaseView'
+    PaginationMeta:
+      type: object
+      required: [total, limit, offset]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+        offset:
+          type: integer
+          minimum: 0
