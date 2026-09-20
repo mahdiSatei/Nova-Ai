@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { PhWallet, PhSpinner } from '@phosphor-icons/vue'
+import { computed, ref, onMounted } from 'vue'
+import { PhCheckCircle, PhCreditCard, PhWallet, PhSpinner } from '@phosphor-icons/vue'
 import { useWalletStore } from '@/stores/wallet'
 import { getMyPayments, createCreditPurchase } from '@/api/wallet'
 import type { PaymentHistoryItem } from '@/types/api'
@@ -14,6 +14,11 @@ const customCredits = ref<number | null>(null)
 const error = ref<string | null>(null)
 
 const PRESET_PACKAGES = [10, 50, 100, 500]
+
+const selectedCredits = ref<number | null>(null)
+const selectedPackageLabel = computed(() =>
+  selectedCredits.value ? `${selectedCredits.value.toLocaleString('fa-IR')} اعتبار` : '',
+)
 
 const STATUS_LABELS: Record<string, string> = {
   PENDING: 'در انتظار',
@@ -40,14 +45,22 @@ async function loadPayments(): Promise<void> {
 }
 
 async function onPurchase(credits: number): Promise<void> {
+  const normalized = Math.floor(Number(credits))
+  if (!Number.isFinite(normalized) || normalized < 1) {
+    error.value = 'تعداد اعتبار باید حداقل ۱ باشد.'
+    return
+  }
+
   purchasing.value = true
+  selectedCredits.value = normalized
   error.value = null
   try {
-    const result = await createCreditPurchase(credits)
-    // Redirect to the payment provider
-    window.location.href = result.paymentUrl
+    const result = await createCreditPurchase(normalized)
+    // The backend returns the provider URL after creating a pending purchase.
+    window.location.assign(result.paymentUrl)
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'خطا در ایجاد درخواست خرید'
+    selectedCredits.value = null
   } finally {
     purchasing.value = false
   }
@@ -69,56 +82,75 @@ function formatAmount(toman: number): string {
 <template>
   <div class="space-y-8">
     <!-- Balance Card -->
-    <div class="rounded-xl border border-line bg-surface p-6">
-      <div class="flex items-center gap-3">
-        <span class="flex size-10 items-center justify-center rounded-lg bg-accent/10">
-          <PhWallet class="size-5 text-accent" />
-        </span>
-        <div>
-          <p class="text-xs text-ink-muted">موجودی کیف پول</p>
-          <p class="text-2xl font-bold text-ink">{{ wallet.formattedBalance }} <span class="text-sm font-normal text-ink-muted">اعتبار</span></p>
+    <div class="overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary-soft via-surface to-accent/5 p-6 shadow-sm">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <span class="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-accent/70 text-on-primary shadow-lg shadow-primary/20">
+            <PhWallet class="size-5" />
+          </span>
+          <div>
+            <p class="text-xs text-ink-muted">موجودی کیف پول</p>
+            <p class="mt-1 text-2xl font-bold text-ink">{{ wallet.formattedBalance }} <span class="text-sm font-normal text-ink-muted">اعتبار</span></p>
+          </div>
         </div>
+        <p class="text-xs text-ink-muted/80">اعتبار برای استفاده از چت و جستجوی وب</p>
       </div>
     </div>
 
     <!-- Buy Credits -->
-    <div class="rounded-xl border border-line bg-surface p-6">
-      <h2 class="mb-4 text-sm font-semibold text-ink">خرید اعتبار</h2>
+    <div class="rounded-2xl border border-line bg-surface p-6 shadow-sm">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-base font-bold text-ink">افزایش اعتبار</h2>
+          <p class="mt-1 text-xs leading-5 text-ink-muted">یک بسته را انتخاب کنید تا به درگاه پرداخت منتقل شوید.</p>
+        </div>
+        <span class="flex size-9 items-center justify-center rounded-xl bg-accent/10 text-accent">
+          <PhCreditCard class="size-4.5" aria-hidden="true" />
+        </span>
+      </div>
 
-      <div v-if="error" class="mb-4 rounded-lg bg-danger-soft px-4 py-2 text-xs text-danger">
+      <div v-if="error" class="mt-4 rounded-xl border border-danger/20 bg-danger-soft px-4 py-3 text-xs text-danger">
         {{ error }}
       </div>
 
-      <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div class="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <button
           v-for="pkg in PRESET_PACKAGES"
           :key="pkg"
           type="button"
-          class="rounded-lg border border-line px-4 py-3 text-center transition-colors hover:border-accent hover:bg-accent/5 disabled:opacity-50"
+          class="group relative rounded-xl border border-line bg-surface px-4 py-4 text-center transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:bg-primary-soft/40 hover:shadow-md disabled:cursor-wait disabled:opacity-50"
           :disabled="purchasing"
           @click="onPurchase(pkg)"
         >
-          <span class="block text-lg font-bold text-ink">{{ pkg }}</span>
+          <PhCheckCircle class="absolute end-2 top-2 size-3.5 text-primary opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
+          <span class="block text-xl font-bold text-ink">{{ pkg.toLocaleString('fa-IR') }}</span>
           <span class="text-[10px] text-ink-muted">اعتبار</span>
         </button>
       </div>
 
-      <div class="mt-4 flex items-center gap-2">
-        <input
-          v-model="customCredits"
-          type="number"
-          min="1"
-          placeholder="مقدار دلخواه"
-          class="w-32 rounded-lg border border-line px-3 py-2 text-sm text-ink placeholder:text-ink-muted/40 focus:border-accent focus:outline-none"
-        />
-        <button
-          type="button"
-          class="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
-          :disabled="purchasing || !customCredits || customCredits < 1"
-          @click="onPurchase(customCredits!)"
-        >
-          {{ purchasing ? 'در حال ایجاد...' : 'خرید' }}
-        </button>
+      <div class="mt-5 rounded-xl border border-dashed border-line bg-elevated/30 p-3">
+        <p class="mb-2 text-xs font-medium text-ink">یا مقدار دلخواه وارد کنید</p>
+        <div class="flex flex-col gap-2 sm:flex-row">
+          <input
+            v-model="customCredits"
+            type="number"
+            min="1"
+            step="1"
+            placeholder="مثلاً ۷۵ اعتبار"
+            class="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-ink placeholder:text-ink-muted/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
+            @keyup.enter="customCredits && onPurchase(customCredits)"
+          />
+          <button
+            type="button"
+            class="inline-flex items-center justify-center rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-on-primary transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="purchasing || !customCredits || customCredits < 1"
+            @click="onPurchase(customCredits!)"
+          >
+            <PhSpinner v-if="purchasing" class="me-2 size-4 animate-spin" aria-hidden="true" />
+            {{ purchasing ? 'در حال انتقال…' : 'ادامه پرداخت' }}
+          </button>
+        </div>
+        <p v-if="selectedCredits" class="mt-2 text-[11px] text-primary">در حال آماده‌سازی خرید {{ selectedPackageLabel }}…</p>
       </div>
     </div>
 

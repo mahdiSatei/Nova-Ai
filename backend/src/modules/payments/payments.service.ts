@@ -47,6 +47,7 @@ export interface CreatePurchaseResult {
  */
 export interface PaymentView {
   id: string;
+  userId: string;
   purchaseId: string;
   status: PaymentStatus;
   provider: string;
@@ -440,6 +441,7 @@ export class PaymentsService {
   private toView(payment: Payment): PaymentView {
     return {
       id: payment.id,
+      userId: payment.userId,
       purchaseId: payment.creditPurchaseId,
       status: payment.status,
       provider: payment.provider,

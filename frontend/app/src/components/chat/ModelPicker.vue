@@ -69,13 +69,18 @@ function onChange(e: Event): void {
       <button
         type="button"
         :disabled="disabled || models.loading || models.isEmpty"
-        class="group flex cursor-pointer items-center gap-1.5 rounded-xl border border-line/70 bg-elevated/85 px-3 py-1.5 text-xs font-semibold text-ink shadow-2xs transition-all hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50"
+        class="group flex cursor-pointer items-center gap-2 rounded-xl border border-line/70 bg-surface/80 px-3 py-1.5 text-xs font-semibold text-ink shadow-sm transition-all hover:border-primary/40 hover:bg-primary-soft/40 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
         @click="modalOpen = true"
       >
-        <span class="max-w-[140px] truncate">
-          {{ currentModel ? currentModel.displayName : 'انتخاب مدل' }}
+        <span class="flex size-5 shrink-0 items-center justify-center rounded-md bg-primary-soft text-primary transition-colors group-hover:bg-primary group-hover:text-on-primary">
+          <PhSparkle class="size-3" aria-hidden="true" />
         </span>
-        <PhSparkle class="size-3.5 shrink-0 text-primary" aria-hidden="true" />
+        <span class="flex min-w-0 flex-col items-start leading-tight">
+          <span class="max-w-[140px] truncate">
+            {{ currentModel ? currentModel.displayName : 'انتخاب مدل' }}
+          </span>
+          <span v-if="currentModel?.isDefault" class="text-[9px] font-medium text-primary/80">مدل پیش‌فرض</span>
+        </span>
         <PhCaretDown
           class="size-3 text-ink-muted transition-transform group-hover:text-ink"
           aria-hidden="true"

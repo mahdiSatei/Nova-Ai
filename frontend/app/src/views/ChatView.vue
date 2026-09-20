@@ -8,6 +8,7 @@ import {
   PhSparkle,
   PhWarning,
   PhCaretDown,
+  PhBrain,
   PhCode,
   PhBookOpenText,
   PhTranslate,
@@ -23,6 +24,7 @@ import ModelPicker from '@/components/chat/ModelPicker.vue'
 import MessageList from '@/components/chat/MessageList.vue'
 import MessageInput from '@/components/chat/MessageInput.vue'
 import CreditBalance from '@/components/chat/CreditBalance.vue'
+import ShareButton from '@/components/chat/ShareButton.vue'
 import type { UploadedFile } from '@/api/files'
 import { useChatStream } from '@/composables/useChatStream'
 import { useNewChatSignal } from '@/composables/useNewChatSignal'
@@ -391,6 +393,10 @@ function useSuggestedPrompt(text: string): void {
       </div>
 
       <div class="ms-auto flex items-center gap-1">
+        <ShareButton
+          v-if="resolvedId()"
+          :conversation-id="resolvedId() || ''"
+        />
         <CreditBalance />
 
         <button

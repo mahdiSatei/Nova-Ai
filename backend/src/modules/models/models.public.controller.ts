@@ -34,11 +34,13 @@ export class ModelsPublicController {
     displayName: string;
     isDefault: boolean;
     reasoning: { supported: boolean; output: 'none' | 'summary'; streaming: boolean };
+    providerName: string | null;
   } {
     return {
       id: model.id,
       displayName: model.displayName,
       isDefault: model.isDefault,
+      providerName: model.provider?.name ?? null,
       // Effective capability only — never the raw discovered/manual snapshot.
       reasoning: toPublicReasoning(
         resolveReasoningConfig(readStoredReasoningConfig(model.reasoningConfig)),

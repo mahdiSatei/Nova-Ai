@@ -61,7 +61,6 @@ const routes: RouteRecordRaw[] = [
     name: 'shared-chat',
     component: () => import('@/views/SharedChatView.vue'),
     props: true,
-    meta: { guestOnly: true },
   },
 
   { path: '/forbidden', name: 'forbidden', component: () => import('@/views/ForbiddenView.vue') },

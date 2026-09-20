@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { PhCheckCircle, PhXCircle, PhSpinner } from '@phosphor-icons/vue'
+import { useWalletStore } from '@/stores/wallet'
 
 const route = useRoute()
 const router = useRouter()
+const wallet = useWalletStore()
+
+onMounted(() => {
+  if (status.value === 'success') void wallet.refresh()
+})
 
 const status = computed(() => (route.query.status as string) ?? 'unknown')
 

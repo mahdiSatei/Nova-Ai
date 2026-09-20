@@ -1,4 +1,5 @@
 import { request } from '@/api/http'
+import type { CitationSource } from '@/types/api'
 
 export interface ShareSnapshotResult {
   shareId: string
@@ -12,7 +13,7 @@ export interface SharedSnapshotMessage {
   role: 'user' | 'assistant'
   content: string
   createdAt: string
-  citations: unknown[]
+  citations: CitationSource[]
   reasoningSummary: string | null
   file: { id: string; originalName: string; mimeType: string; size: number } | null
 }

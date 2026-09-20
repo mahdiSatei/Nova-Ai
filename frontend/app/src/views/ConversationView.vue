@@ -7,6 +7,7 @@ import { PhArrowRight, PhWarningCircle } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import MessageList from '@/components/chat/MessageList.vue'
+import ShareButton from '@/components/chat/ShareButton.vue'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
 import { getConversation } from '@/api/conversations'
@@ -108,6 +109,8 @@ function onContinue(): void {
             </span>
           </p>
         </div>
+
+        <ShareButton :conversation-id="conversation.id" />
       </header>
 
       <div

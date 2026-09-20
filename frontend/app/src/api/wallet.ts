@@ -1,5 +1,9 @@
 import { request } from '@/api/http'
-import type { PaymentHistoryList, PaymentHistoryItem } from '@/types/api'
+import type { PaymentHistoryList, PaymentHistoryItem, WalletBalance } from '@/types/api'
+
+export function getWalletBalance(): Promise<WalletBalance> {
+  return request<WalletBalance>('/v1/wallet')
+}
 
 export function getMyPayments(query: {
   status?: string

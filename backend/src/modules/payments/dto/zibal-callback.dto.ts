@@ -12,4 +12,13 @@ export class ZibalCallbackDto {
   @IsOptional()
   @IsIn(['0', '1'])
   success?: string;
+
+  /** Some Zibal-compatible gateways also echo these fields on the callback. */
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @IsOptional()
+  @IsString()
+  orderId?: string;
 }

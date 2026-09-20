@@ -102,6 +102,7 @@ export class ModelsService {
   async listEnabled(): Promise<Model[]> {
     return this.repo.find({
       where: { enabled: true },
+      relations: ['provider'],
       order: { displayName: 'ASC' },
     });
   }

@@ -66,6 +66,7 @@ export interface ReasoningCapability {
 export interface ModelPublic {
   id: string
   displayName: string
+  providerName?: string | null
   isDefault: boolean
   reasoning?: ReasoningCapability
 }
@@ -364,6 +365,7 @@ export interface WalletBalance {
 
 export interface PaymentHistoryItem {
   id: string
+  userId: string
   purchaseId: string
   status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'CANCELLED'
   provider: string

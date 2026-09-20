@@ -70,12 +70,14 @@ describe('ModelsPublicController', () => {
             id: 'm1',
             displayName: 'GPT-4o',
             isDefault: true,
+            providerName: null,
             reasoning: { supported: true, output: 'summary', streaming: true },
           },
           {
             id: 'm2',
             displayName: 'GPT-4o mini',
             isDefault: false,
+            providerName: null,
             // Unknown capability narrows to "unsupported with no output".
             reasoning: { supported: false, output: 'none', streaming: false },
           },
