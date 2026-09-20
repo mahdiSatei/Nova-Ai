@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { PhPlugsConnected } from '@phosphor-icons/vue'
 import ProviderList from '@/components/admin/ProviderList.vue'
-import ProviderForm from '@/components/admin/ProviderForm.vue'
+import ProviderFormModal from '@/components/admin/ProviderFormModal.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import { listProviders } from '@/api/admin'
 import { ApiError } from '@/api/http'
@@ -60,9 +60,10 @@ function onSaved(): void {
         @create-provider="showCreateForm = true"
       />
 
-      <div v-if="showCreateForm" class="mt-6">
-        <ProviderForm @saved="onSaved" @cancel="showCreateForm = false" />
-      </div>
+      <ProviderFormModal
+        v-model:open="showCreateForm"
+        @saved="onSaved"
+      />
     </template>
   </section>
 </template>

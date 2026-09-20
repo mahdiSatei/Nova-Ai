@@ -47,6 +47,10 @@ export function deleteProvider(id: string): Promise<void> {
   return request<void>(`/v1/admin/providers/${id}`, { method: 'DELETE' })
 }
 
+export function validateProvider(id: string): Promise<ProviderAdmin> {
+  return request<ProviderAdmin>(`/v1/admin/providers/${id}/validate`, { method: 'POST' })
+}
+
 // ── API Keys ─────────────────────────────────────────────────────────────
 
 export function listApiKeys(providerId: string): Promise<ApiKeyAdmin[]> {
