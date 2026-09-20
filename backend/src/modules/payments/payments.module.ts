@@ -9,9 +9,10 @@ import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { WalletModule } from '../wallet/wallet.module';
 import { AuditModule } from '../audit/audit.module';
+import { User } from '../users/entities/user.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Payment, CreditPurchase]), WalletModule, AuditModule],
+  imports: [TypeOrmModule.forFeature([Payment, CreditPurchase, User]), WalletModule, AuditModule],
   controllers: [PaymentsController, PaymentsAdminController],
   providers: [
     PaymentsService,

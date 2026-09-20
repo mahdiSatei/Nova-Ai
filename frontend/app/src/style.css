@@ -204,13 +204,36 @@ html {
 }
 
 .page-enter-active,
-.page-leave-active {
-  transition: opacity 180ms ease, transform 180ms ease;
+.page-leave-active,
+.admin-page-enter-active,
+.admin-page-leave-active {
+  transition: opacity 220ms ease, transform 220ms cubic-bezier(0.22, 1, 0.36, 1), filter 220ms ease;
 }
 .page-enter-from,
-.page-leave-to {
+.page-leave-to,
+.admin-page-enter-from,
+.admin-page-leave-to {
   opacity: 0;
-  transform: translateY(5px);
+  transform: translateY(7px) scale(0.992);
+  filter: blur(2px);
+}
+
+.admin-nav-link::before {
+  position: absolute;
+  inset-inline-start: 0.35rem;
+  top: 50%;
+  width: 3px;
+  height: 0;
+  border-radius: 999px;
+  background: var(--app-primary);
+  content: '';
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: height 200ms ease, opacity 200ms ease;
+}
+.admin-nav-link.router-link-active::before {
+  height: 1.4rem;
+  opacity: 1;
 }
 html.light {
   color-scheme: light;

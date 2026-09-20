@@ -392,6 +392,7 @@ export interface WalletBalance {
 export interface PaymentHistoryItem {
   id: string
   userId: string
+  userEmail?: string | null
   purchaseId: string
   status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'CANCELLED'
   provider: string

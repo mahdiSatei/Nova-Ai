@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { PhCreditCard, PhSpinner } from '@phosphor-icons/vue'
+import { PhCheck, PhCopy, PhCreditCard, PhSpinner } from '@phosphor-icons/vue'
 import { listAdminPayments, reconcilePayment } from '@/api/admin'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
@@ -10,6 +10,8 @@ const payments = ref<PaymentHistoryItem[]>([])
 const loading = ref(false)
 const error = ref<ApiError | null>(null)
 const totalPayments = ref(0)
+const copiedPaymentId = ref<string | null>(null)
+let copyResetTimer: ReturnType<typeof setTimeout> | null = null
 
 const pageSize = 20
 const page = ref(1)
@@ -30,7 +32,7 @@ async function load(): Promise<void> {
   error.value = null
   try {
     const result = await listAdminPayments({ limit: pageSize, offset: offset.value })
-    payments.value = result.items as PaymentHistoryItem[]
+    payments.value = result.items
     totalPayments.value = result.total
   } catch (err) {
     error.value = err instanceof ApiError ? err : new ApiError(0, null, 'خطا در بارگذاری')
@@ -74,6 +76,20 @@ function formatAmount(toman: number): string {
   return toman.toLocaleString('fa-IR')
 }
 
+async function copyPaymentId(id: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(id)
+    copiedPaymentId.value = id
+    if (copyResetTimer) clearTimeout(copyResetTimer)
+    copyResetTimer = setTimeout(() => {
+      copiedPaymentId.value = null
+      copyResetTimer = null
+    }, 1800)
+  } catch {
+    error.value = new ApiError(0, null, 'کپی شناسه پرداخت انجام نشد.')
+  }
+}
+
 const total = totalPayments
 </script>
 
@@ -101,7 +117,7 @@ const total = totalPayments
           <tr class="border-b border-line text-start text-xs text-ink-muted">
             <th class="px-4 py-3 font-medium">تاریخ</th>
             <th class="px-4 py-3 font-medium">شناسه پرداخت</th>
-            <th class="px-4 py-3 font-medium">شناسه کاربر</th>
+            <th class="px-4 py-3 font-medium">ایمیل کاربر</th>
             <th class="px-4 py-3 font-medium">مبلغ</th>
             <th class="px-4 py-3 font-medium">وضعیت</th>
             <th class="px-4 py-3 font-medium">عملیات</th>
@@ -110,8 +126,22 @@ const total = totalPayments
         <tbody>
           <tr v-for="p in payments" :key="p.id" class="border-b border-line/50 transition-colors hover:bg-hover/50">
             <td class="whitespace-nowrap px-4 py-2.5 text-ink-muted">{{ formatDate(p.createdAt) }}</td>
-            <td class="px-4 py-2.5 font-mono text-xs text-ink-muted">{{ p.id.slice(0, 8) }}...</td>
-            <td class="px-4 py-2.5 font-mono text-xs text-ink-muted">{{ p.userId }}</td>
+            <td class="px-4 py-2.5">
+              <div class="flex items-center gap-1.5" dir="ltr">
+                <code class="max-w-32 truncate font-mono text-xs text-ink-muted" :title="p.id">{{ p.id }}</code>
+                <button
+                  type="button"
+                  class="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-soft hover:text-primary"
+                  :aria-label="copiedPaymentId === p.id ? 'شناسه کپی شد' : 'کپی شناسه پرداخت'"
+                  :title="copiedPaymentId === p.id ? 'کپی شد' : 'کپی شناسه پرداخت'"
+                  @click="copyPaymentId(p.id)"
+                >
+                  <PhCheck v-if="copiedPaymentId === p.id" class="size-3.5 text-success" aria-hidden="true" />
+                  <PhCopy v-else class="size-3.5" aria-hidden="true" />
+                </button>
+              </div>
+            </td>
+            <td class="px-4 py-2.5 text-xs text-ink" dir="ltr">{{ p.userEmail ?? '—' }}</td>
             <td class="px-4 py-2.5 text-ink">{{ formatAmount(p.amountToman) }} تومان</td>
             <td class="px-4 py-2.5">
               <span

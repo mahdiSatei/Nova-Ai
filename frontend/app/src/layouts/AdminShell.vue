@@ -54,12 +54,12 @@ async function onSignOut(): Promise<void> {
         <span>پنل مدیریت</span>
       </div>
 
-      <nav class="flex flex-col gap-1 p-3" aria-label="ناوبری مدیر">
+      <nav class="relative flex flex-col gap-1 p-3" aria-label="ناوبری مدیر">
         <RouterLink
           v-for="item in nav"
           :key="item.label"
           :to="item.to"
-          class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-muted transition-colors hover:bg-elevated hover:text-ink [&.router-link-active]:bg-primary/15 [&.router-link-active]:text-ink"
+          class="admin-nav-link group relative flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-ink-muted transition-[color,background-color,transform,box-shadow] duration-200 hover:-translate-x-0.5 hover:bg-elevated hover:text-ink [&.router-link-active]:bg-primary/15 [&.router-link-active]:text-ink [&.router-link-active]:shadow-sm"
         >
           <component :is="item.icon" class="size-4" aria-hidden="true" />
           {{ item.label }}
@@ -127,7 +127,13 @@ async function onSignOut(): Promise<void> {
 
       <div class="flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-10">
         <div class="mx-auto w-full max-w-4xl">
-          <RouterView />
+          <Transition
+            name="admin-page"
+            mode="out-in"
+            appear
+          >
+            <RouterView />
+          </Transition>
         </div>
       </div>
     </main>

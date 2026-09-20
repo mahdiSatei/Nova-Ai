@@ -10,6 +10,7 @@ import type {
   ModelUpsertRequest,
   ProviderAdmin,
   ProviderUpdateRequest,
+  PaymentHistoryItem,
   UsageReport,
 } from '@/types/api'
 
@@ -187,8 +188,10 @@ export function listAdminPayments(query: {
   userId?: string
   limit?: number
   offset?: number
-} = {}): Promise<{ items: unknown[]; total: number }> {
-  return request('/v1/admin/payments', { query: { ...query } })
+} = {}): Promise<{ items: PaymentHistoryItem[]; total: number }> {
+  return request<{ items: PaymentHistoryItem[]; total: number }>('/v1/admin/payments', {
+    query: { ...query },
+  })
 }
 
 export function listAdminCreditPurchases(query: {

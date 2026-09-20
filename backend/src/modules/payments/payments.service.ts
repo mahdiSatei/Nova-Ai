@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Inject,
+  Optional,
   Injectable,
   Logger,
   NotFoundException,
@@ -8,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { CreditPurchase } from './entities/credit-purchase.entity';
 import { Payment } from './entities/payment.entity';
 import {
@@ -23,6 +24,7 @@ import {
 } from './payment-status';
 import { WalletService } from '../wallet/wallet.service';
 import { AuditService } from '../audit/audit.service';
+import { User } from '../users/entities/user.entity';
 
 /** Upper bound on a single purchase, so a typo cannot create a 100M-Toman bill. */
 export const MAX_AMOUNT_TOMAN = 500_000_000;
@@ -48,6 +50,7 @@ export interface CreatePurchaseResult {
 export interface PaymentView {
   id: string;
   userId: string;
+  userEmail: string | null;
   purchaseId: string;
   status: PaymentStatus;
   provider: string;
@@ -108,6 +111,7 @@ export class PaymentsService {
     private readonly config: ConfigService,
     private readonly dataSource: DataSource,
     private readonly audit: AuditService,
+    @Optional() @InjectRepository(User) private readonly usersRepo?: Repository<User>,
   ) {}
 
   async createPurchase(userId: string, credits: number): Promise<CreatePurchaseResult> {
@@ -394,7 +398,8 @@ export class PaymentsService {
       take: query.limit,
       skip: query.offset,
     });
-    return { items: rows.map((row) => this.toView(row)), total };
+    const userEmail = await this.findUserEmail(userId);
+    return { items: rows.map((row) => this.toView(row, userEmail)), total };
   }
 
   async listPaymentsForAdmin(query: ListAdminQuery): Promise<Paginated<PaymentView>> {
@@ -407,7 +412,11 @@ export class PaymentsService {
       take: query.limit,
       skip: query.offset,
     });
-    return { items: rows.map((row) => this.toView(row)), total };
+    const emails = await this.findUserEmails(rows.map((row) => row.userId));
+    return {
+      items: rows.map((row) => this.toView(row, emails.get(row.userId) ?? null)),
+      total,
+    };
   }
 
   async listPurchasesForAdmin(
@@ -438,10 +447,25 @@ export class PaymentsService {
     };
   }
 
-  private toView(payment: Payment): PaymentView {
+  private async findUserEmail(userId: string): Promise<string | null> {
+    if (!this.usersRepo) return null;
+    const user = await this.usersRepo.findOne({ where: { id: userId } });
+    return user?.email ?? null;
+  }
+
+  private async findUserEmails(userIds: string[]): Promise<Map<string, string>> {
+    const uniqueIds = [...new Set(userIds)];
+    if (uniqueIds.length === 0) return new Map();
+    if (!this.usersRepo) return new Map();
+    const users = await this.usersRepo.find({ where: { id: In(uniqueIds) } });
+    return new Map(users.map((user) => [user.id, user.email]));
+  }
+
+  private toView(payment: Payment, userEmail: string | null = null): PaymentView {
     return {
       id: payment.id,
       userId: payment.userId,
+      userEmail,
       purchaseId: payment.creditPurchaseId,
       status: payment.status,
       provider: payment.provider,
