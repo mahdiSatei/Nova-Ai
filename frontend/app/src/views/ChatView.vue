@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // ChatView: صفحه اصلی چت — استریم‌محور با Markdown.
 // states per FR-015 + BR-014: empty / no-models / streaming / error / success.
-import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   PhArrowsClockwise,
@@ -19,13 +19,14 @@ import {
   PhFlask,
   PhTerminal,
 } from '@phosphor-icons/vue'
-import ErrorBanner from '@/components/ui/ErrorBanner.vue'
+import ErrorToast from '@/components/ui/ErrorToast.vue'
 import ModelPicker from '@/components/chat/ModelPicker.vue'
 import MessageList from '@/components/chat/MessageList.vue'
 import MessageInput from '@/components/chat/MessageInput.vue'
 import CreditBalance from '@/components/chat/CreditBalance.vue'
 import ShareButton from '@/components/chat/ShareButton.vue'
 import type { UploadedFile } from '@/api/files'
+import { ApiError } from '@/api/http'
 import { useChatStream } from '@/composables/useChatStream'
 import { useNewChatSignal } from '@/composables/useNewChatSignal'
 import { useTheme } from '@/composables/useTheme'
@@ -45,6 +46,39 @@ const auth = useAuthStore()
 const theme = useTheme()
 
 const inputText = ref('')
+
+const errorToast = ref<string | null>(null)
+let errorToastTimer: ReturnType<typeof setTimeout> | null = null
+
+function showErrorToast(message: string): void {
+  if (errorToastTimer) clearTimeout(errorToastTimer)
+  errorToast.value = message
+  errorToastTimer = setTimeout(() => {
+    errorToast.value = null
+    errorToastTimer = null
+  }, 5000)
+}
+
+function closeErrorToast(): void {
+  if (errorToastTimer) clearTimeout(errorToastTimer)
+  errorToast.value = null
+  errorToastTimer = null
+}
+
+watch(
+  () => [models.error, chat.connectionError.value],
+  ([modelError, connectionError]) => {
+    if (connectionError) {
+      showErrorToast(connectionError.message)
+    } else if (modelError instanceof ApiError) {
+      showErrorToast(apiErrorMessage(modelError))
+    }
+  },
+)
+
+onBeforeUnmount(() => {
+  if (errorToastTimer) clearTimeout(errorToastTimer)
+})
 
 // فایل پیوست‌شده‌ی آماده برای پیام بعدی (شناسه‌اش همراه متن ارسال می‌شود).
 const attachedFile = ref<UploadedFile | null>(null)
@@ -299,6 +333,15 @@ function useSuggestedPrompt(text: string): void {
   <section class="flex min-h-0 flex-1 flex-col py-2 sm:py-3">
     <!-- هدر شناور: چیپ وضعیت + مدل + ابزارها -->
     <header class="flex h-11 shrink-0 items-center gap-2 px-1">
+      <!-- Toast خطاها -->
+      <div class="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4">
+        <ErrorToast
+          v-if="errorToast"
+          :message="errorToast"
+          @close="closeErrorToast"
+        />
+      </div>
+
       <!-- Connection status banner -->
       <div
         v-if="chat.connectionState.value !== 'connected'"
@@ -485,32 +528,6 @@ function useSuggestedPrompt(text: string): void {
         </div>
 
         <template v-else>
-          <!-- error model load -->
-          <div
-            v-if="models.error"
-            class="mx-auto max-w-3xl py-4"
-          >
-            <ErrorBanner
-              :message="apiErrorMessage(models.error)"
-              :code="models.error.code"
-              :request-id="models.error.requestId"
-              :show-code="true"
-            />
-          </div>
-
-          <!-- خطای اتصال یا استریم داخل فید -->
-          <div
-            v-if="chat.connectionError.value"
-            class="mx-auto max-w-3xl"
-          >
-            <ErrorBanner
-              :message="chat.connectionError.value.message"
-              :code="chat.connectionError.value.code"
-              :show-code="true"
-            />
-
-          </div>
-
           <MessageList
             :messages="chat.transcript.value"
             :generation="chat.generation.value"

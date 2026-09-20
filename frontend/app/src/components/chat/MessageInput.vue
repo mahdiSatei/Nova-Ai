@@ -41,6 +41,7 @@ const emit = defineEmits<{
   'toggle:reasoning': []
   submit: []
   stop: []
+  error: [message: string]
 }>()
 
 const textarea = ref<HTMLTextAreaElement | null>(null)
@@ -81,6 +82,7 @@ function startPollingStatus(fileId: string): void {
         props.attachment.status = res.status
         if (res.errorMessage) {
           props.attachment.errorMessage = res.errorMessage
+          emit('error', res.errorMessage)
         }
         // اگر پردازش تمام شد یا خطا داد، پولینگ متوقف شود
         if (res.status === 'READY' || res.status === 'FAILED') {
@@ -143,6 +145,7 @@ async function handleFile(file: File | undefined): Promise<void> {
     validateLocalFile(file)
   } catch (err) {
     uploadError.value = err instanceof Error ? err.message : 'فایل نامعتبر است.'
+    emit('error', uploadError.value)
     if (fileInput.value) fileInput.value.value = ''
     return
   }
@@ -155,6 +158,7 @@ async function handleFile(file: File | undefined): Promise<void> {
     startPollingStatus(uploaded.id)
   } catch (err) {
     uploadError.value = err instanceof Error && err.message ? err.message : 'آپلود فایل ناموفق بود.'
+    emit('error', uploadError.value)
   } finally {
     uploading.value = false
     if (fileInput.value) fileInput.value.value = ''
@@ -190,11 +194,6 @@ onBeforeUnmount(() => {
 
 <template>
   <form @submit.prevent="onSubmitClick">
-    <!-- خطای اعتبارسنجی اولیه -->
-    <p v-if="uploadError" class="mb-1.5 px-2 text-xs text-warning">
-      {{ uploadError }}
-    </p>
-
     <!-- چیپ فایل پیوست‌شده با وضعیت‌های مختلف -->
     <div
       v-if="hasAttachment"
