@@ -102,7 +102,7 @@ onMounted(() => {
     </div>
 
     <!-- جدول فایل‌ها -->
-    <div class="overflow-hidden rounded-xl border border-line bg-surface shadow-xs">
+    <div class="max-h-[32rem] overflow-auto rounded-xl border border-line bg-surface shadow-xs">
       <table class="w-full border-collapse text-right">
         <thead>
           <tr class="border-b border-line bg-elevated text-xs font-semibold text-ink-muted uppercase tracking-wider">

@@ -111,6 +111,7 @@ export class UsageService {
       .addSelect('COALESCE(SUM(u.completion_tokens), 0)', 'outputTokens')
       .addSelect('COALESCE(SUM(u.reasoning_tokens), 0)', 'reasoningTokens')
       .addSelect('COALESCE(SUM(u.total_tokens), 0)', 'totalTokens')
+      .addSelect('COALESCE(SUM(u.charged_cost), 0)', 'chargedCost')
       .addSelect('COALESCE(SUM(u.charged_credits), 0)', 'chargedCredits')
       .addSelect('COUNT(*)', 'requestCount')
       .where('u.userId = :userId', { userId })
@@ -130,7 +131,9 @@ export class UsageService {
         outputTokens: Number(totals?.outputTokens ?? 0),
         reasoningTokens: Number(totals?.reasoningTokens ?? 0),
         totalTokens: Number(totals?.totalTokens ?? 0),
-        chargedCredits: Number(totals?.chargedCredits ?? 0),
+        chargedCost: Number(totals?.chargedCost ?? 0),
+        // This is the amount actually deducted from the wallet, not a Toman estimate.
+        deductedCredits: Number(totals?.chargedCredits ?? 0),
         requestCount: Number(totals?.requestCount ?? 0),
       },
       recent: recent.map((record) => ({
@@ -140,7 +143,9 @@ export class UsageService {
         outputTokens: record.completionTokens,
         reasoningTokens: record.reasoningTokens ?? 0,
         totalTokens: record.totalTokens,
-        chargedCredits: Number(record.chargedCredits),
+        chargedCost: Number(record.chargedCost),
+        // Usage records store the post-deduction value in chargedCredits.
+        deductedCredits: Number(record.chargedCredits),
         createdAt: record.createdAt.toISOString(),
       })),
     };

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { PhSpinner, PhMagnifyingGlass } from '@phosphor-icons/vue'
+import { PhDownloadSimple, PhSpinner, PhMagnifyingGlass } from '@phosphor-icons/vue'
 import { listAuditLogs } from '@/api/audit'
 import type { AuditLogEntry } from '@/types/api'
 import { ApiError } from '@/api/http'
@@ -10,6 +10,7 @@ const items = ref<AuditLogEntry[]>([])
 const total = ref(0)
 const loading = ref(false)
 const error = ref<ApiError | null>(null)
+const exporting = ref(false)
 
 const pageSize = 20
 const page = ref(1)
@@ -51,15 +52,72 @@ const RESULT_LABELS: Record<string, string> = {
   system: 'سیستمی',
 }
 
+function currentQuery() {
+  return {
+    ...(actionFilter.value ? { action: actionFilter.value } : {}),
+    ...(targetTypeFilter.value ? { targetType: targetTypeFilter.value } : {}),
+    ...(fromFilter.value ? { from: fromFilter.value } : {}),
+    ...(toFilter.value ? { to: toFilter.value } : {}),
+  }
+}
+
+function csvCell(value: unknown): string {
+  const text = String(value ?? '').replaceAll('"', '""')
+  return `"${text}"`
+}
+
+async function exportLogs(): Promise<void> {
+  exporting.value = true
+  error.value = null
+  try {
+    const exportPageSize = 100
+    const exported: AuditLogEntry[] = []
+    let exportOffset = 0
+    let exportTotal = 0
+
+    do {
+      const result = await listAuditLogs({
+        ...currentQuery(),
+        limit: exportPageSize,
+        offset: exportOffset,
+      })
+      exported.push(...result.items)
+      exportTotal = result.total
+      exportOffset += result.items.length
+      if (result.items.length === 0) break
+    } while (exported.length < exportTotal)
+
+    const rows = [
+      ['زمان', 'عملیات', 'هدف', 'شناسه هدف', 'نتیجه', 'جزئیات'],
+      ...exported.map((item) => [
+        formatDateTime(item.createdAt),
+        ACTION_LABELS[item.action] ?? item.action,
+        item.targetType,
+        item.targetId ?? '',
+        RESULT_LABELS[item.result] ?? item.result,
+        formatMeta(item.metadata),
+      ]),
+    ]
+    const csv = `\uFEFF${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}`
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    error.value = err instanceof ApiError ? err : new ApiError(0, null, 'خروجی گرفتن از گزارش انجام نشد.')
+  } finally {
+    exporting.value = false
+  }
+}
+
 async function load(): Promise<void> {
   loading.value = true
   error.value = null
   try {
     const result = await listAuditLogs({
-      ...(actionFilter.value ? { action: actionFilter.value } : {}),
-      ...(targetTypeFilter.value ? { targetType: targetTypeFilter.value } : {}),
-      ...(fromFilter.value ? { from: fromFilter.value } : {}),
-      ...(toFilter.value ? { to: toFilter.value } : {}),
+      ...currentQuery(),
       limit: pageSize,
       offset: offset.value,
     })
@@ -172,6 +230,15 @@ function formatMeta(meta: Record<string, unknown>): string {
         <PhMagnifyingGlass class="size-3" />
         جستجو
       </button>
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-elevated disabled:cursor-wait disabled:opacity-50"
+        :disabled="exporting"
+        @click="exportLogs"
+      >
+        <PhDownloadSimple class="size-3" :class="{ 'animate-bounce': exporting }" />
+        {{ exporting ? 'در حال آماده‌سازی…' : 'خروجی CSV' }}
+      </button>
     </div>
 
     <!-- Error -->
@@ -185,7 +252,7 @@ function formatMeta(meta: Record<string, unknown>): string {
     </div>
 
     <!-- Table -->
-    <div v-else-if="items.length > 0" class="overflow-x-auto rounded-xl border border-line bg-surface">
+    <div v-else-if="items.length > 0" class="max-h-[32rem] overflow-auto rounded-xl border border-line bg-surface">
       <table class="w-full text-sm">
         <thead>
           <tr class="border-b border-line text-start text-xs text-ink-muted">

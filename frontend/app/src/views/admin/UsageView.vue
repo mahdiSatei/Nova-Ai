@@ -149,7 +149,7 @@ watch(filters, () => { page.value = 0; fetchData() }, { deep: true })
 
     <!-- Data Table -->
     <BaseCard v-else-if="data" class="overflow-hidden p-0">
-      <div class="overflow-x-auto">
+      <div class="max-h-[32rem] overflow-auto">
         <table class="w-full text-sm">
           <thead class="border-b border-line bg-surface">
             <tr>

@@ -139,7 +139,7 @@ const isEmpty = computed(() => !initialLoading.value && filteredItems.value.leng
     />
 
     <!-- جدول کاربران -->
-    <div v-else class="overflow-hidden rounded-xl border border-line bg-surface shadow-xs">
+    <div v-else class="max-h-[32rem] overflow-auto rounded-xl border border-line bg-surface shadow-xs">
       <table class="w-full border-collapse text-right text-sm">
         <thead>
           <tr class="border-b border-line bg-elevated text-xs font-semibold text-ink-muted uppercase tracking-wide">

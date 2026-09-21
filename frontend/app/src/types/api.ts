@@ -336,7 +336,10 @@ export interface UserUsageSummary {
     outputTokens: number
     reasoningTokens: number
     totalTokens: number
-    chargedCredits: number
+    /** Total cost charged in Toman. */
+    chargedCost: number
+    /** Credits actually deducted from the wallet, not a Toman conversion. */
+    deductedCredits: number
     requestCount: number
   }
   recent: Array<{
@@ -346,7 +349,9 @@ export interface UserUsageSummary {
     outputTokens: number
     reasoningTokens: number
     totalTokens: number
-    chargedCredits: number
+    chargedCost: number
+    /** Credits actually deducted from the wallet for this request. */
+    deductedCredits: number
     createdAt: string
   }>
 }

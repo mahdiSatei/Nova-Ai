@@ -111,7 +111,7 @@ const total = totalPayments
     </div>
 
     <!-- Payments Table -->
-    <div v-else-if="payments.length > 0" class="table-shell animate-fade-slide-in overflow-x-auto">
+    <div v-else-if="payments.length > 0" class="table-shell animate-fade-slide-in max-h-[32rem] !overflow-auto">
       <table class="w-full text-sm">
         <thead>
           <tr class="border-b border-line text-start text-xs text-ink-muted">

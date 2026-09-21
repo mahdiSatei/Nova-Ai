@@ -2,7 +2,7 @@
 // ChatView: صفحه اصلی چت — استریم‌محور با Markdown.
 // states per FR-015 + BR-014: empty / no-models / streaming / error / success.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   PhArrowsClockwise,
   PhSparkle,
@@ -16,6 +16,7 @@ import {
   PhSun,
   PhLightbulb,
   PhCalculator,
+  PhChartDonut,
   PhFlask,
   PhTerminal,
 } from '@phosphor-icons/vue'
@@ -33,6 +34,8 @@ import { useTheme } from '@/composables/useTheme'
 import { useModelsStore } from '@/stores/models'
 import { useAuthStore } from '@/stores/auth'
 import { apiErrorMessage } from '@/utils/errors'
+import { getMyUsageSummary } from '@/api/usage'
+import type { UserUsageSummary } from '@/types/api'
 
 const { tick: newChatTick } = useNewChatSignal()
 
@@ -46,6 +49,22 @@ const auth = useAuthStore()
 const theme = useTheme()
 
 const inputText = ref('')
+const usageSummary = ref<UserUsageSummary | null>(null)
+
+const outputTokenPercentage = computed(() => {
+  const totals = usageSummary.value?.totals
+  if (!totals?.totalTokens) return 0
+  return Math.round((totals.outputTokens / totals.totalTokens) * 100)
+})
+
+async function loadUsageSummary(): Promise<void> {
+  if (auth.isAdmin) return
+  try {
+    usageSummary.value = await getMyUsageSummary()
+  } catch {
+    // The usage badge is supplementary; it must not affect the chat experience.
+  }
+}
 
 const errorToast = ref<string | null>(null)
 let errorToastTimer: ReturnType<typeof setTimeout> | null = null
@@ -199,6 +218,7 @@ onMounted(async () => {
   refreshWelcomeState()
 
   await models.load(true)
+  void loadUsageSummary()
 
   if (!chat.selectedModelId.value) {
     const fallback = models.defaultModelId ?? models.items[0]?.id ?? null
@@ -309,6 +329,7 @@ async function onSubmit(): Promise<void> {
     fileId,
     file: fileToAttach,
   })
+  void loadUsageSummary()
 }
 
 async function onStop(): Promise<void> {
@@ -436,6 +457,15 @@ function useSuggestedPrompt(text: string): void {
       </div>
 
       <div class="ms-auto flex items-center gap-1">
+        <RouterLink
+          v-if="!auth.isAdmin && usageSummary"
+          to="/chat/dashboard"
+          class="hidden items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-ink-muted transition-colors hover:bg-hover hover:text-ink sm:inline-flex"
+          title="مشاهده گزارش مصرف"
+        >
+          <PhChartDonut class="size-3.5 text-primary" aria-hidden="true" />
+          <span>مصرف {{ outputTokenPercentage }}٪</span>
+        </RouterLink>
         <ShareButton
           v-if="resolvedId()"
           :conversation-id="resolvedId() || ''"

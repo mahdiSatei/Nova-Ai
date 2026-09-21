@@ -76,7 +76,7 @@ async function toggleActive(provider: ProviderAdmin): Promise<void> {
     </div>
 
     <!-- جدول ساده و تمیز بدون به‌هم‌ریختگی -->
-    <div class="overflow-x-auto rounded-card border border-line bg-surface">
+    <div class="max-h-[32rem] overflow-auto rounded-card border border-line bg-surface">
       <table class="w-full text-sm">
         <thead>
           <tr class="border-b border-line bg-elevated/40 text-xs uppercase tracking-wide text-ink-muted">
