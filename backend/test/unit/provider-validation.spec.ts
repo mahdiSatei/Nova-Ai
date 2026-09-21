@@ -24,7 +24,7 @@ describe('provider validation deadline', () => {
     });
     const repo = {
       findOne: jest.fn().mockResolvedValue({
-        id: 'test-provider', type: 'openai-compatible',
+        id: 'test-provider', type: 'custom-openai-compatible',
         baseUrl: 'https://provider.example/v1', apiKeyEncrypted: 'test-ciphertext',
       }),
       save: jest.fn(),

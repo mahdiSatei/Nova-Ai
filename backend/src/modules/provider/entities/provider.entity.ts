@@ -8,7 +8,7 @@ import {
 } from 'typeorm';
 import { ProviderApiKey } from './provider-api-key.entity';
 
-export type ProviderType = 'openai-compatible';
+export type ProviderType = 'openai-compatible' | 'custom-openai-compatible';
 
 @Entity({ name: 'providers' })
 export class Provider {

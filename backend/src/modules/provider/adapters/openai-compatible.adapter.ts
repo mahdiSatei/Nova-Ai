@@ -40,7 +40,8 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
   private readonly logger = new Logger(OpenAICompatibleAdapter.name);
 
   supports(type: ProviderType): boolean {
-    return type === 'openai-compatible';
+    // Existing deployments persisted this adapter under the custom alias.
+    return type === 'openai-compatible' || type === 'custom-openai-compatible';
   }
 
   async validate(provider: Provider): Promise<void> {

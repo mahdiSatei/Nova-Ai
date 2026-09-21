@@ -1,7 +1,7 @@
 import { IsString, IsUrl, IsEnum, MaxLength, MinLength, Matches } from 'class-validator';
 
 export const PROVIDER_ID_PATTERN = /^[a-z0-9-]+$/;
-export const PROVIDER_TYPES = ['openai-compatible'] as const;
+export const PROVIDER_TYPES = ['openai-compatible', 'custom-openai-compatible'] as const;
 export type ProviderType = typeof PROVIDER_TYPES[number];
 
 export class CreateProviderDto {
