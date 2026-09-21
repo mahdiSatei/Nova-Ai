@@ -7,7 +7,7 @@ NestJS 10 backend for a multi-model chatbot. Provides user auth (JWT), model bro
 - Node.js 20 LTS
 - npm 10+
 - OpenSSL (for generating secrets)
-- SQLite (bundled via `sqlite3`; PostgreSQL supported for production)
+- PostgreSQL 14+
 
 ## Quick Start
 
@@ -28,8 +28,11 @@ JWT_SECRET=$JWT_SECRET
 JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET
 JWT_ACCESS_TTL=15m
 JWT_REFRESH_TTL=7d
-DB_DRIVER=sqlite
-SQLITE_FILE=./data/app.sqlite
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+POSTGRES_DB=chatbot_db
 LOG_LEVEL=info
 LOG_DIR=./logs
 PROVIDER_ENCRYPTION_KEY=$PROVIDER_ENCRYPTION_KEY
@@ -117,8 +120,6 @@ See `validateEnv()` in `src/config/env.validation.ts` for the full list. Key var
 | `JWT_REFRESH_SECRET` | *(required)* | HS256 signing secret for refresh tokens |
 | `JWT_ACCESS_TTL` | 15m | Access token TTL |
 | `JWT_REFRESH_TTL` | 7d | Refresh token TTL |
-| `DB_DRIVER` | sqlite | `sqlite` or `postgres` |
-| `SQLITE_FILE` | ./data/app.sqlite | SQLite file path |
 | `POSTGRES_URL` | *(empty)* | Full PostgreSQL connection URL (alternative to individual vars below) |
 | `POSTGRES_HOST` | localhost | PostgreSQL host |
 | `POSTGRES_PORT` | 5432 | PostgreSQL port |
@@ -128,6 +129,18 @@ See `validateEnv()` in `src/config/env.validation.ts` for the full list. Key var
 | `LOG_LEVEL` | info | Pino log level |
 | `LOG_DIR` | ./logs | Log file directory |
 | `PROVIDER_ENCRYPTION_KEY` | *(required)* | AES-256-GCM key for encrypting the provider API key |
+| `SERPEX_API_KEY` | *(empty)* | Serpex key for the Web Search tool. Optional; unset disables web search. Backend-only — never sent to the frontend. |
+| `SERPEX_API_URL` | https://api.serpex.dev | Serpex API base URL |
+
+## Web Search (Phase 7)
+
+Chat requests may set `webSearch: true` to let the assistant call a
+server-side `web_search` tool. Search runs through a provider-independent
+`WebSearchProvider`; Serpex is the only adapter in this phase. Set
+`SERPEX_API_KEY` to enable it. Retrieved sources are returned as SSE
+`status` / `citations` frames and persisted as `citations` JSONB on the
+assistant message; per-search credits are stored on `usage_records`. The key
+is never exposed to clients.
 
 ## Logs
 
@@ -135,11 +148,12 @@ Structured JSON logs are written to `backend/logs/app-YYYY-MM-DD.log` (14-day re
 
 ## Database
 
-- **Development**: SQLite at `backend/data/app.sqlite` (auto-created on first migration run)
-- **Production**: PostgreSQL — set `DB_DRIVER=postgres` and either `POSTGRES_URL` or the individual `POSTGRES_HOST`/`POSTGRES_PORT`/`POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` variables
+PostgreSQL only. Set either `POSTGRES_URL` or the individual
+`POSTGRES_HOST`/`POSTGRES_PORT`/`POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB`
+variables, then run `npm run migration:run`.
 
-Wipe the SQLite DB to start fresh:
+Recreate the schema from scratch:
 ```bash
-rm -f backend/data/app.sqlite
+dropdb chatbot_db && createdb chatbot_db
 npm run migration:run
 ```

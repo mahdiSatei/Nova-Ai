@@ -52,7 +52,7 @@ When retrying a failed/cancelled generation, `retryGeneration` creates a fresh a
 - **Resumable without re-querying the provider**: client reconnects, fetches the persisted message via GET
 - **Simple data model**: single Message entity with a status column; no Generation table
 - **Straightforward testing**: service methods are pure enough to unit-test with mock repositories
-- **Cross-DB compatible**: migration uses conditional SQL for SQLite and PostgreSQL
+- **Migration-friendly**: the status column is added with an idempotent `ADD COLUMN IF NOT EXISTS` / `DROP COLUMN IF EXISTS` pair on PostgreSQL
 
 ### Negative / Trade-offs
 

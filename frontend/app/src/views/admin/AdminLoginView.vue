@@ -60,7 +60,7 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <template>
-  <main class="relative flex min-h-screen items-center justify-center px-4 py-10">
+  <main class="app-shell-bg relative flex min-h-screen items-center justify-center px-4 py-10">
     <!-- ✨ دکمه تغییر تم در گوشه بالای سمت چپ -->
     <div class="absolute top-4 end-4 sm:top-6 sm:end-6">
       <button
@@ -75,7 +75,7 @@ async function onSubmit(): Promise<void> {
       </button>
     </div>
 
-    <div class="w-full max-w-sm">
+    <div class="surface-card w-full max-w-sm p-6 sm:p-8">
       <header class="mb-8 text-center">
         <div class="mx-auto mb-4 flex size-12 items-center justify-center rounded-xl bg-accent/15">
           <svg class="size-6 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">

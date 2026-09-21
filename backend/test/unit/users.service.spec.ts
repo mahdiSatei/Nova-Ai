@@ -11,12 +11,15 @@ describe('UsersService', () => {
   beforeEach(async () => {
     const stored: User[] = [];
     let idCounter = 0;
+    // PostgreSQL driver error shape for a unique violation (SQLSTATE 23505).
     const uniqueViolation = (constraint: string) => {
-      const err = new Error('UNIQUE constraint failed') as Error & {
+      const err = new Error(
+        `duplicate key value violates unique constraint "${constraint}"`,
+      ) as Error & {
         code: string;
         driverError: { code: string; constraint: string };
       };
-      err.code = 'SQLITE_CONSTRAINT_UNIQUE';
+      err.code = '23505';
       err.driverError = { code: '23505', constraint };
       return err;
     };
@@ -170,6 +173,29 @@ describe('UsersService', () => {
 
   it('updateDisplayName throws NotFoundException for an unknown id', async () => {
     await expect(svc.updateProfile('no-such-id', { displayName: 'X' })).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('setModelPreference stores the given model id', async () => {
+    const u = await svc.create({ email: 'setPref@example.com', password: 'super-long-password-1' });
+    const updated = await svc.setModelPreference(u.id, 'model-123');
+    expect(updated.lastSelectedModelId).toBe('model-123');
+    const reloaded = await svc.findById(u.id);
+    expect(reloaded.lastSelectedModelId).toBe('model-123');
+  });
+
+  it('setModelPreference accepts null to clear the value', async () => {
+    const u = await svc.create({ email: 'clearPref@example.com', password: 'super-long-password-1' });
+    await svc.setModelPreference(u.id, 'model-123');
+    const cleared = await svc.setModelPreference(u.id, null);
+    expect(cleared.lastSelectedModelId).toBeNull();
+    const reloaded = await svc.findById(u.id);
+    expect(reloaded.lastSelectedModelId).toBeNull();
+  });
+
+  it('setModelPreference throws NotFoundException for an unknown id', async () => {
+    await expect(svc.setModelPreference('no-such-id', 'model-123')).rejects.toBeInstanceOf(
       NotFoundException,
     );
   });

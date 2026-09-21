@@ -13,6 +13,14 @@ import { Conversation } from './entities/conversation.entity';
 
 import { Message } from './entities/message.entity';
 import { MessageStatus } from './conversations.types';
+import type { CitationSource } from '../web-search/web-search.types';
+
+/** Reasoning metadata accepted when a streaming message completes (Phase 8). */
+export interface CompletionReasoning {
+  enabled: boolean;
+  /** Provider-generated, user-visible summary. `null` when none was exposed. */
+  summary: string | null;
+}
 
 @Injectable()
 export class ConversationsService {
@@ -57,6 +65,9 @@ export class ConversationsService {
 
   /**
    * Append a user message to an existing conversation, optionally with a fileId.
+   * Used for turns after the first (the first user message is persisted
+   * by `create`). Returns the created message, or undefined if the
+   * conversation does not exist.
    */
   async appendUserMessage(
     conversationId: string,
@@ -66,6 +77,7 @@ export class ConversationsService {
     const conversation = await this.conversationRepo.findOne({
       where: { id: conversationId },
     });
+
     if (!conversation) return undefined;
 
     const message = this.messageRepo.create({
@@ -74,10 +86,13 @@ export class ConversationsService {
       content,
       fileId: fileId ?? null,
     });
+
     const saved = await this.messageRepo.save(message);
 
     // Bump the conversation's updatedAt.
-    await this.conversationRepo.update(conversationId, { updatedAt: new Date() });
+    await this.conversationRepo.update(conversationId, {
+      updatedAt: new Date(),
+    });
 
     return saved;
   }
@@ -85,10 +100,14 @@ export class ConversationsService {
   /**
    * Append the assistant's response to an existing conversation.
    */
-  async appendMessage(conversationId: string, content: string): Promise<Message | undefined> {
+  async appendMessage(
+    conversationId: string,
+    content: string,
+  ): Promise<Message | undefined> {
     const conversation = await this.conversationRepo.findOne({
       where: { id: conversationId },
     });
+
     if (!conversation) return undefined;
 
     const message = this.messageRepo.create({
@@ -96,8 +115,13 @@ export class ConversationsService {
       role: 'assistant',
       content,
     });
+
     const saved = await this.messageRepo.save(message);
-    await this.conversationRepo.update(conversationId, { updatedAt: new Date() });
+
+    await this.conversationRepo.update(conversationId, {
+      updatedAt: new Date(),
+    });
+
     return saved;
   }
 
@@ -109,7 +133,11 @@ export class ConversationsService {
     });
   }
 
-  async findByUser(userId: string, limit = 20, offset = 0): Promise<Conversation[]> {
+  async findByUser(
+    userId: string,
+    limit = 20,
+    offset = 0,
+  ): Promise<Conversation[]> {
     return this.conversationRepo.find({
       where: { userId },
       order: { pinned: 'DESC', updatedAt: 'DESC' },
@@ -129,6 +157,7 @@ export class ConversationsService {
     });
 
     if (!conversation) return null;
+
     if (conversation.userId !== requesterId) {
       throw new ForbiddenException({
         code: 'forbidden',
@@ -137,9 +166,51 @@ export class ConversationsService {
     }
 
     await this.conversationRepo.update(id, { pinned });
+
     return { ...conversation, pinned };
   }
 
+  /**
+   * Switch a conversation's model. The caller MUST be the owner.
+   * Returns the updated conversation or null if not found. Throws
+   * ForbiddenException for non-owners.
+   *
+   * The model availability check (existence + `enabled`) lives in the
+   * controller where ModelsService is already injected, keeping
+   * ConversationsService free of cross-module deps for this method.
+   */
+  async setModel(
+    id: string,
+    userId: string,
+    modelId: string,
+  ): Promise<Conversation | null> {
+    const conversation = await this.conversationRepo.findOne({
+      where: { id },
+      select: ['id', 'userId'],
+    });
+
+    if (!conversation) return null;
+
+    if (conversation.userId !== userId) {
+      throw new ForbiddenException({
+        code: 'forbidden',
+        message: 'You do not own this conversation.',
+      });
+    }
+
+    this.logger.log(
+      `setModel: conversationId=${id} userId=${userId} newModelId=${modelId}`,
+    );
+
+    await this.conversationRepo.update(id, { modelId });
+
+    return this.conversationRepo.findOne({ where: { id } });
+  }
+
+  /**
+   * Delete a conversation by id. Returns true if it existed, false
+   * otherwise. Messages are cascade-deleted by the DB.
+   */
   async delete(id: string, requesterId: string): Promise<boolean> {
     const conversation = await this.conversationRepo.findOne({
       where: { id },
@@ -147,8 +218,9 @@ export class ConversationsService {
     });
 
     if (!conversation) return false;
+
     if (conversation.userId !== requesterId) {
-      throw new ConflictException({
+      throw new ForbiddenException({
         code: 'forbidden',
         message: 'You do not own this conversation.',
       });
@@ -163,21 +235,48 @@ export class ConversationsService {
   /**
    * Find the assistant message with status 'streaming' for a conversation.
    */
-  async findStreamingMessage(conversationId: string): Promise<Message | null> {
+  async findStreamingMessage(
+    conversationId: string,
+  ): Promise<Message | null> {
     return this.messageRepo.findOne({
-      where: { conversationId, status: 'streaming' as MessageStatus },
+      where: {
+        conversationId,
+        status: 'streaming' as MessageStatus,
+      },
       order: { createdAt: 'DESC' },
     });
   }
 
   /**
-   * Atomically mark a streaming message as completed with its full content.
+   * Atomically mark a streaming message as completed with its full
+   * content. The update only applies while the row is still
+   * 'streaming', so a concurrent cancel can never be overwritten:
+   * returns false when the row was not in 'streaming' state (nothing
+   * was written).
    */
-  async completeIfStreaming(messageId: string, content: string): Promise<boolean> {
+  async completeIfStreaming(
+    messageId: string,
+    content: string,
+    citations: CitationSource[] = [],
+    reasoning: CompletionReasoning = {
+      enabled: false,
+      summary: null,
+    },
+  ): Promise<boolean> {
     const result = await this.messageRepo.update(
-      { id: messageId, status: 'streaming' as MessageStatus },
-      { status: 'completed' as MessageStatus, content },
+      {
+        id: messageId,
+        status: 'streaming' as MessageStatus,
+      },
+      {
+        status: 'completed' as MessageStatus,
+        content,
+        citations,
+        reasoningEnabled: reasoning.enabled,
+        reasoningSummary: reasoning.summary,
+      },
     );
+
     return (result.affected ?? 0) > 0;
   }
 
@@ -190,11 +289,16 @@ export class ConversationsService {
     content?: string,
   ): Promise<Message | null> {
     const patch: Record<string, string | undefined> = { status };
+
     if (content !== undefined) {
       patch.content = content;
     }
+
     await this.messageRepo.update(messageId, patch);
-    return this.messageRepo.findOne({ where: { id: messageId } });
+
+    return this.messageRepo.findOne({
+      where: { id: messageId },
+    });
   }
 
   /**
@@ -210,17 +314,25 @@ export class ConversationsService {
     content: string,
   ): Promise<void> {
     await this.messageRepo.update(
-      { id: assistantMessageId, conversationId, status: 'streaming' as MessageStatus },
+      {
+        id: assistantMessageId,
+        conversationId,
+        status: 'streaming' as MessageStatus,
+      },
       { content },
     );
-    // Note: We do not check the result because if the message is no longer streaming,
-    // the update will be ignored (no rows affected) and the stream will be finalized soon.
+
+    // Note: We do not check the result because if the message is no longer
+    // streaming, the update will be ignored (no rows affected) and the stream
+    // will be finalized soon.
   }
 
   /**
    * Find a message by id with its conversation relation.
    */
-  async findMessageById(messageId: string): Promise<(Message & { conversation: Conversation }) | null> {
+  async findMessageById(
+    messageId: string,
+  ): Promise<(Message & { conversation: Conversation }) | null> {
     return this.messageRepo.findOne({
       where: { id: messageId },
       relations: ['conversation'],
@@ -236,8 +348,13 @@ export class ConversationsService {
     requesterId: string,
   ): Promise<Message | null> {
     const streaming = await this.messageRepo.findOne({
-      where: { id: messageId, conversationId, status: 'streaming' as MessageStatus },
+      where: {
+        id: messageId,
+        conversationId,
+        status: 'streaming' as MessageStatus,
+      },
     });
+
     if (!streaming) {
       throw new ConflictException({
         code: 'no_active_generation',
@@ -246,6 +363,7 @@ export class ConversationsService {
     }
 
     const msgWithConv = await this.findMessageById(messageId);
+
     if (!msgWithConv || msgWithConv.conversation.userId !== requesterId) {
       throw new ForbiddenException({
         code: 'forbidden',
@@ -253,8 +371,13 @@ export class ConversationsService {
       });
     }
 
-    await this.messageRepo.update(messageId, { status: 'cancelled' as MessageStatus });
-    return this.messageRepo.findOne({ where: { id: messageId } });
+    await this.messageRepo.update(messageId, {
+      status: 'cancelled' as MessageStatus,
+    });
+
+    return this.messageRepo.findOne({
+      where: { id: messageId },
+    });
   }
 
   // ─────────────────────────── helpers ────────────────────────────────────

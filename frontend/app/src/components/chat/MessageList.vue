@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import ChatMessage from '@/components/chat/ChatMessage.vue'
-import type { MessagePublic, MessageStatus } from '@/types/api'
+import type { CitationSource, MessagePublic, MessageStatus, SearchPhase } from '@/types/api'
 
 type GenerationStatus = 'idle' | 'streaming' | 'completed' | 'failed' | 'cancelled'
 
@@ -11,7 +11,15 @@ const props = defineProps<{
   streamingText?: string
   isStreaming?: boolean
   /** Active generation for recovery UI */
-  generation?: { conversationId: string; assistantMessageId: string; status: GenerationStatus; content: string } | null
+  generation?: { conversationId: string; assistantMessageId: string; status: GenerationStatus; content: string; citations?: CitationSource[] } | null
+  /** فاز ۷ — پیشرفت جستجو/بازیابی. */
+  searchActivity?: { phase: SearchPhase; query?: string; sources?: number; credits?: number } | null
+  /** فاز ۸ — استدلال در جریان (فقط برای ردیف در حال استریم). */
+  reasoningActive?: boolean
+  /** فاز ۸ — استدلال این نوبت تمام شده است (فقط برای ردیف در حال استریم). */
+  reasoningCompleted?: boolean
+  /** فاز ۸ — خلاصهٔ استدلال دریافتی در همین نوبت. */
+  reasoningSummary?: string
   onRetry?: (failedMessageId: string) => void
   onReconnect?: () => void
   onCancel?: () => void
@@ -29,7 +37,14 @@ interface Row {
   file?: MessagePublic['file'] | null
   status: MessageStatus
   showRecovery: boolean
-  recoveryStatus: MessageStatus | null
+  recoveryStatus: GenerationStatus | null
+  citations?: CitationSource[]
+  /** فاز ۸ — استدلال این ردیف فعال بوده است. */
+  reasoningEnabled: boolean
+  /** فاز ۸ — استدلال این نوبت به پایان رسیده است. */
+  reasoningCompleted: boolean
+  /** فاز ۸ — خلاصهٔ استدلال این ردیف (ذخیره‌شده یا در حال استریم). */
+  reasoningSummary: string | null
 }
 
 const rows = computed<Row[]>(() => {
@@ -53,7 +68,13 @@ const rows = computed<Row[]>(() => {
       file: m.file, // ✨ فایل پیوست پیام
       status: m.status,
       showRecovery: streamNeedsRecovery || m.status === 'failed' || m.status === 'cancelled',
-      recoveryStatus: m.status as MessageStatus,
+      recoveryStatus: m.status as GenerationStatus,
+      citations: m.citations,
+      // A persisted turn that reasoned but produced no user-visible summary is
+      // still worth labelling, so "reasoning was on" is never silently lost.
+      reasoningEnabled: (m as any).reasoningEnabled ?? false,
+      reasoningCompleted: Boolean((m as any).reasoningEnabled && !(m as any).reasoningSummary),
+      reasoningSummary: (m as any).reasoningSummary ?? null,
     })
   }
 
@@ -70,6 +91,9 @@ const rows = computed<Row[]>(() => {
       status: 'completed',
       showRecovery: false,
       recoveryStatus: null,
+      reasoningEnabled: false,
+      reasoningCompleted: false,
+      reasoningSummary: null,
     })
   }
 
@@ -90,6 +114,12 @@ const rows = computed<Row[]>(() => {
       status: 'streaming',
       showRecovery: false,
       recoveryStatus: null,
+      citations: props.generation?.citations,
+      // The synthetic row only exists while a generation is running, so the
+      // live reasoning state belongs to it.
+      reasoningEnabled: true,
+      reasoningCompleted: Boolean(props.reasoningCompleted),
+      reasoningSummary: props.reasoningSummary ?? null,
     })
   }
 
@@ -112,6 +142,12 @@ const rows = computed<Row[]>(() => {
       :status="row.status"
       :show-recovery="row.showRecovery"
       :recovery-status="row.recoveryStatus"
+      :citations="row.citations"
+      :search-activity="row.streaming ? searchActivity : null"
+      :reasoning-enabled="row.reasoningEnabled"
+      :reasoning-active="row.streaming ? Boolean(reasoningActive) : false"
+      :reasoning-completed="row.reasoningCompleted"
+      :reasoning-summary="row.streaming ? reasoningSummary ?? null : row.reasoningSummary"
       :on-retry="onRetry"
       :on-reconnect="onReconnect"
       :on-cancel="onCancel"

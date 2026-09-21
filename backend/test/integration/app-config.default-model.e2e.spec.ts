@@ -1,32 +1,34 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import * as argon2 from 'argon2';
 import request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 import { User } from '../../src/modules/users/entities/user.entity';
+import { Provider } from '../../src/modules/provider/entities/provider.entity';
+import { encrypt } from '../../src/common/crypto/credential-cipher';
 
 describe('App config / default model (US8) — e2e', () => {
   let app: INestApplication;
-  let dbPath: string;
   let adminToken: string;
   let userToken: string;
 
-  const ADMIN_EMAIL = 'admin-default@example.com';
-  const USER_EMAIL = 'user-default@example.com';
+  const RUN = Date.now().toString(36);
+  const ADMIN_EMAIL = `admin-default-${RUN}@example.com`;
+  const USER_EMAIL = `user-default-${RUN}@example.com`;
   const PASSWORD = 'correct-horse-battery-staple';
+  const PROVIDER_ID = `appcfg-prov-${RUN}`;
 
   jest.setTimeout(30_000);
 
   beforeAll(async () => {
-    dbPath = path.join(os.tmpdir(), `chatbot-appconfig-${Date.now()}.sqlite`);
     process.env.NODE_ENV = 'test';
-    process.env.DB_DRIVER = 'sqlite';
-    process.env.SQLITE_FILE = dbPath;
+    process.env.POSTGRES_HOST = '127.0.0.1';
+    process.env.POSTGRES_PORT = process.env.TEST_POSTGRES_PORT ?? '5432';
+    process.env.POSTGRES_USER = 'postgres';
+    process.env.POSTGRES_PASSWORD = process.env.TEST_POSTGRES_PASSWORD ?? 'postgres';
+    process.env.POSTGRES_DB = 'chatbot_test';
     process.env.JWT_SECRET = 'integration-test-secret-with-enough-entropy-here';
     process.env.JWT_REFRESH_SECRET = 'integration-test-refresh-secret-entropy';
     process.env.PROVIDER_ENCRYPTION_KEY = Buffer.alloc(32, 0x42).toString('base64');
@@ -43,6 +45,21 @@ describe('App config / default model (US8) — e2e', () => {
     const ds = app.get(DataSource);
     await ds.runMigrations();
 
+    // Models require a provider (NOT NULL FK).
+    const providerRepo = ds.getRepository(Provider);
+    if (!(await providerRepo.findOne({ where: { id: PROVIDER_ID } }))) {
+      await providerRepo.save(
+        providerRepo.create({
+          id: PROVIDER_ID,
+          name: `App Config Provider ${RUN}`,
+          type: 'openai-compatible',
+          baseUrl: 'http://localhost:9999',
+          apiKeyEncrypted: encrypt('test-api-key'),
+          isActive: true,
+        }),
+      );
+    }
+
     const userRepo = ds.getRepository(User);
     const passwordHash = await argon2.hash(PASSWORD);
     await userRepo.save(
@@ -54,32 +71,31 @@ describe('App config / default model (US8) — e2e', () => {
 
     const adminLogin = await request(app.getHttpServer())
       .post('/v1/auth/login')
-      .send({ email: ADMIN_EMAIL, password: PASSWORD });
+      .send({ identifier: ADMIN_EMAIL, password: PASSWORD });
     adminToken = adminLogin.body.accessToken;
 
     const userLogin = await request(app.getHttpServer())
       .post('/v1/auth/login')
-      .send({ email: USER_EMAIL, password: PASSWORD });
+      .send({ identifier: USER_EMAIL, password: PASSWORD });
     userToken = userLogin.body.accessToken;
   });
 
   afterAll(async () => {
     if (app) await app.close();
-    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
   });
 
   beforeEach(async () => {
     const ds = app.get(DataSource);
     await ds.query('DELETE FROM conversations');
     await ds.query('DELETE FROM models');
-    await ds.query('UPDATE app_config SET default_model_id = NULL WHERE id = ?', ['singleton']);
+    await ds.query('UPDATE app_config SET default_model_id = NULL WHERE id = $1', ['singleton']);
   });
 
   async function adminCreateModel(displayName: string, actualName: string, enabled = true): Promise<string> {
     const res = await request(app.getHttpServer())
       .post('/v1/admin/models')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ displayName, actualName, enabled });
+      .send({ displayName, actualName, enabled, providerId: PROVIDER_ID });
     expect(res.status).toBe(201);
     return res.body.id;
   }

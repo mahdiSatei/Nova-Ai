@@ -85,6 +85,22 @@ export class AllExceptionsFilter implements ExceptionFilter {
       };
     }
 
+    // PostgreSQL unique violation → 409, without leaking constraint
+    // internals (a duplicate-resource client error, not a server fault).
+    const pgCode =
+      (exception as { code?: string; driverError?: { code?: string } })?.code ??
+      (exception as { driverError?: { code?: string } })?.driverError?.code;
+    if (pgCode === '23505' || /duplicate key value violates unique constraint/i.test(String((exception as Error)?.message))) {
+      return {
+        status: HttpStatus.CONFLICT,
+        body: {
+          code: 'conflict',
+          message: 'A resource with the same unique value already exists.',
+          requestId,
+        },
+      };
+    }
+
     // Unknown error — log internally, return generic 500 to the client.
     return {
       status: HttpStatus.INTERNAL_SERVER_ERROR,

@@ -11,7 +11,9 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { ChatService, ChatStreamEvent } from './chat.service';
 import { ChatRequestDto } from './dto/chat-request.dto';
+import { RetryRequestDto } from './dto/retry-request.dto';
 import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 
 /**
  * SSE streaming chat controller.
@@ -20,12 +22,24 @@ import { Observable } from 'rxjs';
  * `text/event-stream` response. Each SSE event is one of:
  *
  *   - `data: {"delta":"..."}`  — token chunk from the model
+ *   - `event: status`          — retry/failover progress (phase 6)
  *   - `event: done`            — stream completed successfully
  *   - `event: error`           — provider or internal error
  *
  * Note: Nest's SseStream serializes the event name from the `type`
  * property of each emitted object (`event` is dropped).
  */
+/**
+ * Map a typed ChatStreamEvent to the wire shape NestJS expects.
+ *
+ * NestJS's SseStream reads the event name from `type` on each emitted object.
+ * The ChatStreamEvent union already uses `type` for this purpose, so we just
+ * ensure the shape is a plain Record — no rewriting needed.
+ */
+function toSseMessage(e: ChatStreamEvent): Record<string, unknown> {
+  return e as unknown as Record<string, unknown>;
+}
+
 @Controller('v1/chat')
 @UseGuards(JwtAuthGuard)
 export class ChatController {
@@ -33,8 +47,13 @@ export class ChatController {
 
   @Post('stream')
   @Sse('text/event-stream')
-  stream(@CurrentUser() user: AuthenticatedUser, @Body() dto: ChatRequestDto): Observable<ChatStreamEvent> {
-    return this.chat.streamChat(user.id, dto);
+  stream(@CurrentUser() user: AuthenticatedUser, @Body() dto: ChatRequestDto): Observable<Record<string, unknown>> {
+    // Nest's SSE writer reads the event name from `message.type`; map the
+    // service's `event` field so `event: done` / `error` / `status` frames
+    // actually reach the wire.
+    return this.chat
+      .streamChat(user.id, dto)
+      .pipe(map((e) => toSseMessage(e)));
   }
 
   /**
@@ -47,7 +66,7 @@ export class ChatController {
    */
   @Post(':conversationId/resume')
   @Sse('text/event-stream')
-  resume(@CurrentUser() user: AuthenticatedUser, @Param('conversationId') conversationId: string): Observable<ChatStreamEvent> {
+  resume(@CurrentUser() user: AuthenticatedUser, @Param('conversationId') conversationId: string): Observable<Record<string, unknown>> {
     return new Observable<ChatStreamEvent>((observer) => {
       const subscribed = this.chat.subscribeToActiveStream(conversationId, observer);
       if (!subscribed) {
@@ -57,7 +76,7 @@ export class ChatController {
         });
         observer.complete();
       }
-    });
+    }).pipe(map((e) => toSseMessage(e)));
   }
 
   /**
@@ -87,8 +106,16 @@ export class ChatController {
   retry(
     @CurrentUser() user: AuthenticatedUser,
     @Param('conversationId') conversationId: string,
-    @Body() dto: { failedMessageId: string },
-  ): Observable<ChatStreamEvent> {
-    return this.chat.retryGenerationStream(user.id, conversationId, dto.failedMessageId);
+    @Body() dto: RetryRequestDto,
+  ): Observable<Record<string, unknown>> {
+    return this.chat
+      .retryGenerationStream(
+        user.id,
+        conversationId,
+        dto.failedMessageId,
+        dto.webSearch === true,
+        dto.reasoning === true,
+      )
+      .pipe(map((e) => toSseMessage(e)));
   }
 }

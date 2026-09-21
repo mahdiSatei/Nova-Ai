@@ -21,8 +21,6 @@ export interface AppConfig {
     refreshTtl: string;
   };
   db: {
-    driver: 'sqlite' | 'postgres';
-    sqliteFile: string;
     postgresUrl: string;
     postgres: {
       host: string;
@@ -38,6 +36,23 @@ export interface AppConfig {
   };
   provider: {
     encryptionKeyBase64: string;
+  };
+  billing: {
+    creditPriceToman: number;
+    webSearchPriceToman: number;
+  };
+  payment: {
+    resultRedirectUrl: string;
+    zibal: {
+      merchant: string;
+      baseUrl: string;
+      callbackUrl: string;
+      timeoutMs: number;
+    };
+  };
+  webSearch: {
+    serpexApiKey: string;
+    serpexApiUrl: string;
   };
   storage: {
     endpoint: string;
@@ -64,8 +79,6 @@ export default (): AppConfig => ({
     refreshTtl: process.env.JWT_REFRESH_TTL ?? '7d',
   },
   db: {
-    driver: (process.env.DB_DRIVER as AppConfig['db']['driver']) ?? 'sqlite',
-    sqliteFile: process.env.SQLITE_FILE ?? './data/app.sqlite',
     postgresUrl: process.env.POSTGRES_URL ?? '',
     postgres: {
       host: process.env.POSTGRES_HOST ?? 'localhost',
@@ -81,6 +94,24 @@ export default (): AppConfig => ({
   },
   provider: {
     encryptionKeyBase64: process.env.PROVIDER_ENCRYPTION_KEY ?? '',
+  },
+  billing: {
+    creditPriceToman: Number(process.env.CREDIT_PRICE_TOMAN ?? 100),
+    webSearchPriceToman: Number(process.env.WEB_SEARCH_PRICE_TOMAN ?? 1000),
+  },
+  payment: {
+    resultRedirectUrl: process.env.PAYMENT_RESULT_REDIRECT_URL ?? '',
+    zibal: {
+      merchant: process.env.ZIBAL_MERCHANT ?? '',
+      // Trailing slashes would produce `//v1/request` in the provider URLs.
+      baseUrl: (process.env.ZIBAL_BASE_URL ?? 'https://gateway.zibal.ir').replace(/\/+$/, ''),
+      callbackUrl: process.env.ZIBAL_CALLBACK_URL ?? '',
+      timeoutMs: Number(process.env.ZIBAL_TIMEOUT_MS ?? 10_000),
+    },
+  },
+  webSearch: {
+    serpexApiKey: process.env.SERPEX_API_KEY ?? '',
+    serpexApiUrl: process.env.SERPEX_API_URL ?? 'https://api.serpex.dev',
   },
   storage: {
     endpoint: process.env.STORAGE_ENDPOINT ?? 'localhost',

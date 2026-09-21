@@ -1,20 +1,41 @@
 <script setup lang="ts">
 // ChatView: صفحه اصلی چت — استریم‌محور با Markdown.
 // states per FR-015 + BR-014: empty / no-models / streaming / error / success.
-import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { PhArrowsClockwise, PhSparkle, PhWarning, PhCaretDown, PhBrain, PhCode, PhBookOpenText, PhTranslate, PhMoon, PhSun, PhLightbulb, PhCalculator, PhFlask, PhTerminal } from '@phosphor-icons/vue'
-import ErrorBanner from '@/components/ui/ErrorBanner.vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
+import {
+  PhArrowsClockwise,
+  PhSparkle,
+  PhWarning,
+  PhCaretDown,
+  PhBrain,
+  PhCode,
+  PhBookOpenText,
+  PhTranslate,
+  PhMoon,
+  PhSun,
+  PhLightbulb,
+  PhCalculator,
+  PhChartDonut,
+  PhFlask,
+  PhTerminal,
+} from '@phosphor-icons/vue'
+import ErrorToast from '@/components/ui/ErrorToast.vue'
 import ModelPicker from '@/components/chat/ModelPicker.vue'
 import MessageList from '@/components/chat/MessageList.vue'
 import MessageInput from '@/components/chat/MessageInput.vue'
+import CreditBalance from '@/components/chat/CreditBalance.vue'
+import ShareButton from '@/components/chat/ShareButton.vue'
 import type { UploadedFile } from '@/api/files'
+import { ApiError } from '@/api/http'
 import { useChatStream } from '@/composables/useChatStream'
 import { useNewChatSignal } from '@/composables/useNewChatSignal'
 import { useTheme } from '@/composables/useTheme'
 import { useModelsStore } from '@/stores/models'
-import { useAuthStore } from '@/stores/auth' // Add this
+import { useAuthStore } from '@/stores/auth'
 import { apiErrorMessage } from '@/utils/errors'
+import { getMyUsageSummary } from '@/api/usage'
+import type { UserUsageSummary } from '@/types/api'
 
 const { tick: newChatTick } = useNewChatSignal()
 
@@ -24,13 +45,76 @@ const route = useRoute()
 const router = useRouter()
 const models = useModelsStore()
 const chat = useChatStream()
-const auth = useAuthStore() // Add this
+const auth = useAuthStore()
 const theme = useTheme()
 
 const inputText = ref('')
+const usageSummary = ref<UserUsageSummary | null>(null)
+
+const outputTokenPercentage = computed(() => {
+  const totals = usageSummary.value?.totals
+  if (!totals?.totalTokens) return 0
+  return Math.round((totals.outputTokens / totals.totalTokens) * 100)
+})
+
+async function loadUsageSummary(): Promise<void> {
+  if (auth.isAdmin) return
+  try {
+    usageSummary.value = await getMyUsageSummary()
+  } catch {
+    // The usage badge is supplementary; it must not affect the chat experience.
+  }
+}
+
+const errorToast = ref<string | null>(null)
+let errorToastTimer: ReturnType<typeof setTimeout> | null = null
+
+function showErrorToast(message: string): void {
+  if (errorToastTimer) clearTimeout(errorToastTimer)
+  errorToast.value = message
+  errorToastTimer = setTimeout(() => {
+    errorToast.value = null
+    errorToastTimer = null
+  }, 5000)
+}
+
+function closeErrorToast(): void {
+  if (errorToastTimer) clearTimeout(errorToastTimer)
+  errorToast.value = null
+  errorToastTimer = null
+}
+
+watch(
+  () => [models.error, chat.connectionError.value],
+  ([modelError, connectionError]) => {
+    if (connectionError) {
+      showErrorToast(connectionError.message)
+    } else if (modelError instanceof ApiError) {
+      showErrorToast(apiErrorMessage(modelError))
+    }
+  },
+)
+
+onBeforeUnmount(() => {
+  if (errorToastTimer) clearTimeout(errorToastTimer)
+})
+
 // فایل پیوست‌شده‌ی آماده برای پیام بعدی (شناسه‌اش همراه متن ارسال می‌شود).
 const attachedFile = ref<UploadedFile | null>(null)
+
 const justStartedConversation = ref(false)
+
+// فاز ۸ — کنترل استدلال فقط برای مدل‌هایی که پیکربندی مؤثرشان پشتیبانی را می‌گوید.
+const reasoningSupported = computed(
+  () => models.byId(chat.selectedModelId.value)?.reasoning?.supported === true,
+)
+
+watch(
+  reasoningSupported,
+  (supported) => chat.setReasoningSupport(supported),
+  { immediate: true },
+)
+
 const scrollRoot = useTemplateRef<HTMLDivElement>('scrollRoot')
 
 // scroll هوشمند: فقط وقتی کاربر پایین است خودکار پایین می‌رود.
@@ -38,13 +122,18 @@ const pinnedToBottom = ref(true)
 const showScrollButton = ref(false)
 
 const noModels = computed(() => models.loaded && models.isEmpty)
+
 const hasMessages = computed(
   () =>
     chat.transcript.value.length > 0 ||
     chat.generation.value !== null,
 )
 
-// ✨ جملات رندوم برای عنوان خوش‌آمدگویی
+const activeModelName = computed(() =>
+  models.displayName(chat.selectedModelId.value, ''),
+)
+
+// جملات رندوم برای عنوان خوش‌آمدگویی با نام کاربر
 const getWelcomeHeadline = () => {
   const name = auth.user?.displayName ? `، ${auth.user.displayName}` : ''
   const headlines = [
@@ -97,6 +186,7 @@ function resolvedId(): string | undefined {
 function onScroll(): void {
   const el = scrollRoot.value
   if (!el) return
+
   const distance = el.scrollHeight - el.scrollTop - el.clientHeight
   pinnedToBottom.value = distance < 120
   showScrollButton.value = distance > 400
@@ -105,12 +195,16 @@ function onScroll(): void {
 function scrollToBottom(smooth = true): void {
   const el = scrollRoot.value
   if (!el) return
-  el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+
+  el.scrollTo({
+    top: el.scrollHeight,
+    behavior: smooth ? 'smooth' : 'auto',
+  })
+
   pinnedToBottom.value = true
   showScrollButton.value = false
 }
 
-// auto-scroll به پایین هنگام تغییر ترنسکریپت یا streaming text (اگر کاربر چسبیده باشد)
 watch(
   () => [chat.transcript.value, chat.generation.value?.content],
   async () => {
@@ -121,9 +215,11 @@ watch(
 )
 
 onMounted(async () => {
-  refreshWelcomeState() // انتخاب متن و پرامپت رندوم در شروع
-  console.debug('[ChatView] onMounted start', { routeName: route.name, resolvedId: resolvedId(), propsId: props.id })
+  refreshWelcomeState()
+
   await models.load(true)
+  void loadUsageSummary()
+
   if (!chat.selectedModelId.value) {
     const fallback = models.defaultModelId ?? models.items[0]?.id ?? null
     if (fallback) chat.setModel(fallback)
@@ -132,23 +228,26 @@ onMounted(async () => {
   }
 
   const id = resolvedId()
-  console.debug('[ChatView] onMounted resolvedId', { id })
 
   if (id) {
     await chat.loadConversation(id)
+
     if (chat.connectionError.value?.code === 'conversation_not_found') {
       void router.replace({ name: 'chat' })
     }
   } else {
     const stored = chat.loadSavedConversationId()
+
     if (stored) {
-      void router.replace({ name: 'chat-conversation', params: { id: stored } })
+      void router.replace({
+        name: 'chat-conversation',
+        params: { id: stored },
+      })
     } else {
       chat.resetConversation()
     }
   }
 
-  console.debug('[ChatView] onMounted after load', { transcriptLen: chat.transcript.value.length, generation: chat.generation.value })
   pinnedToBottom.value = true
   await nextTick()
   scrollToBottom(false)
@@ -157,22 +256,27 @@ onMounted(async () => {
 watch(
   () => resolvedId(),
   async (id) => {
-    console.debug('[ChatView] route watch resolvedId', { id })
     if (id) {
-      if (chat.generationState.value === 'streaming' && chat.generation.value?.conversationId === id) {
+      if (
+        chat.generationState.value === 'streaming' &&
+        chat.generation.value?.conversationId === id
+      ) {
         return
       }
+
       await chat.loadConversation(id)
+
       if (chat.connectionError.value?.code === 'conversation_not_found') {
         void router.replace({ name: 'chat' })
       }
-    }
-    else {
-      refreshWelcomeState() // رندوم کردن دوباره هنگام بازگشت به صفحه چت جدید
+    } else {
+      refreshWelcomeState()
+
       if (chat.connectionError.value?.code !== 'conversation_not_found') {
         chat.resetConversation()
       }
     }
+
     pinnedToBottom.value = true
     await nextTick()
     scrollToBottom(false)
@@ -183,36 +287,49 @@ watch(
   () => chat.conversationId.value,
   (id) => {
     if (!id) return
+
     const routeId = resolvedId()
     if (routeId === id) return
+
     if (justStartedConversation.value) {
-      void router.replace({ name: 'chat-conversation', params: { id } })
+      void router.replace({
+        name: 'chat-conversation',
+        params: { id },
+      })
       justStartedConversation.value = false
     }
   },
 )
 
-// «گفتگوی جدید» از سایدبار وقتی همین‌جا هستیم: reset مستقیم (بدون تغییر مسیر)
 watch(newChatTick, () => {
   if (resolvedId() || route.name !== 'chat') return
+
   inputText.value = ''
-  refreshWelcomeState() // رندوم کردن دوباره با کلیک روی گفتگوی جدید
+  refreshWelcomeState()
   chat.resetConversation()
 })
 
 async function onSubmit(): Promise<void> {
   const text = inputText.value
+
   if (!text.trim() || chat.inputDisabled.value) return
-  if (!resolvedId()) justStartedConversation.value = true
-  
+
+  if (!resolvedId()) {
+    justStartedConversation.value = true
+  }
+
   const fileToAttach = attachedFile.value
   const fileId = fileToAttach?.id ?? null
-  
+
   inputText.value = ''
   attachedFile.value = null
   pinnedToBottom.value = true
 
-  await chat.send(text, { fileId, file: fileToAttach })
+  await chat.send(text, {
+    fileId,
+    file: fileToAttach,
+  })
+  void loadUsageSummary()
 }
 
 async function onStop(): Promise<void> {
@@ -237,6 +354,14 @@ function useSuggestedPrompt(text: string): void {
   <section class="flex min-h-0 flex-1 flex-col py-2 sm:py-3">
     <!-- هدر شناور: چیپ وضعیت + مدل + ابزارها -->
     <header class="flex h-11 shrink-0 items-center gap-2 px-1">
+      <!-- Toast خطاها -->
+      <div class="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4">
+        <ErrorToast
+          v-if="errorToast"
+          :message="errorToast"
+          @close="closeErrorToast"
+        />
+      </div>
 
       <!-- Connection status banner -->
       <div
@@ -252,8 +377,16 @@ function useSuggestedPrompt(text: string): void {
           "
         >
           <div class="flex items-center gap-2">
-            <PhWarning v-if="chat.connectionState.value === 'disconnected'" class="size-4 shrink-0" aria-hidden="true" />
-            <PhArrowsClockwise v-else class="size-4 animate-spin shrink-0" aria-hidden="true" />
+            <PhWarning
+              v-if="chat.connectionState.value === 'disconnected'"
+              class="size-4 shrink-0"
+              aria-hidden="true"
+            />
+            <PhArrowsClockwise
+              v-else
+              class="size-4 animate-spin shrink-0"
+              aria-hidden="true"
+            />
             <span class="font-medium">
               {{
                 chat.connectionState.value === 'disconnected'
@@ -262,8 +395,12 @@ function useSuggestedPrompt(text: string): void {
               }}
             </span>
           </div>
+
           <button
-            v-if="chat.connectionState.value === 'disconnected' && chat.generationState.value === 'streaming'"
+            v-if="
+              chat.connectionState.value === 'disconnected' &&
+              chat.generationState.value === 'streaming'
+            "
             type="button"
             class="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary-soft"
             @click="onReconnect"
@@ -274,15 +411,20 @@ function useSuggestedPrompt(text: string): void {
         </div>
       </div>
 
-      <!-- status chip + model picker + buttons (original header content) -->
+      <!-- status chip + model picker + buttons -->
       <div
-        class="inline-flex items-center gap-2 rounded-full border border-line bg-surface/70 py-1 pe-1 ps-3 text-xs shadow-sm backdrop-blur transition-colors"
+        class="inline-flex items-center gap-2 rounded-full border border-line/70 bg-surface/75 py-1 pe-1 ps-3 text-xs shadow-lg shadow-black/5 backdrop-blur-xl transition-[border-color,box-shadow] hover:border-primary/30"
       >
         <span
           class="size-1.5 rounded-full"
-          :class="chat.generationState.value === 'streaming' ? 'animate-pulse bg-primary' : 'bg-success'"
+          :class="
+            chat.generationState.value === 'streaming'
+              ? 'animate-pulse bg-primary'
+              : 'bg-success'
+          "
           aria-hidden="true"
         />
+
         <span class="font-medium text-ink">
           {{
             chat.connectionState.value === 'disconnected'
@@ -292,16 +434,44 @@ function useSuggestedPrompt(text: string): void {
                 : 'آماده'
           }}
         </span>
-        <span v-if="!noModels" class="h-4 w-px bg-line" aria-hidden="true" />
+
+        <span
+          v-if="!noModels"
+          class="h-4 w-px bg-line"
+          aria-hidden="true"
+        />
+
         <ModelPicker
           v-if="!noModels"
           v-model="chat.selectedModelId.value"
           :disabled="chat.inputDisabled.value"
           inline
         />
+
+        <span
+          v-if="activeModelName"
+          class="hidden text-ink-muted sm:inline"
+        >
+          — {{ activeModelName }}
+        </span>
       </div>
 
       <div class="ms-auto flex items-center gap-1">
+        <RouterLink
+          v-if="!auth.isAdmin && usageSummary"
+          to="/chat/dashboard"
+          class="hidden items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-ink-muted transition-colors hover:bg-hover hover:text-ink sm:inline-flex"
+          title="مشاهده گزارش مصرف"
+        >
+          <PhChartDonut class="size-3.5 text-primary" aria-hidden="true" />
+          <span>مصرف {{ outputTokenPercentage }}٪</span>
+        </RouterLink>
+        <ShareButton
+          v-if="resolvedId()"
+          :conversation-id="resolvedId() || ''"
+        />
+        <CreditBalance v-if="!auth.isAdmin" />
+
         <button
           type="button"
           class="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink focus-visible:text-ink"
@@ -309,8 +479,16 @@ function useSuggestedPrompt(text: string): void {
           :title="theme.theme.value === 'light' ? 'تاریک' : 'روشن'"
           @click="theme.toggleTheme()"
         >
-          <PhMoon v-if="theme.theme.value === 'light'" class="size-4" aria-hidden="true" />
-          <PhSun v-else class="size-4" aria-hidden="true" />
+          <PhMoon
+            v-if="theme.theme.value === 'light'"
+            class="size-4"
+            aria-hidden="true"
+          />
+          <PhSun
+            v-else
+            class="size-4"
+            aria-hidden="true"
+          />
         </button>
       </div>
     </header>
@@ -329,14 +507,16 @@ function useSuggestedPrompt(text: string): void {
         >
           <div class="flex flex-col items-center gap-4">
             <div
-              class="flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-accent/70 text-white shadow-lg shadow-primary/20"
+              class="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-accent/70 text-white shadow-xl shadow-primary/25 animate-fade-slide-in"
             >
               <PhBrain class="size-7" aria-hidden="true" />
             </div>
+
             <div>
               <h1 class="text-xl font-bold text-ink sm:text-2xl">
                 {{ noModels ? 'چت هنوز آماده نیست' : randomHeadline }}
               </h1>
+
               <p class="mt-1.5 text-sm text-ink-muted">
                 {{
                   noModels
@@ -347,19 +527,29 @@ function useSuggestedPrompt(text: string): void {
             </div>
           </div>
 
-          <ul v-if="!noModels" class="grid w-full max-w-xl grid-cols-1 gap-2.5 px-2 sm:grid-cols-2">
+          <ul
+            v-if="!noModels"
+            class="grid w-full max-w-xl grid-cols-1 gap-2.5 px-2 sm:grid-cols-2"
+          >
             <li v-for="p in suggestedPrompts" :key="p.text">
               <button
                 type="button"
-                class="group flex h-full w-full cursor-pointer items-start gap-3 rounded-xl border border-line/70 bg-surface px-4 py-3.5 text-start shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md"
+                class="interactive-lift group flex h-full w-full cursor-pointer items-start gap-3 rounded-2xl border border-line/70 bg-surface/80 px-4 py-3.5 text-start shadow-sm"
                 @click="useSuggestedPrompt(p.text)"
               >
                 <span
                   class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary transition-colors group-hover:bg-primary group-hover:text-on-primary"
                 >
-                  <component :is="p.icon" class="size-4" aria-hidden="true" />
+                  <component
+                    :is="p.icon"
+                    class="size-4"
+                    aria-hidden="true"
+                  />
                 </span>
-                <span class="text-sm leading-6 text-ink-muted transition-colors group-hover:text-ink">
+
+                <span
+                  class="text-sm leading-6 text-ink-muted transition-colors group-hover:text-ink"
+                >
                   {{ p.text }}
                 </span>
               </button>
@@ -368,35 +558,13 @@ function useSuggestedPrompt(text: string): void {
         </div>
 
         <template v-else>
-          <!-- error model load -->
-          <div v-if="models.error" class="mx-auto max-w-3xl py-4">
-            <ErrorBanner
-              :message="apiErrorMessage(models.error)"
-              :code="models.error.code"
-              :request-id="models.error.requestId"
-              :show-code="true"
-            />
-          </div>
-
-          <!-- خطای اتصال یا استریم داخل فید -->
-          <div v-if="chat.connectionError.value" class="mx-auto max-w-3xl">
-            <ErrorBanner
-              :message="chat.connectionError.value.message"
-              :code="chat.connectionError.value.code"
-              :show-code="true"
-            />
-            <div
-              v-if="chat.transcript.value.length > 0"
-              class="mt-2 mb-1 flex items-center gap-1.5 px-3 text-[11px] text-warning"
-            >
-              <PhWarning class="size-3" aria-hidden="true" />
-              پاسخ ناقص — متن قبل از خطا حفظ شده است.
-            </div>
-          </div>
-
           <MessageList
             :messages="chat.transcript.value"
             :generation="chat.generation.value"
+            :search-activity="chat.searchActivity.value"
+            :reasoning-active="chat.reasoningActive.value"
+            :reasoning-completed="chat.reasoningCompleted.value"
+            :reasoning-summary="chat.reasoningSummary.value"
             :on-retry="onRetry"
             :on-reconnect="onReconnect"
             :on-cancel="onStop"
@@ -419,12 +587,31 @@ function useSuggestedPrompt(text: string): void {
     <!-- پایین: ورودی شناور -->
     <div class="shrink-0 px-1 pb-2 pt-1 sm:pb-3">
       <div class="mx-auto w-full max-w-3xl">
+        <p
+          v-if="chat.retrying.value"
+          class="px-4 py-1 text-sm text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
+          در حال تلاش مجدد ({{ chat.retrying.value.attempt }} از
+          {{ chat.retrying.value.maxAttempts }})…
+        </p>
+
         <MessageInput
           v-model="inputText"
           v-model:attachment="attachedFile"
-          :placeholder="noModels ? 'مدلی برای گفتگو موجود نیست.' : 'پیام خود را بنویسید…'"
+          :placeholder="
+            noModels
+              ? 'مدلی برای گفتگو موجود نیست.'
+              : 'پیام خود را بنویسید…'
+          "
           :disabled="chat.inputDisabled.value"
           :busy="chat.generationState.value === 'streaming'"
+          :web-search-enabled="chat.webSearchEnabled.value"
+          :reasoning-enabled="chat.reasoningEnabled.value"
+          :reasoning-supported="reasoningSupported"
+          @toggle:web-search="chat.setWebSearch(!chat.webSearchEnabled.value)"
+          @toggle:reasoning="chat.setReasoning(!chat.reasoningEnabled.value)"
           @submit="onSubmit"
           @stop="onStop"
         />

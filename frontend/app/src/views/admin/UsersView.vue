@@ -1,116 +1,189 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { listAdminUsers } from '@/api/admin'
-import { formatDateTime, relativeTime } from '@/utils/time'
-import { avatarValueFor } from '@/utils/avatar'
+import { computed, ref, onMounted } from 'vue'
+import { 
+  PhMagnifyingGlass, 
+  PhUsers, 
+  PhCrown, 
+  PhCaretRight, 
+  PhCaretLeft, 
+  PhArrowsClockwise 
+} from '@phosphor-icons/vue'
+import BaseButton from '@/components/ui/BaseButton.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
+import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import UserAvatar from '@/components/user/UserAvatar.vue'
-import { PhCrown, PhCaretRight, PhCaretLeft, PhArrowsClockwise } from '@phosphor-icons/vue'
-import type { UserPublic } from '@/types/api'
+import { ApiError } from '@/api/http'
+import { apiErrorMessage } from '@/utils/errors'
+import { listAdminUsers } from '@/api/admin'
+import { formatDateTime } from '@/utils/time'
+import { avatarValueFor } from '@/utils/avatar'
+import type { AdminUser } from '@/types/api'
 
-const users = ref<UserPublic[]>([])
-const loading = ref(true)
-const errorMessage = ref<string | null>(null)
+const items = ref<AdminUser[]>([])
+const total = ref(0)
+const search = ref('')
+const selectedRole = ref('')
+const loading = ref(false)
+const initialLoading = ref(true)
+const pageError = ref<ApiError | null>(null)
 
-// Pagination state
-const pageSize = 10
+// Pagination state (۵ کاربر در هر صفحه)
+const pageSize = 5
 const currentPage = ref(1)
 
-const paginatedUsers = computed(() => {
-  const start = (currentPage.value - 1) * pageSize
-  return users.value.slice(start, start + pageSize)
+// فیلتر کردن کاربران بر اساس نقش و جستجوی متنی
+const filteredItems = computed(() => {
+  return items.value.filter(u => {
+    const matchesRole = !selectedRole.value || u.role === selectedRole.value
+    return matchesRole
+  })
 })
 
-const totalPages = computed(() => Math.ceil(users.value.length / pageSize) || 1)
+const paginatedItems = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  return filteredItems.value.slice(start, start + pageSize)
+})
 
-async function loadUsers() {
+const totalPages = computed(() => Math.ceil(filteredItems.value.length / pageSize) || 1)
+
+async function load(): Promise<void> {
   loading.value = true
-  errorMessage.value = null
+  pageError.value = null
+  currentPage.value = 1
   try {
-    users.value = await listAdminUsers(100, 0)
-  } catch (err: any) {
-    errorMessage.value = err?.message || 'خطا در بارگذاری لیست کاربران.'
+    const res = await listAdminUsers({ query: search.value.trim() || undefined, limit: 100 })
+    items.value = res.items
+    total.value = res.total
+  } catch (err) {
+    pageError.value =
+      err instanceof ApiError ? err : new ApiError(0, null, 'خطا در بارگذاری کاربران.')
   } finally {
     loading.value = false
+    initialLoading.value = false
   }
 }
 
 onMounted(() => {
-  void loadUsers()
+  void load()
 })
+
+const isEmpty = computed(() => !initialLoading.value && filteredItems.value.length === 0 && !pageError.value)
 </script>
 
 <template>
   <div class="mx-auto w-full max-w-5xl space-y-6" dir="rtl">
     <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-xl font-bold text-ink">مدیریت کاربران</h1>
-        <p class="text-sm text-ink-muted">مشاهده فهرست کاربران ثبت‌نام‌شده، نقش و آخرین زمان ورود آن‌ها.</p>
+      <div class="flex items-center gap-3">
+        <span class="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <PhUsers class="size-5" aria-hidden="true" />
+        </span>
+        <div>
+          <h1 class="text-xl font-bold text-ink">مدیریت کاربران</h1>
+          <p class="text-sm text-ink-muted">اطلاعات حساب‌ها، نقش‌ها و دسترسی کاربران را جست‌وجو و مدیریت کنید.</p>
+        </div>
       </div>
       <button
         type="button"
         class="inline-flex items-center gap-2 rounded-lg border border-line bg-elevated px-3 py-2 text-sm font-medium text-ink hover:bg-hover transition cursor-pointer"
-        @click="loadUsers"
+        @click="load"
       >
         <PhArrowsClockwise class="size-4" :class="{ 'animate-spin': loading }" />
         <span>بروزرسانی</span>
       </button>
     </div>
 
-    <!-- ارور در صورت بروز مشکل -->
-    <div v-if="errorMessage" class="rounded-xl border border-danger/30 bg-danger-soft p-4 text-sm text-danger">
-      {{ errorMessage }}
-    </div>
+    <!-- فرم جست‌وجو و فیلتر نقش -->
+    <form class="flex flex-wrap items-center gap-2" @submit.prevent="load">
+      <!-- جستجو -->
+      <div class="relative flex-1 min-w-[220px]">
+        <input
+          v-model="search"
+          type="text"
+          placeholder="جست‌وجو (ایمیل یا نام کاربری)"
+          autocomplete="off"
+          class="w-full rounded-lg border border-line bg-surface px-4 py-2.5 text-sm text-ink placeholder:text-ink-muted focus:border-primary focus:outline-none transition"
+        />
+      </div>
+
+      <!-- فیلتر نقش -->
+      <select
+        v-model="selectedRole"
+        class="cursor-pointer rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-ink focus:border-primary focus:outline-none transition"
+      >
+        <option value="">همه نقش‌ها</option>
+        <option value="admin">مدیر</option>
+        <option value="user">کاربر</option>
+      </select>
+
+      <BaseButton type="submit" :loading="loading">
+        <PhMagnifyingGlass class="size-4" aria-hidden="true" />
+        <span>جست‌وجو</span>
+      </BaseButton>
+    </form>
+
+    <ErrorBanner
+      v-if="pageError"
+      :message="apiErrorMessage(pageError)"
+      :code="pageError.code"
+      :request-id="pageError.requestId"
+      :show-code="true"
+      class="mb-3"
+    />
+
+    <div v-if="initialLoading" class="h-48 animate-pulse rounded-card bg-surface" />
+
+    <EmptyState
+      v-else-if="isEmpty"
+      title="کاربری پیدا نشد"
+      description="عبارت جست‌وجو یا فیلتر را تغییر دهید."
+    />
 
     <!-- جدول کاربران -->
-    <div class="overflow-hidden rounded-xl border border-line bg-surface shadow-xs">
-      <table class="w-full border-collapse text-right">
+    <div v-else class="max-h-[32rem] overflow-auto rounded-xl border border-line bg-surface shadow-xs">
+      <table class="w-full border-collapse text-right text-sm">
         <thead>
-          <tr class="border-b border-line bg-elevated text-xs font-semibold text-ink-muted">
+          <tr class="border-b border-line bg-elevated text-xs font-semibold text-ink-muted uppercase tracking-wide">
             <th class="p-3.5 text-right">کاربر</th>
             <th class="p-3.5 text-right">نام کاربری</th>
             <th class="p-3.5 text-right">ایمیل</th>
-            <th class="p-3.5 text-right w-28">نقش</th>
-            <th class="p-3.5 text-right w-40">آخرین ورود</th>
-            <th class="p-3.5 text-right w-40">تاریخ عضویت</th>
+            <th class="p-3.5 text-right">نقش</th>
+            <th class="p-3.5 text-right">تاریخ عضویت</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-line text-sm text-ink">
-          <tr v-if="loading && users.length === 0">
-            <td colspan="6" class="p-8 text-center text-ink-muted">در حال بارگذاری کاربران...</td>
-          </tr>
-          <tr v-else-if="users.length === 0">
-            <td colspan="6" class="p-8 text-center text-ink-muted">هنوز کاربری ثبت‌نام نکرده است.</td>
-          </tr>
-          <tr v-for="user in paginatedUsers" :key="user.id" class="hover:bg-hover/55 transition">
+        <tbody class="divide-y divide-line text-ink">
+          <tr
+            v-for="u in paginatedItems"
+            :key="u.id"
+            class="hover:bg-hover/55 transition"
+          >
             <td class="p-3.5">
               <div class="flex items-center gap-2.5">
                 <span class="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-elevated">
-                  <UserAvatar :value="avatarValueFor(user)" :size="30" />
+                  <UserAvatar :value="avatarValueFor(u as any)" :size="30" />
                 </span>
-                <span class="truncate font-medium">{{ user.displayName ?? '—' }}</span>
+                <span class="truncate font-medium">{{ u.username ?? '—' }}</span>
               </div>
             </td>
-            <td class="p-3.5 font-mono text-xs text-ink-muted">{{ user.username ?? '—' }}</td>
-            <td class="p-3.5 text-xs" dir="ltr">{{ user.email }}</td>
+            <td class="p-3.5 font-mono text-xs text-ink-muted">{{ u.username ?? '—' }}</td>
+            <td class="p-3.5 font-mono text-xs text-ink" dir="ltr">{{ u.email }}</td>
             <td class="p-3.5">
               <span
                 class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium"
-                :class="user.role === 'admin' ? 'bg-accent/15 text-accent' : 'bg-primary/10 text-primary'"
+                :class="u.role === 'admin' ? 'bg-accent/15 text-accent' : 'bg-primary/10 text-primary'"
               >
-                <PhCrown v-if="user.role === 'admin'" class="size-3.5" />
-                {{ user.role === 'admin' ? 'مدیر' : 'کاربر' }}
+                <PhCrown v-if="u.role === 'admin'" class="size-3.5" />
+                {{ u.role === 'admin' ? 'مدیر' : 'کاربر' }}
               </span>
             </td>
-            <td class="p-3.5 text-xs text-ink-muted">{{ user.lastLoginAt ? relativeTime(user.lastLoginAt) : 'هرگز' }}</td>
-            <td class="p-3.5 text-xs text-ink-muted font-mono">{{ formatDateTime(user.createdAt) }}</td>
+            <td class="p-3.5 text-xs text-ink-muted font-mono">{{ formatDateTime(u.createdAt) }}</td>
           </tr>
         </tbody>
       </table>
 
       <!-- نوار صفحه‌بندی (Pagination) -->
-      <div v-if="users.length > pageSize" class="flex items-center justify-between border-t border-line bg-elevated/50 px-4 py-3 text-sm">
+      <div v-if="filteredItems.length > pageSize" class="flex items-center justify-between border-t border-line bg-elevated/50 px-4 py-3 text-sm">
         <span class="text-xs text-ink-muted">
-          نمایش صفحه {{ currentPage }} از {{ totalPages }} (مجموعاً {{ users.length }} کاربر)
+          نمایش صفحه {{ currentPage }} از {{ totalPages }} (مجموعاً {{ filteredItems.length }} کاربر)
         </span>
         <div class="flex items-center gap-2">
           <button

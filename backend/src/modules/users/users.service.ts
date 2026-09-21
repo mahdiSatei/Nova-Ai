@@ -1,9 +1,4 @@
-import {
-  ConflictException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
@@ -104,6 +99,45 @@ export class UsersService {
     return this.repo.save(user);
   }
 
+  /**
+   * Set or clear the caller's last-selected model. Passing null clears
+   * the sticky preference; a string id sets it after the controller has
+   * already validated that the model exists and is enabled.
+   */
+  async setModelPreference(id: string, modelId: string | null): Promise<User> {
+    const user = await this.repo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException();
+    user.lastSelectedModelId = modelId;
+    return this.repo.save(user);
+  }
+
+  /**
+   * Admin: paginated user list with an optional case-insensitive substring
+   * match on email or username. Returns the rows plus the unpaginated total so
+   * the admin UI can show "n of m". Ordering is by email for stability.
+   */
+  async listForAdmin(params: {
+    query?: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ items: User[]; total: number }> {
+    const qb = this.repo
+      .createQueryBuilder('u')
+      .orderBy('u.email', 'ASC')
+      .skip(params.offset)
+      .take(params.limit);
+
+    const term = params.query?.trim();
+    if (term) {
+      qb.where('LOWER(u.email) LIKE :term OR LOWER(u.username) LIKE :term', {
+        term: `%${term.toLowerCase()}%`,
+      });
+    }
+
+    const [items, total] = await qb.getManyAndCount();
+    return { items, total };
+  }
+
   /** Update lastLoginAt to now. Silent on failure — best-effort. */
   async markLoggedIn(id: string): Promise<void> {
     try {
@@ -124,18 +158,16 @@ export class UsersService {
   }
 
   private isUniqueViolation(err: unknown): boolean {
-    // TypeORM / SQLite surfaces unique violations with code SQLITE_CONSTRAINT_UNIQUE
-    // or a message containing "UNIQUE constraint failed"; PostgreSQL uses code 23505.
+    // PostgreSQL surfaces unique violations as SQLSTATE 23505.
     const anyErr = err as { code?: string; message?: string; driverError?: { code?: string } };
     const code = anyErr?.code ?? anyErr?.driverError?.code;
-    if (code === 'SQLITE_CONSTRAINT_UNIQUE' || code === '23505') return true;
-    return typeof anyErr?.message === 'string' && /UNIQUE constraint failed/i.test(anyErr.message);
+    if (code === '23505') return true;
+    return typeof anyErr?.message === 'string' && /duplicate key value violates unique constraint/i.test(anyErr.message);
   }
 
   /**
-   * Distinguish which unique index fired: prefer the constraint name
-   * (PostgreSQL surfaces it on the driver error), fall back to the
-   * SQLite message which names the offending column.
+   * Distinguish which unique index fired: PostgreSQL surfaces the
+   * constraint name on the driver error; fall back to the message.
    */
   private isUsernameViolation(err: unknown): boolean {
     const anyErr = err as {

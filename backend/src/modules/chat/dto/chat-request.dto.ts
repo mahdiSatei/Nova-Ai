@@ -1,4 +1,11 @@
-import { IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 /**
  * Request body for POST /v1/chat/stream.
@@ -20,6 +27,20 @@ export class ChatRequestDto {
   @IsOptional()
   @IsString()
   modelId?: string;
+
+  /** Opt-in web search for this turn. Absent/false means no search tool is offered. */
+  @IsOptional()
+  @IsBoolean()
+  webSearch?: boolean;
+
+  /**
+   * Opt-in reasoning for this turn. Absent/false means the provider request is
+   * unchanged. Explicit `true` on a model that is not configured as
+   * reasoning-capable is rejected with `reasoning_unsupported`.
+   */
+  @IsOptional()
+  @IsBoolean()
+  reasoning?: boolean;
 
   /**
    * Optional: attach an uploaded file to this turn. The file must belong

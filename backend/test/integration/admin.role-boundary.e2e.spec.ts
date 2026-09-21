@@ -1,9 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import * as argon2 from 'argon2';
 import request from 'supertest';
 import { AppModule } from '../../src/app.module';
@@ -13,7 +10,7 @@ import { User } from '../../src/modules/users/entities/user.entity';
 /**
  * US5 admin role boundary.
  *
- * Boots the full AppModule against a temp SQLite and exercises the
+ * Boots the full AppModule against `chatbot_test` (PostgreSQL) and exercises the
  * three authentication states against the placeholder admin route
  * (`GET /v1/admin/models`):
  *
@@ -23,23 +20,25 @@ import { User } from '../../src/modules/users/entities/user.entity';
  */
 describe('Admin role boundary (US5)', () => {
   let app: INestApplication;
-  let dbPath: string;
   let adminId: string;
   let userId: string;
   let adminAccessToken: string;
   let userAccessToken: string;
 
-  const ADMIN_EMAIL = 'admin-rolebound@example.com';
-  const USER_EMAIL = 'user-rolebound@example.com';
+  const RUN = Date.now().toString(36);
+  const ADMIN_EMAIL = `admin-rolebound-${RUN}@example.com`;
+  const USER_EMAIL = `user-rolebound-${RUN}@example.com`;
   const PASSWORD = 'correct-horse-battery-staple';
 
   jest.setTimeout(30_000);
 
   beforeAll(async () => {
-    dbPath = path.join(os.tmpdir(), `chatbot-admin-${Date.now()}.sqlite`);
     process.env.NODE_ENV = 'test';
-    process.env.DB_DRIVER = 'sqlite';
-    process.env.SQLITE_FILE = dbPath;
+    process.env.POSTGRES_HOST = '127.0.0.1';
+    process.env.POSTGRES_PORT = process.env.TEST_POSTGRES_PORT ?? '5432';
+    process.env.POSTGRES_USER = 'postgres';
+    process.env.POSTGRES_PASSWORD = process.env.TEST_POSTGRES_PASSWORD ?? 'postgres';
+    process.env.POSTGRES_DB = 'chatbot_test';
     process.env.JWT_SECRET = 'integration-test-secret-with-enough-entropy-here';
     process.env.JWT_REFRESH_SECRET = 'integration-test-refresh-secret-entropy';
     process.env.PROVIDER_ENCRYPTION_KEY = Buffer.alloc(32, 1).toString('base64');
@@ -83,18 +82,17 @@ describe('Admin role boundary (US5)', () => {
     // Log in each account to capture a real access JWT.
     const adminLogin = await request(app.getHttpServer())
       .post('/v1/auth/login')
-      .send({ email: ADMIN_EMAIL, password: PASSWORD });
+      .send({ identifier: ADMIN_EMAIL, password: PASSWORD });
     adminAccessToken = adminLogin.body.accessToken;
 
     const userLogin = await request(app.getHttpServer())
       .post('/v1/auth/login')
-      .send({ email: USER_EMAIL, password: PASSWORD });
+      .send({ identifier: USER_EMAIL, password: PASSWORD });
     userAccessToken = userLogin.body.accessToken;
   });
 
   afterAll(async () => {
     if (app) await app.close();
-    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
   });
 
   describe('GET /v1/admin/models', () => {

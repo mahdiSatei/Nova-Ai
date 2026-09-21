@@ -23,6 +23,9 @@ const MESSAGES: Record<string, string> = {
 
   // Models / chat
   model_unavailable: 'این مدل در دسترس نیست.',
+  model_forbidden: 'این مدل برای حساب شما در دسترس نیست.',
+  model_is_default: 'این مدل پیش‌فرض سیستم است؛ ابتدا مدل پیش‌فرض دیگری انتخاب کنید.',
+  user_not_found: 'کاربر یافت نشد.',
   model_in_use: 'این مدل در حال استفاده است و قابل حذف نیست.',
   replacement_not_available: 'مدل جایگزین معتبر نیست؛ باید یک مدل فعالِ متفاوت باشد.',
   no_default_model: 'مدل پیش‌فرضی انتخاب نشده است.',
@@ -30,6 +33,15 @@ const MESSAGES: Record<string, string> = {
   provider_unreachable: 'ارائه‌دهنده در دسترس نیست یا کلید API نامعتبر است.',
   duplicate_display_name: 'این نام نمایشی قبلاً استفاده شده است.',
   no_model_available: 'هیچ مدل فعالی برای گفتگو وجود ندارد.',
+  insufficient_credits: 'برای استفاده از این مدل باید ابتدا اعتبار خود را شارژ کنید.',
+  wallet_unavailable: 'اعتبار حساب قابل بررسی نیست. لطفاً دوباره تلاش کنید.',
+
+  // فاز ۶ — جایگزینی ارائه‌دهنده
+  all_providers_unavailable:
+    'سرویس‌دهنده‌ی مدل در حال حاضر در دسترس نیست. لطفاً چند لحظه بعد دوباره تلاش کنید.',
+  provider_timeout: 'پاسخ مدل بیش از حد طول کشید. لطفاً دوباره تلاش کنید.',
+  provider_rate_limited: 'سرویس‌دهنده در حال حاضر شلوغ است. لطفاً چند لحظه بعد دوباره تلاش کنید.',
+  provider_error: 'مدل در میانه‌ی پاسخ‌دهی با خطا مواجه شد.',
 
   // Streaming / network
   network_error: 'خطا در ارتباط با سرور.',
@@ -44,6 +56,19 @@ const MESSAGES: Record<string, string> = {
 
   // Stale conversation
   conversation_not_found: 'این گفتگو دیگر وجود ندارد (حذف شده است). می‌توانید گفتگوی جدیدی شروع کنید.',
+
+  // فاز ۷ — جستجوی وب
+  web_search_not_configured: 'جستجوی وب روی این سرور پیکربندی نشده است.',
+  web_search_auth_error: 'دسترسی جستجوی وب نامعتبر است. با مدیر سیستم تماس بگیرید.',
+  web_search_rate_limited: 'سرویس جستجوی وب شلوغ است. چند لحظه بعد دوباره تلاش کنید.',
+  web_search_insufficient_credits: 'اعتبار جستجوی وب کافی نیست.',
+  web_search_timeout: 'جستجوی وب زمان‌بر شد؛ پاسخ بدون منابع وب ادامه یافت.',
+  web_search_provider_error: 'جستجوی وب در دسترس نیست؛ پاسخ بدون منابع وب ادامه یافت.',
+  web_search_bad_response: 'پاسخ نامعتبر از سرویس جستجوی وب دریافت شد.',
+
+  // فاز ۸ — استدلال
+  reasoning_unsupported: 'این مدل از استدلال پشتیبانی نمی‌کند. استدلال را خاموش کنید و دوباره تلاش کنید.',
+  invalid_reasoning_configuration: 'پیکربندی استدلال این مدل ناسازگار است.',
 }
 
 const FALLBACK = 'خطایی رخ داد. لطفاً دوباره تلاش کنید.'

@@ -15,7 +15,7 @@ import ModelMigrateModal from '@/components/admin/ModelMigrateModal.vue'
 import ModelTable from '@/components/admin/ModelTable.vue'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
-import { deleteModel, getConfig, listAdminModels, updateModel } from '@/api/admin'
+import { deleteModel, getConfig, listAdminModels, putConfig, updateModel } from '@/api/admin'
 import type { DeleteModelMigrationResult } from '@/api/admin'
 import { usePagination } from '@/composables/usePagination'
 import { useModelsStore } from '@/stores/models'
@@ -35,6 +35,9 @@ const migrateFor = ref<ModelAdmin | null>(null)
 const migrateBusy = ref(false)
 const migrateError = ref<ApiError | null>(null)
 const lastMigrated = ref<DeleteModelMigrationResult | null>(null)
+
+const defaultBusyId = ref<string | null>(null)
+const toClearDefault = ref<ModelAdmin | null>(null)
 
 const items = computed(() => page.items.value)
 const migrateCandidates = computed(
@@ -59,6 +62,44 @@ function openCreate(): void {
 function openEdit(m: ModelAdmin): void {
   editing.value = m
   formOpen.value = true
+}
+
+/** FR-031/FR-033: تعیین مدل فعالِ عمومی به‌عنوان پیش‌فرض — اتمیک. */
+async function onSetDefault(m: ModelAdmin): Promise<void> {
+  if (defaultBusyId.value) return
+  defaultBusyId.value = m.id
+  actionError.value = null
+  try {
+    const cfg = await putConfig({ defaultModelId: m.id })
+    defaultModelId.value = cfg.defaultModelId
+    await page.refresh()
+  } catch (err) {
+    if (err instanceof ApiError) actionError.value = err
+  } finally {
+    defaultBusyId.value = null
+  }
+}
+
+/** پاک‌کردن پیش‌فرض نیاز به تأیید دارد (§5.3). */
+function askClearDefault(m: ModelAdmin): void {
+  toClearDefault.value = m
+  actionError.value = null
+}
+
+async function onConfirmClearDefault(): Promise<void> {
+  const m = toClearDefault.value
+  if (!m) return
+  defaultBusyId.value = m.id
+  try {
+    const cfg = await putConfig({ defaultModelId: null })
+    defaultModelId.value = cfg.defaultModelId
+    await page.refresh()
+    toClearDefault.value = null
+  } catch (err) {
+    if (err instanceof ApiError) actionError.value = err
+  } finally {
+    defaultBusyId.value = null
+  }
 }
 
 async function onSaved(): Promise<void> {
@@ -139,7 +180,10 @@ async function onConfirmMigrate(replacementId: string): Promise<void> {
   <section>
     <header class="mb-4 flex items-center gap-3">
       <PhListBullets class="size-5 text-primary" aria-hidden="true" />
-      <h1 class="text-base font-semibold">کاتالوگ مدل‌ها</h1>
+      <div>
+        <h1 class="text-base font-semibold">کاتالوگ مدل‌ها</h1>
+        <p class="mt-1 text-xs text-ink-muted">مدل‌های قابل استفاده، قیمت‌گذاری، قابلیت‌ها و مدل پیش‌فرض سیستم را تنظیم کنید.</p>
+      </div>
       <div class="ms-auto">
         <BaseButton size="sm" @click="openCreate">
           <PhPlus class="size-4" aria-hidden="true" />
@@ -204,9 +248,12 @@ async function onConfirmMigrate(replacementId: string): Promise<void> {
       <ModelTable
         :models="items"
         :default-model-id="defaultModelId"
+        :default-busy-id="defaultBusyId"
         @edit="openEdit"
         @toggle="onToggle"
         @remove="askDelete"
+        @set-default="onSetDefault"
+        @clear-default="askClearDefault"
       />
 
       <div v-if="page.hasMore.value" class="mt-3 flex justify-center">
@@ -231,6 +278,16 @@ async function onConfirmMigrate(replacementId: string): Promise<void> {
       :busy="deleteBusy"
       @update:open="(v: boolean) => { if (!v) toDelete = null }"
       @confirm="onConfirmDelete"
+    />
+
+    <ConfirmModal
+      :open="toClearDefault !== null"
+      title="پاک کردن مدل پیش‌فرض"
+      :description="toClearDefault ? `مدل «${toClearDefault.displayName}» دیگر پیش‌فرض نخواهد بود. تا زمانی که پیش‌فرض جدیدی انتخاب نشود، کاربران جدید پیام «چت پیکربندی نشده» را می‌بینند.` : ''"
+      confirm-label="پاک کردن"
+      :busy="defaultBusyId !== null"
+      @update:open="(v: boolean) => { if (!v) toClearDefault = null }"
+      @confirm="onConfirmClearDefault"
     />
 
     <ModelMigrateModal

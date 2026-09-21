@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// انتخاب‌گر مدل: پشتیبانی از حالت inline با Modal زیبا و حالت فرم عادی
+// انتخاب‌گر مدل: پشتیبانی از حالت inline با Modal زیبای و حالت فرم عادی
 import { computed, ref, watch } from 'vue'
 import { PhSparkle, PhCaretDown } from '@phosphor-icons/vue'
 import { useModelsStore } from '@/stores/models'
@@ -18,7 +18,13 @@ const modalOpen = ref(false)
 watch(
   () => models.items,
   (items) => {
-    if (props.modelValue) return
+    // Re-resolve whenever the current value is not in the (entitlement-filtered)
+    // catalog — e.g. an admin restricted the model after this client loaded it,
+    // or the user's own access changed. Never leave an inaccessible model
+    // selected. (فاز ۳: انتخاب‌گر مدل نباید مدل غیرمجاز را نشان دهد.)
+    const current = props.modelValue
+    if (current && items.some((m) => m.id === current)) return
+
     const last = (() => {
       try {
         return sessionStorage.getItem('mmcb.lastModelId')
@@ -26,10 +32,12 @@ watch(
         return null
       }
     })()
+
     const explicitId = items.find((m) => m.id === last)?.id
     const defaultId = items.find((m) => m.isDefault)?.id
     const fallbackId = items[0]?.id ?? null
     const resolved = explicitId ?? defaultId ?? fallbackId
+
     if (resolved) updateModel(resolved)
   },
   { immediate: true },
@@ -61,14 +69,22 @@ function onChange(e: Event): void {
       <button
         type="button"
         :disabled="disabled || models.loading || models.isEmpty"
-        class="group flex items-center gap-1.5 rounded-xl bg-elevated/85 px-3 py-1.5 text-xs font-semibold text-ink transition-all hover:bg-hover border border-line/70 shadow-2xs disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+        class="group flex cursor-pointer items-center gap-2 rounded-xl border border-line/70 bg-surface/80 px-3 py-1.5 text-xs font-semibold text-ink shadow-sm transition-all hover:border-primary/40 hover:bg-primary-soft/40 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
         @click="modalOpen = true"
       >
-        <span class="truncate max-w-[140px]">
-          {{ currentModel ? currentModel.displayName : 'انتخاب مدل' }}
+        <span class="flex size-5 shrink-0 items-center justify-center rounded-md bg-primary-soft text-primary transition-colors group-hover:bg-primary group-hover:text-on-primary">
+          <PhSparkle class="size-3" aria-hidden="true" />
         </span>
-        <PhSparkle class="size-3.5 text-primary shrink-0" aria-hidden="true" />
-        <PhCaretDown class="size-3 text-ink-muted transition-transform group-hover:text-ink" aria-hidden="true" />
+        <span class="flex min-w-0 flex-col items-start leading-tight">
+          <span class="max-w-[140px] truncate">
+            {{ currentModel ? currentModel.displayName : 'انتخاب مدل' }}
+          </span>
+          <span v-if="currentModel?.isDefault" class="text-[9px] font-medium text-primary/80">مدل پیش‌فرض</span>
+        </span>
+        <PhCaretDown
+          class="size-3 text-ink-muted transition-transform group-hover:text-ink"
+          aria-hidden="true"
+        />
       </button>
 
       <!-- پاپ‌آپ انتخاب مدل -->
@@ -81,10 +97,13 @@ function onChange(e: Event): void {
     </div>
 
     <!-- حالت عادی فرم -->
-    <div v-else class="flex flex-col gap-2 w-full">
+    <div v-else class="flex w-full flex-col gap-2">
       <label class="text-xs font-medium text-ink-muted">انتخاب مدل هوش مصنوعی</label>
 
-      <div v-if="models.loading && models.items.length === 0" class="h-10 animate-pulse rounded-xl bg-elevated" />
+      <div
+        v-if="models.loading && models.items.length === 0"
+        class="h-10 animate-pulse rounded-xl bg-elevated"
+      />
 
       <div
         v-else-if="models.isEmpty"
@@ -104,16 +123,23 @@ function onChange(e: Event): void {
         <div class="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-primary">
           <PhSparkle class="size-4" aria-hidden="true" />
         </div>
+
         <select
           :value="modelValue ?? ''"
           :disabled="disabled || models.loading"
-          class="w-full appearance-none rounded-xl border border-line bg-surface py-2.5 pe-9 ps-9 text-sm text-ink transition-colors focus:border-primary focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+          class="w-full cursor-pointer appearance-none rounded-xl border border-line bg-surface py-2.5 pe-9 ps-9 text-sm text-ink transition-colors focus:border-primary focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
           @change="onChange"
         >
-          <option v-for="m in models.items" :key="m.id" :value="m.id" class="bg-surface text-ink">
+          <option
+            v-for="m in models.items"
+            :key="m.id"
+            :value="m.id"
+            class="bg-surface text-ink"
+          >
             {{ m.displayName }}{{ m.isDefault ? ' ★ (پیش‌فرض)' : '' }}
           </option>
         </select>
+
         <PhCaretDown
           class="pointer-events-none absolute end-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
           aria-hidden="true"

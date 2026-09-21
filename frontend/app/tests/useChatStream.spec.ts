@@ -39,8 +39,20 @@ describe('useChatStream', () => {
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-01T00:00:00Z',
       messages: [
-        { id: 'm1', role: 'user', content: 'hello', createdAt: '2024-01-01T00:00:00Z', status: 'completed' },
-        { id: 'm2', role: 'assistant', content: 'partial reply', createdAt: '2024-01-01T00:00:01Z', status: 'streaming' },
+        {
+          id: 'm1',
+          role: 'user',
+          content: 'hello',
+          createdAt: '2024-01-01T00:00:00Z',
+          status: 'completed',
+        },
+        {
+          id: 'm2',
+          role: 'assistant',
+          content: 'partial reply',
+          createdAt: '2024-01-01T00:00:01Z',
+          status: 'streaming',
+        },
       ],
     })
 
@@ -63,8 +75,20 @@ describe('useChatStream', () => {
       createdAt: '2024-01-01T00:00:00Z',
       updatedAt: '2024-01-01T00:00:00Z',
       messages: [
-        { id: 'm1', role: 'user', content: 'hi', createdAt: '2024-01-01T00:00:00Z', status: 'completed' },
-        { id: 'm2', role: 'assistant', content: 'full reply', createdAt: '2024-01-01T00:00:01Z', status: 'completed' },
+        {
+          id: 'm1',
+          role: 'user',
+          content: 'hi',
+          createdAt: '2024-01-01T00:00:00Z',
+          status: 'completed',
+        },
+        {
+          id: 'm2',
+          role: 'assistant',
+          content: 'full reply',
+          createdAt: '2024-01-01T00:00:01Z',
+          status: 'completed',
+        },
       ],
     })
 
@@ -99,13 +123,16 @@ describe('useChatStream', () => {
       content: 'partial',
     }
 
-    vi.mocked(cancelGeneration).mockResolvedValue({ messageId: 'm-stream', status: 'cancelled' })
+    vi.mocked(cancelGeneration).mockResolvedValue({
+      messageId: 'm-stream',
+      status: 'cancelled',
+    })
 
     await chat.cancel()
 
     expect(cancelGeneration).toHaveBeenCalledWith('conv-1')
     expect(chat.generationState.value).toBe('cancelled')
-    expect(chat.generation.value?.content).toBe('partial') // preserved
+    expect(chat.generation.value?.content).toBe('partial')
   })
 
   it('cancel handles no_active_generation by reloading conversation', async () => {
@@ -121,7 +148,9 @@ describe('useChatStream', () => {
     const apiErr = new Error('no active gen') as any
     apiErr.code = 'no_active_generation'
     apiErr.status = 409
+
     vi.mocked(cancelGeneration).mockRejectedValue(apiErr)
+
     vi.mocked(getConversation).mockResolvedValue({
       id: 'conv-1',
       modelId: 'm1',
@@ -150,6 +179,7 @@ describe('useChatStream', () => {
 
   it('inputDisabled is false in terminal states (completed/failed/cancelled)', () => {
     const chat = useChatStream()
+
     for (const st of ['completed', 'failed', 'cancelled'] as const) {
       chat.generationState.value = st
       expect(chat.inputDisabled.value).toBe(false)
@@ -160,13 +190,16 @@ describe('useChatStream', () => {
     const chat = useChatStream()
     chat.conversationId.value = 'conv-9'
     chat.generation.value = {
-      conversationId: '', // optimistic placeholder before start event
+      conversationId: '',
       assistantMessageId: 'assistant-123',
       status: 'streaming',
       content: '',
     }
 
-    vi.mocked(cancelGeneration).mockResolvedValue({ messageId: 'm-real', status: 'cancelled' })
+    vi.mocked(cancelGeneration).mockResolvedValue({
+      messageId: 'm-real',
+      status: 'cancelled',
+    })
 
     await chat.cancel()
 
@@ -191,8 +224,6 @@ describe('useChatStream', () => {
   })
 
   it('resume no_active_stream reconciles with the DB instead of failing', async () => {
-    // The server's in-memory stream is gone (finished while the page was
-    // refreshing): resume responds with a no_active_stream error event.
     vi.mocked(resumeStream).mockImplementation((_convId, handlers) => {
       queueMicrotask(() =>
         handlers.onError({
@@ -200,11 +231,10 @@ describe('useChatStream', () => {
           message: 'No active generation found for this conversation.',
         }),
       )
+
       return new AbortController()
     })
 
-    // Initial load sees the conversation mid-stream; the reconciliation
-    // fetch (after resume fails) sees the finished conversation.
     vi.mocked(getConversation)
       .mockResolvedValueOnce({
         id: 'conv-1',
@@ -214,8 +244,20 @@ describe('useChatStream', () => {
         createdAt: '',
         updatedAt: '',
         messages: [
-          { id: 'm1', role: 'user', content: 'hi', createdAt: '', status: 'completed' },
-          { id: 'm2', role: 'assistant', content: 'partial', createdAt: '', status: 'streaming' },
+          {
+            id: 'm1',
+            role: 'user',
+            content: 'hi',
+            createdAt: '',
+            status: 'completed',
+          },
+          {
+            id: 'm2',
+            role: 'assistant',
+            content: 'partial',
+            createdAt: '',
+            status: 'streaming',
+          },
         ],
       })
       .mockResolvedValue({
@@ -226,14 +268,26 @@ describe('useChatStream', () => {
         createdAt: '',
         updatedAt: '',
         messages: [
-          { id: 'm1', role: 'user', content: 'hi', createdAt: '', status: 'completed' },
-          { id: 'm2', role: 'assistant', content: 'final answer', createdAt: '', status: 'completed' },
+          {
+            id: 'm1',
+            role: 'user',
+            content: 'hi',
+            createdAt: '',
+            status: 'completed',
+          },
+          {
+            id: 'm2',
+            role: 'assistant',
+            content: 'final answer',
+            createdAt: '',
+            status: 'completed',
+          },
         ],
       })
 
     const chat = useChatStream()
     await chat.loadConversation('conv-1')
-    // Reconciliation is async (fires from the resume onError microtask).
+
     await vi.waitFor(() => {
       expect(chat.generationState.value).toBe('completed')
     })
@@ -244,7 +298,13 @@ describe('useChatStream', () => {
   })
 
   it('send adopts real ids from the SSE start event', async () => {
-    let startHandler: ((info: { conversationId: string; assistantMessageId: string }) => void) | undefined
+    let startHandler:
+      | ((info: {
+          conversationId: string
+          assistantMessageId: string
+        }) => void)
+      | undefined
+
     vi.mocked(streamChat).mockImplementation((_body, handlers) => {
       startHandler = handlers.onStart
       return new AbortController()
@@ -252,22 +312,84 @@ describe('useChatStream', () => {
 
     const chat = useChatStream()
     chat.selectedModelId.value = 'model-1'
+
     await chat.send('first message')
 
     expect(chat.generationState.value).toBe('streaming')
     expect(chat.conversationId.value).toBeNull()
 
-    // Server assigns ids before the first token.
-    startHandler?.({ conversationId: 'conv-real', assistantMessageId: 'msg-real' })
+    startHandler?.({
+      conversationId: 'conv-real',
+      assistantMessageId: 'msg-real',
+    })
 
     expect(chat.conversationId.value).toBe('conv-real')
     expect(chat.generation.value?.assistantMessageId).toBe('msg-real')
     expect(chat.generation.value?.conversationId).toBe('conv-real')
   })
 
+  it('send persists assistant message in transcript after stream completes (FR-015)', async () => {
+    let startHandler:
+      | ((info: {
+          conversationId: string
+          assistantMessageId: string
+        }) => void)
+      | undefined
+    let deltaHandler: ((text: string, isFirst: boolean) => void) | undefined
+    let doneHandler: (() => void) | undefined
+
+    vi.mocked(streamChat).mockImplementation((_body, handlers) => {
+      startHandler = handlers.onStart
+      deltaHandler = handlers.onDelta
+      doneHandler = handlers.onDone
+      return new AbortController()
+    })
+
+    const chat = useChatStream()
+    chat.selectedModelId.value = 'model-1'
+
+    await chat.send('hello world')
+
+    expect(chat.generationState.value).toBe('streaming')
+
+    // Server assigns real IDs — different from the optimistic ones
+    startHandler?.({
+      conversationId: 'conv-real',
+      assistantMessageId: 'msg-real',
+    })
+
+    expect(chat.generation.value?.assistantMessageId).toBe('msg-real')
+
+    // Simulate streaming deltas
+    deltaHandler?.('Hello ', false)
+    deltaHandler?.('world!', false)
+
+    expect(chat.generation.value?.content).toBe('Hello world!')
+
+    // Stream completes
+    doneHandler?.()
+
+    expect(chat.generationState.value).toBe('completed')
+
+    // The assistant message must persist in transcript after completion
+    const assistantMsg = chat.transcript.value.find(
+      (m) => m.id === 'msg-real' && m.role === 'assistant',
+    )
+    expect(assistantMsg).toBeDefined()
+    expect(assistantMsg?.content).toBe('Hello world!')
+    expect(assistantMsg?.status).toBe('completed')
+  })
+
   it('retry streams from the targeted failed message and adopts the new ids', async () => {
-    let startHandler: ((info: { conversationId: string; assistantMessageId: string }) => void) | undefined
+    let startHandler:
+      | ((info: {
+          conversationId: string
+          assistantMessageId: string
+        }) => void)
+      | undefined
+
     let capturedHandlers: Parameters<typeof retryStream>[2] | undefined
+
     vi.mocked(retryStream).mockImplementation((_convId, _msgId, handlers) => {
       capturedHandlers = handlers
       startHandler = handlers.onStart
@@ -276,42 +398,79 @@ describe('useChatStream', () => {
 
     const chat = useChatStream()
     await chat.loadConversation('conv-1')
-    // Transcript now has a failed assistant row; generationState is idle
-    // (this is exactly the post-refresh scenario that used to dead-end).
+
     chat.transcript.value = [
-      { id: 'm1', role: 'user', content: 'hi', createdAt: '', status: 'completed' },
-      { id: 'm2', role: 'assistant', content: '', createdAt: '', status: 'failed' },
+      {
+        id: 'm1',
+        role: 'user',
+        content: 'hi',
+        createdAt: '',
+        status: 'completed',
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content: '',
+        createdAt: '',
+        status: 'failed',
+      },
     ]
+
     chat.generation.value = null
     chat.generationState.value = 'idle'
 
     await chat.retry('m2')
 
-    expect(retryStream).toHaveBeenCalledWith('conv-1', 'm2', expect.anything())
+    // retryStream carries the caller's current web-search/reasoning toggles.
+    expect(retryStream).toHaveBeenCalledWith(
+      'conv-1',
+      'm2',
+      expect.anything(),
+      expect.anything(),
+    )
+
     expect(chat.generationState.value).toBe('streaming')
     expect(chat.connectionError.value).toBeNull()
 
-    // Server opens the retry stream with real ids.
-    startHandler?.({ conversationId: 'conv-1', assistantMessageId: 'm-new' })
-    expect(chat.generation.value?.assistantMessageId).toBe('m-new')
-    expect(chat.transcript.value.some((m) => m.id === 'm-new' && m.status === 'streaming')).toBe(true)
+    startHandler?.({
+      conversationId: 'conv-1',
+      assistantMessageId: 'm-new',
+    })
 
-    // Deltas land on the new row.
+    expect(chat.generation.value?.assistantMessageId).toBe('m-new')
+    expect(
+      chat.transcript.value.some(
+        (m) => m.id === 'm-new' && m.status === 'streaming',
+      ),
+    ).toBe(true)
+
     capturedHandlers?.onDelta('hello ', false)
     capturedHandlers?.onDelta('world', false)
+
     expect(chat.generation.value?.content).toBe('hello world')
-    expect(chat.transcript.value.find((m) => m.id === 'm-new')?.content).toBe('hello world')
+    expect(chat.transcript.value.find((m) => m.id === 'm-new')?.content).toBe(
+      'hello world',
+    )
 
     capturedHandlers?.onDone()
+
     expect(chat.generationState.value).toBe('completed')
     expect(chat.inputDisabled.value).toBe(false)
+
     // The old failed row (m2) was replaced by the new streaming row (m-new).
     expect(chat.transcript.value.find((m) => m.id === 'm2')).toBeUndefined()
   })
 
   it('retry replaces only the targeted message when multiple failures exist', async () => {
-    let startHandler: ((info: { conversationId: string; assistantMessageId: string }) => void) | undefined
+    let startHandler:
+      | ((info: {
+          conversationId: string
+          assistantMessageId: string
+        }) => void)
+      | undefined
+
     let capturedHandlers: Parameters<typeof retryStream>[2] | undefined
+
     vi.mocked(retryStream).mockImplementation((_convId, _msgId, handlers) => {
       capturedHandlers = handlers
       startHandler = handlers.onStart
@@ -320,32 +479,75 @@ describe('useChatStream', () => {
 
     const chat = useChatStream()
     await chat.loadConversation('conv-1')
+
     chat.transcript.value = [
-      { id: 'm1', role: 'user', content: 'hi', createdAt: '', status: 'completed' },
-      { id: 'm2', role: 'assistant', content: '', createdAt: '', status: 'failed' },
-      { id: 'm3', role: 'user', content: 'bye', createdAt: '', status: 'completed' },
-      { id: 'm4', role: 'assistant', content: '', createdAt: '', status: 'failed' },
+      {
+        id: 'm1',
+        role: 'user',
+        content: 'hi',
+        createdAt: '',
+        status: 'completed',
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content: '',
+        createdAt: '',
+        status: 'failed',
+      },
+      {
+        id: 'm3',
+        role: 'user',
+        content: 'bye',
+        createdAt: '',
+        status: 'completed',
+      },
+      {
+        id: 'm4',
+        role: 'assistant',
+        content: '',
+        createdAt: '',
+        status: 'failed',
+      },
     ]
+
     chat.generation.value = null
     chat.generationState.value = 'idle'
 
-    // Retry only m4 (the second failed message)
     await chat.retry('m4')
 
-    expect(retryStream).toHaveBeenCalledWith('conv-1', 'm4', expect.anything())
+    expect(retryStream).toHaveBeenCalledWith(
+      'conv-1',
+      'm4',
+      expect.anything(),
+      expect.anything(),
+    )
+
     expect(chat.generationState.value).toBe('streaming')
 
-    // Server opens the retry stream with real ids.
-    startHandler?.({ conversationId: 'conv-1', assistantMessageId: 'm-new' })
+    startHandler?.({
+      conversationId: 'conv-1',
+      assistantMessageId: 'm-new',
+    })
 
     // Only m4 should be replaced; m2 should remain as a failed row in history.
-    expect(chat.transcript.value.find((m) => m.id === 'm2')?.status).toBe('failed')
+    expect(chat.transcript.value.find((m) => m.id === 'm2')?.status).toBe(
+      'failed',
+    )
     expect(chat.transcript.value.find((m) => m.id === 'm4')).toBeUndefined()
-    expect(chat.transcript.value.find((m) => m.id === 'm-new')?.status).toBe('streaming')
+    expect(
+      chat.transcript.value.find((m) => m.id === 'm-new')?.status,
+    ).toBe('streaming')
   })
 
   it('retry replaces a cancelled message (not just failed)', async () => {
-    let startHandler: ((info: { conversationId: string; assistantMessageId: string }) => void) | undefined
+    let startHandler:
+      | ((info: {
+          conversationId: string
+          assistantMessageId: string
+        }) => void)
+      | undefined
+
     vi.mocked(retryStream).mockImplementation((_convId, _msgId, handlers) => {
       startHandler = handlers.onStart
       return new AbortController()
@@ -353,27 +555,53 @@ describe('useChatStream', () => {
 
     const chat = useChatStream()
     await chat.loadConversation('conv-1')
+
     chat.transcript.value = [
-      { id: 'm1', role: 'user', content: 'hi', createdAt: '', status: 'completed' },
-      { id: 'm2', role: 'assistant', content: '', createdAt: '', status: 'cancelled' },
+      {
+        id: 'm1',
+        role: 'user',
+        content: 'hi',
+        createdAt: '',
+        status: 'completed',
+      },
+      {
+        id: 'm2',
+        role: 'assistant',
+        content: '',
+        createdAt: '',
+        status: 'cancelled',
+      },
     ]
+
     chat.generation.value = null
     chat.generationState.value = 'idle'
 
     await chat.retry('m2')
 
-    startHandler?.({ conversationId: 'conv-1', assistantMessageId: 'm-new' })
+    startHandler?.({
+      conversationId: 'conv-1',
+      assistantMessageId: 'm-new',
+    })
 
     // The cancelled row should be replaced by the new streaming row.
     expect(chat.transcript.value.find((m) => m.id === 'm2')).toBeUndefined()
-    expect(chat.transcript.value.find((m) => m.id === 'm-new')?.status).toBe('streaming')
+    expect(
+      chat.transcript.value.find((m) => m.id === 'm-new')?.status,
+    ).toBe('streaming')
   })
 
   it('retry surfaces an error banner instead of silently doing nothing when no failed row exists', async () => {
     const chat = useChatStream()
     chat.conversationId.value = 'conv-1'
+
     chat.transcript.value = [
-      { id: 'm1', role: 'user', content: 'hi', createdAt: '', status: 'completed' },
+      {
+        id: 'm1',
+        role: 'user',
+        content: 'hi',
+        createdAt: '',
+        status: 'completed',
+      },
     ]
 
     await chat.retry()
@@ -385,7 +613,16 @@ describe('useChatStream', () => {
 
   it('loadConversation on 404 clears the stale stored id and shows the deleted-conversation banner', async () => {
     localStorage.setItem('mmcb.lastConversationId', 'conv-deleted')
-    const apiErr = new ApiError(404, { code: 'conversation_not_found', message: 'Conversation not found.' }, 'nf')
+
+    const apiErr = new ApiError(
+      404,
+      {
+        code: 'conversation_not_found',
+        message: 'Conversation not found.',
+      },
+      'nf',
+    )
+
     vi.mocked(getConversation).mockRejectedValue(apiErr)
 
     const chat = useChatStream()
@@ -393,8 +630,10 @@ describe('useChatStream', () => {
 
     expect(chat.connectionError.value?.code).toBe('conversation_not_found')
     expect(chat.connectionError.value?.message).toContain('وجود ندارد')
+
     // Stale id must be gone so the stored-id redirect can't loop.
     expect(localStorage.getItem('mmcb.lastConversationId')).toBeNull()
+
     // State is reset, not stuck on a dead conversation.
     expect(chat.transcript.value).toHaveLength(0)
     expect(chat.generationState.value).toBe('idle')
@@ -403,13 +642,24 @@ describe('useChatStream', () => {
 
   it('resetConversation clears all state', () => {
     const chat = useChatStream()
-    chat.transcript.value = [{ id: 'm1', role: 'user', content: 'hi', createdAt: '', status: 'completed' }]
+
+    chat.transcript.value = [
+      {
+        id: 'm1',
+        role: 'user',
+        content: 'hi',
+        createdAt: '',
+        status: 'completed',
+      },
+    ]
+
     chat.generation.value = {
       conversationId: 'conv-1',
       assistantMessageId: 'm2',
       status: 'streaming',
       content: 'text',
     }
+
     chat.connectionState.value = 'disconnected'
     chat.conversationId.value = 'conv-1'
 

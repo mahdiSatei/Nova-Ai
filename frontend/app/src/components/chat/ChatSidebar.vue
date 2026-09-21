@@ -184,6 +184,7 @@ async function onDelete(id: string): Promise<void> {
     await deleteConversation(id)
     items.value = items.value.filter((c) => c.id !== id)
     if (chat.loadSavedConversationId() === id) chat.clearSavedConversationId()
+
     if (activeId.value === id) {
       closeMobile()
       emit('navigate')
@@ -201,11 +202,13 @@ function bindFlyoutDismiss(): void {
   document.addEventListener('keydown', onFlyoutKeydown)
   document.addEventListener('pointerdown', onDocPointerDownUserMenu)
 }
+
 function unbindFlyoutDismiss(): void {
   document.removeEventListener('pointerdown', onDocPointerDown)
   document.removeEventListener('keydown', onFlyoutKeydown)
   document.removeEventListener('pointerdown', onDocPointerDownUserMenu)
 }
+
 onMounted(bindFlyoutDismiss)
 onUnmounted(unbindFlyoutDismiss)
 
@@ -238,7 +241,7 @@ watch(
   />
 
   <aside
-    class="fixed inset-y-0 start-0 z-40 flex flex-col border-e border-line bg-surface transition-[width,transform] duration-300 ease-out lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0!"
+    class="fixed inset-y-0 start-0 z-40 flex flex-col border-e border-line/70 bg-surface/90 shadow-2xl shadow-black/15 backdrop-blur-xl transition-[width,transform] duration-300 ease-out lg:sticky lg:top-0 lg:h-dvh lg:translate-x-0!"
     :class="[
       rail ? 'w-16' : 'w-72',
       mobileOpen ? 'translate-x-0' : 'ltr:-translate-x-full rtl:translate-x-full',
@@ -253,6 +256,7 @@ watch(
         </span>
         <span v-if="!rail" class="truncate text-sm font-semibold text-ink">Nova AI</span>
       </RouterLink>
+
       <button
         type="button"
         class="ms-auto hidden size-8 cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink lg:inline-flex"
@@ -261,6 +265,7 @@ watch(
       >
         <PhList class="size-4" aria-hidden="true" />
       </button>
+
       <button
         type="button"
         class="ms-auto size-8 inline-flex cursor-pointer items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-hover hover:text-ink lg:hidden"
@@ -275,7 +280,7 @@ watch(
     <div class="px-3">
       <button
         type="button"
-        class="flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary text-sm font-medium text-on-primary shadow-sm transition-colors hover:bg-primary-hover"
+        class="flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-primary to-primary-deep text-sm font-medium text-on-primary shadow-lg shadow-primary/20 transition-[transform,box-shadow] duration-200 hover:-translate-y-px hover:shadow-primary/30"
         :title="'گفتگوی جدید'"
         @click="onNewChat"
       >
@@ -331,6 +336,7 @@ watch(
       <div v-if="loading && items.length === 0" class="flex flex-col gap-1.5 px-1">
         <div v-for="i in 5" :key="i" class="h-9 animate-pulse rounded-lg bg-elevated" />
       </div>
+
       <ConversationGroups
         v-else
         :items="items"
@@ -342,12 +348,12 @@ watch(
       />
     </nav>
 
-    <!-- فوتر: فقط منوی کاربر (پروفایل / تنظیمات مدیر / خروج) -->
+    <!-- فوتر حساب کاربری -->
     <div class="mt-auto shrink-0 border-t border-line/70 p-2">
       <div ref="userMenuRoot" class="relative">
         <button
           type="button"
-          class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1.5 text-start transition-colors hover:bg-hover"
+          class="flex w-full cursor-pointer items-center gap-2 rounded-xl px-1.5 py-1.5 text-start transition-[background-color,transform] duration-200 hover:bg-hover hover:-translate-y-px"
           :class="{ 'justify-center px-0': rail }"
           :aria-label="'منوی حساب کاربری'"
           :aria-haspopup="'menu'"
@@ -357,7 +363,12 @@ watch(
           <span class="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-elevated">
             <UserAvatar :value="auth.user ? avatarValueFor(auth.user) : 'anonymous'" :size="28" />
           </span>
-          <span v-if="!rail" class="min-w-0 flex-1 truncate text-xs text-ink-muted" :dir="auth.user?.displayName ? undefined : 'ltr'">
+
+          <span
+            v-if="!rail"
+            class="min-w-0 flex-1 truncate text-xs text-ink-muted"
+            :dir="auth.user?.displayName ? undefined : 'ltr'"
+          >
             {{ profileLabel }}
           </span>
         </button>

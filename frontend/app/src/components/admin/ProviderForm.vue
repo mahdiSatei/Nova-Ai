@@ -1,34 +1,69 @@
 <script setup lang="ts">
-// فرم پیکربندی provider: baseUrl + apiKey. طبق FR-021..FR-023، BR-011.
-// قبل از ذخیره، سرور credential را probe می‌کند؛ در خطا هیچ‌چیز ذخیره نمی‌شود.
-// Cleartext credential هرگز به UI نمی‌آید؛ فقط `apiKeyMasked`.
-import { reactive, ref } from 'vue'
-import { PhFloppyDisk, PhArrowsCounterClockwise, PhEye, PhEyeSlash } from '@phosphor-icons/vue'
+import { reactive, ref, watch } from 'vue'
+import { PhFloppyDisk, PhX, PhCheckCircle } from '@phosphor-icons/vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import { ApiError } from '@/api/http'
 import { apiErrorMessage } from '@/utils/errors'
-import { getProvider, updateProvider } from '@/api/admin'
-import { formatDateTime } from '@/utils/time'
-import type { CentralProviderPublic } from '@/types/api'
+import { createProvider, updateProvider, validateProvider } from '@/api/admin'
+import type { ProviderAdmin } from '@/types/api'
 
-const props = defineProps<{ provider: CentralProviderPublic | null }>()
-const emit = defineEmits<{ saved: [provider: CentralProviderPublic] }>()
+const props = defineProps<{
+  provider?: ProviderAdmin | null
+}>()
 
-const form = reactive({ baseUrl: props.provider?.baseUrl ?? '', apiKey: '' })
-const fieldErrors = reactive<{ baseUrl: string | null; apiKey: string | null }>({ baseUrl: null, apiKey: null })
+const emit = defineEmits<{
+  saved: [provider: ProviderAdmin]
+  cancel: []
+}>()
+
+const isEdit = ref(false)
+
+const form = reactive({
+  name: '',
+  baseUrl: '',
+  type: 'openai-compatible' as const,
+  apiKey: '',
+})
+
+const fieldErrors = reactive<{
+  name: string | null
+  baseUrl: string | null
+  apiKey: string | null
+}>({
+  name: null,
+  baseUrl: null,
+  apiKey: null,
+})
+
 const submitError = ref<{ message: string; code?: string; requestId?: string } | null>(null)
 const submitting = ref(false)
-const apiKeyRevealed = ref(false)
+const testing = ref(false)
+const testResult = ref<{ success: boolean; message: string } | null>(null)
 
-function reset(): void {
-  form.baseUrl = props.provider?.baseUrl ?? ''
-  form.apiKey = ''
-  apiKeyRevealed.value = false
-  fieldErrors.baseUrl = null
-  fieldErrors.apiKey = null
-  submitError.value = null
+watch(
+  () => props.provider,
+  (p) => {
+    if (p) {
+      isEdit.value = true
+      form.name = p.name
+      form.baseUrl = p.baseUrl
+      form.apiKey = ''
+    } else {
+      isEdit.value = false
+      reset()
+    }
+    testResult.value = null
+  },
+  { immediate: true },
+)
+
+function validateName(value: string): string | null {
+  const v = value.trim()
+  if (!v) return 'نام ارائه‌دهنده الزامی است.'
+  if (v.length < 1 || v.length > 80) return 'نام باید ۱ تا ۸۰ کاراکتر باشد.'
+  return null
 }
 
 function validateUrl(value: string): string | null {
@@ -43,30 +78,84 @@ function validateUrl(value: string): string | null {
   return null
 }
 
-async function onSubmit(): Promise<void> {
-  fieldErrors.baseUrl = validateUrl(form.baseUrl)
-  fieldErrors.apiKey = form.apiKey.trim() ? null : 'کلید API را وارد کنید.'
+function reset(): void {
+  form.name = ''
+  form.baseUrl = ''
+  form.apiKey = ''
+  fieldErrors.name = null
+  fieldErrors.baseUrl = null
+  fieldErrors.apiKey = null
   submitError.value = null
-  if (fieldErrors.baseUrl || fieldErrors.apiKey) return
+  testResult.value = null
+}
+
+async function onTest(): Promise<void> {
+  if (!isEdit.value || !props.provider) return
+  testing.value = true
+  testResult.value = null
+  try {
+    await validateProvider(props.provider.id)
+    testResult.value = { success: true, message: 'اتصال موفق' }
+  } catch {
+    testResult.value = { success: false, message: 'تست اتصال ناموفق بود.' }
+  } finally {
+    testing.value = false
+  }
+}
+
+async function onSubmit(): Promise<void> {
+  fieldErrors.name = validateName(form.name)
+  fieldErrors.baseUrl = validateUrl(form.baseUrl)
+  submitError.value = null
+  if (fieldErrors.name || fieldErrors.baseUrl) return
+
+  if (!isEdit.value) {
+    fieldErrors.apiKey = form.apiKey.trim() ? null : 'کلید API الزامی است.'
+    if (fieldErrors.apiKey) return
+  }
 
   submitting.value = true
   try {
-    const next = await updateProvider({ baseUrl: form.baseUrl.trim(), apiKey: form.apiKey })
-    emit('saved', next)
-    form.apiKey = ''
+    if (isEdit.value && props.provider) {
+      const body: { name?: string; baseUrl?: string; apiKey?: string } = {}
+      if (form.name.trim() !== props.provider.name) body.name = form.name.trim()
+      if (form.baseUrl.trim() !== props.provider.baseUrl) body.baseUrl = form.baseUrl.trim()
+      if (form.apiKey.trim()) body.apiKey = form.apiKey.trim()
+      const next = await updateProvider(props.provider.id, body)
+      emit('saved', next)
+    } else {
+      const id = form.name
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+      if (!id) {
+        fieldErrors.name = 'شناسه ارائه‌دهنده نامعتبر است.'
+        submitting.value = false
+        return
+      }
+      const next = await createProvider({
+        id,
+        name: form.name.trim(),
+        type: form.type,
+        baseUrl: form.baseUrl.trim(),
+        apiKey: form.apiKey.trim(),
+      })
+      emit('saved', next)
+      reset()
+    }
   } catch (err) {
     if (err instanceof ApiError) {
       if (err.code === 'validation_failed') {
         const fe = err.fieldErrors
+        fieldErrors.name = fe.name ?? null
         fieldErrors.baseUrl = fe.baseUrl ?? null
-        fieldErrors.apiKey = fe.apiKey ?? null
-        if (!fieldErrors.baseUrl && !fieldErrors.apiKey) {
+        if (!fieldErrors.name && !fieldErrors.baseUrl) {
           submitError.value = { message: apiErrorMessage(err), code: err.code, requestId: err.requestId }
         }
-      } else if (err.status === 422) {
-        // Probe failed — server rejecting credentials; FR-022
-        fieldErrors.apiKey = apiErrorMessage(err) || 'کلید API توسط ارائه‌دهنده رد شد.'
-        submitError.value = { message: 'اعتبارسنجی ناموفق. هیچ تغییری ذخیره نشد.', code: err.code, requestId: err.requestId }
+      } else if (err.code === 'provider_name_taken') {
+        fieldErrors.name = 'نام ارائه‌دهنده قبلاً استفاده شده است.'
       } else {
         submitError.value = { message: apiErrorMessage(err), code: err.code, requestId: err.requestId }
       }
@@ -77,12 +166,12 @@ async function onSubmit(): Promise<void> {
     submitting.value = false
   }
 }
-
-defineExpose({ reset, reload: async () => { const p = await getProvider(); form.baseUrl = p.baseUrl } })
 </script>
 
 <template>
-  <form class="flex flex-col gap-5" novalidate @submit.prevent="onSubmit">
+  <form class="flex flex-col gap-4 rounded-lg border border-line p-4" novalidate @submit.prevent="onSubmit">
+    <h3 class="text-sm font-medium text-ink">{{ isEdit ? 'ویرایش ارائه‌دهنده' : 'افزودن ارائه‌دهنده جدید' }}</h3>
+
     <ErrorBanner
       v-if="submitError"
       :message="submitError.message"
@@ -92,84 +181,60 @@ defineExpose({ reset, reload: async () => { const p = await getProvider(); form.
     />
 
     <BaseInput
+      v-model="form.name"
+      label="نام ارائه‌دهنده"
+      hint="مثلاً OpenAI, Anthropic, OpenRouter"
+      autocomplete="off"
+      :error="fieldErrors.name"
+      @blur="fieldErrors.name = validateName(form.name)"
+    />
+
+    <BaseInput
       v-model="form.baseUrl"
       label="آدرس پایه (Base URL)"
       type="url"
       dir="ltr"
-      hint="مثلاً https://api.example.com/v1"
+      hint="مثلاً https://api.openai.com/v1"
       autocomplete="off"
       :error="fieldErrors.baseUrl"
       @blur="fieldErrors.baseUrl = validateUrl(form.baseUrl)"
     />
 
-    <div class="flex flex-col gap-1.5">
-      <label for="provider-apikey" class="text-sm font-medium text-ink-muted">
-        کلید API
-        <span v-if="provider?.isConfigured" class="ms-2 text-xs text-ink-muted/70">
-          (برای به‌روزرسانی، مقدار جدید وارد کنید)
-        </span>
-      </label>
+    <BaseInput
+      v-model="form.apiKey"
+      :label="isEdit ? 'کلید API جدید (خالی برای حفظ فعلی)' : 'کلید API'"
+      type="password"
+      dir="ltr"
+      autocomplete="off"
+      :error="fieldErrors.apiKey"
+    />
 
-      <div class="relative">
-        <input
-          id="provider-apikey"
-          v-model="form.apiKey"
-          :type="apiKeyRevealed ? 'text' : 'password'"
-          autocomplete="new-password"
-          placeholder="sk-..."
-          dir="ltr"
-          lang="en"
-          :aria-invalid="fieldErrors.apiKey ? 'true' : undefined"
-          class="w-full rounded-lg border bg-surface px-3.5 py-2.5 pr-10 font-mono text-left text-sm text-ink placeholder:text-ink-muted/50 transition-colors"
-          :class="fieldErrors.apiKey ? 'border-danger' : 'border-line focus:border-primary'"
-        />
-        <button
-          type="button"
-          tabindex="-1"
-          class="absolute inset-y-0 right-0 flex w-9 cursor-pointer items-center justify-center rounded-r-lg text-ink-muted transition-colors hover:text-ink focus-visible:text-ink"
-          :aria-label="apiKeyRevealed ? 'پنهان کردن کلید API' : 'نمایش کلید API'"
-          :aria-pressed="apiKeyRevealed"
-          :title="apiKeyRevealed ? 'پنهان کردن' : 'نمایش'"
-          @mousedown.prevent
-          @click="apiKeyRevealed = !apiKeyRevealed"
-        >
-          <PhEyeSlash v-if="apiKeyRevealed" class="size-4" aria-hidden="true" />
-          <PhEye v-else class="size-4" aria-hidden="true" />
-        </button>
-      </div>
-
-      <p
-        v-if="fieldErrors.apiKey"
-        class="text-sm text-danger"
-        role="alert"
-      >{{ fieldErrors.apiKey }}</p>
-
-      <div
-        v-else-if="provider?.isConfigured && provider.apiKeyMasked"
-        class="mt-1 flex items-center gap-2 text-xs text-ink-muted"
-      >
-        <span>کلید فعلی:</span>
-        <span class="rounded bg-elevated px-2 py-1 font-mono text-ink">{{ provider.apiKeyMasked }}</span>
-      </div>
-
-      <p
-        v-else
-        class="text-sm text-ink-muted/70"
-      >کلید فقط یک‌بار در هنگام ذخیره نمایش داده می‌شود (ماسک).</p>
-    </div>
-
-    <div v-if="provider?.lastValidatedAt" class="text-xs text-ink-muted/70">
-      آخرین اعتبارسنجی موفق: <span class="font-mono">{{ formatDateTime(provider.lastValidatedAt) }}</span>
+    <div v-if="isEdit && testResult" class="flex items-center gap-2 rounded-lg border p-3" :class="testResult.success ? 'border-success/30 bg-success/5' : 'border-danger/30 bg-danger/5'">
+      <PhCheckCircle class="size-5 shrink-0" :class="testResult.success ? 'text-success' : 'text-danger'" />
+      <span class="text-sm" :class="testResult.success ? 'text-success' : 'text-danger'">{{ testResult.message }}</span>
     </div>
 
     <footer class="flex items-center justify-end gap-2">
-      <BaseButton variant="ghost" size="sm" type="button" @click="reset">
-        <PhArrowsCounterClockwise class="size-4" aria-hidden="true" />
-        انصراف از تغییرات
+      <BaseButton
+        v-if="isEdit"
+        variant="ghost"
+        size="sm"
+        type="button"
+        :loading="testing"
+        :disabled="submitting"
+        @click="onTest"
+      >
+        <PhCheckCircle v-if="!testResult?.success" class="size-4" aria-hidden="true" />
+        <span v-if="!testResult?.success">تست اتصال</span>
+        <span v-else class="text-success">اتصال موفق</span>
+      </BaseButton>
+      <BaseButton variant="ghost" size="sm" type="button" @click="emit('cancel')">
+        <PhX class="size-4" aria-hidden="true" />
+        انصراف
       </BaseButton>
       <BaseButton type="submit" :loading="submitting">
         <PhFloppyDisk class="size-4" aria-hidden="true" />
-        <span>اعتبارسنجی و ذخیره</span>
+        <span>{{ isEdit ? 'ذخیره' : 'ایجاد' }}</span>
       </BaseButton>
     </footer>
   </form>

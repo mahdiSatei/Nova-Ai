@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { listAdminFiles, type AdminFileRecord } from '@/api/admin'
 import { formatFileSize } from '@/api/files'
 import { formatDateTime } from '@/utils/time'
-import { PhFile, PhWarning, PhCheckCircle, PhHourglass, PhArrowsClockwise, PhCaretRight, PhCaretLeft } from '@phosphor-icons/vue'
+import { PhFile, PhArrowsClockwise, PhCaretRight, PhCaretLeft } from '@phosphor-icons/vue'
 
 const files = ref<AdminFileRecord[]>([])
 const totalFiles = ref(0)
@@ -64,7 +64,7 @@ onMounted(() => {
     <div class="flex items-center justify-between">
       <div>
         <h1 class="text-xl font-bold text-ink">مدیریت فایل‌های پیوست</h1>
-        <p class="text-sm text-ink-muted">مشاهده وضعیت پردازش، استخراج متن و خطاهای فایل‌های آپلود شده کاربران.</p>
+        <p class="text-sm text-ink-muted">وضعیت پردازش، استخراج متن و خطاهای فایل‌های آپلودشده کاربران را بررسی کنید.</p>
       </div>
       <button
         type="button"
@@ -102,7 +102,7 @@ onMounted(() => {
     </div>
 
     <!-- جدول فایل‌ها -->
-    <div class="overflow-hidden rounded-xl border border-line bg-surface shadow-xs">
+    <div class="max-h-[32rem] overflow-auto rounded-xl border border-line bg-surface shadow-xs">
       <table class="w-full border-collapse text-right">
         <thead>
           <tr class="border-b border-line bg-elevated text-xs font-semibold text-ink-muted uppercase tracking-wider">

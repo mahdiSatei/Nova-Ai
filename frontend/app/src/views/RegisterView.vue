@@ -77,7 +77,7 @@ async function onSubmit(): Promise<void> {
 </script>
 
 <template>
-  <main class="relative flex min-h-screen items-center justify-center px-4 py-10">
+  <main class="app-shell-bg relative flex min-h-screen items-center justify-center px-4 py-10">
     <!-- ✨ دکمه تغییر تم در گوشه بالای سمت چپ -->
     <div class="absolute top-4 end-4 sm:top-6 sm:end-6">
       <button
@@ -92,7 +92,7 @@ async function onSubmit(): Promise<void> {
       </button>
     </div>
 
-    <div class="w-full max-w-sm">
+    <div class="surface-card w-full max-w-sm p-6 sm:p-8">
       <header class="mb-8 text-center">
         <h1 class="text-2xl font-semibold">ساخت حساب کاربری</h1>
         <p class="mt-1 text-sm text-ink-muted">در چند ثانیه با مدل‌های هوش مصنوعی گفتگو کنید.</p>

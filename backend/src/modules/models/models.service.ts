@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -10,17 +11,54 @@ import { Model } from './entities/model.entity';
 import { AppConfig } from '../app-config/entities/app-config.entity';
 import { Conversation } from '../conversations/entities/conversation.entity';
 import { User } from '../users/entities/user.entity';
+import { ModelAccessService } from './model-access.service';
+import { MODEL_VISIBILITIES, ModelVisibility } from './model-visibility';
+import { ReasoningCapabilityService } from './reasoning-capability.service';
+import {
+  assertValidReasoningCapability,
+  readStoredReasoningConfig,
+} from '../reasoning/reasoning.capability';
+import {
+  EMPTY_REASONING_CONFIG,
+  ReasoningCapability,
+  ReasoningConfigInput,
+  StoredReasoningConfig,
+} from '../reasoning/reasoning.types';
 
 export interface CreateModelInput {
   displayName: string;
   actualName: string;
+  providerId: string;
+  visibility?: ModelVisibility;
   enabled?: boolean;
+  /** Cost per 1,000,000 input tokens in Toman. Defaults to 0 (free). */
+  inputPricePer1m?: number;
+  /** Cost per 1,000,000 output tokens in Toman. Defaults to 0 (free). */
+  outputPricePer1m?: number;
+  /** Model used when this model's provider fails (spec 006). One hop only. */
+  fallbackModelId?: string | null;
+  /** Pin this model to a specific API key; null clears the pin. */
+  preferredApiKeyId?: string | null;
+  /** Phase 8 — admin reasoning capability configuration. */
+  reasoning?: ReasoningConfigInput;
 }
 
 export interface UpdateModelInput {
   displayName?: string;
   actualName?: string;
+  providerId?: string;
+  visibility?: ModelVisibility;
   enabled?: boolean;
+  /** Cost per 1,000,000 input tokens in Toman. Absent leaves it untouched. */
+  inputPricePer1m?: number;
+  /** Cost per 1,000,000 output tokens in Toman. Absent leaves it untouched. */
+  outputPricePer1m?: number;
+  /** `null` clears the fallback; absent leaves it untouched. */
+  fallbackModelId?: string | null;
+  /** `null` clears the preferred key; absent leaves it untouched. */
+  preferredApiKeyId?: string | null;
+  /** Phase 8 — admin reasoning capability configuration. */
+  reasoning?: ReasoningConfigInput;
 }
 
 export interface DeleteModelMigrationResult {
@@ -48,9 +86,13 @@ interface ModelReferences {
  */
 @Injectable()
 export class ModelsService {
+  private readonly logger = new Logger(ModelsService.name);
+
   constructor(
     @InjectRepository(Model)
     private readonly repo: Repository<Model>,
+    private readonly access: ModelAccessService,
+    private readonly reasoningCapability: ReasoningCapabilityService,
   ) {}
 
   /**
@@ -60,8 +102,19 @@ export class ModelsService {
   async listEnabled(): Promise<Model[]> {
     return this.repo.find({
       where: { enabled: true },
+      relations: ['provider'],
       order: { displayName: 'ASC' },
     });
+  }
+
+  /**
+   * The catalog a given user may pick from: enabled models filtered by the
+   * access policy (spec 003 — "Filter model catalog by current user").
+   * `listEnabled()` stays as the unfiltered primitive used internally.
+   */
+  async listAccessibleFor(userId: string): Promise<Model[]> {
+    const enabled = await this.listEnabled();
+    return this.access.filterAccessible(userId, enabled);
   }
 
   /**
@@ -84,40 +137,45 @@ export class ModelsService {
   /**
    * Resolve which model should be used for a chat request.
    *
-   * Resolution order:
+   * Resolution order (every candidate is checked against the access policy):
    *   1. explicitModelId (caller picked a model in the request body)
    *   2. caller's sticky choice (User.lastSelectedModelId)
    *   3. admin's default model (AppConfig.defaultModelId → Model.isDefault)
    *   4. null — caller surfaces 422 "no_model_available"
+   *
+   * The viewer is loaded ONCE so all three candidates share a single
+   * entitlement read. `userId` is required: without a viewer nothing is
+   * resolvable, which stops a caller that forgets to pass the user from
+   * silently handing out restricted models.
    */
   async resolveActiveModel(params: {
     explicitModelId?: string | null;
     userId?: string | null;
   }): Promise<Model | null> {
+    if (!params.userId) {
+      this.logger.warn('resolveActiveModel called without userId; refusing to resolve a model');
+      return null;
+    }
+    const viewer = await this.access.loadViewer(params.userId);
+
     // 1. Explicit selection takes priority — user chose in-request.
     if (params.explicitModelId) {
-      const explicit = await this.repo.findOne({
-        where: { id: params.explicitModelId, enabled: true },
-      });
-      if (explicit) return explicit;
+      const explicit = await this.repo.findOne({ where: { id: params.explicitModelId } });
+      if (explicit && this.access.canAccess(viewer, explicit)) return explicit;
     }
 
     // 2. Sticky user choice (User.lastSelectedModelId).
-    if (params.userId) {
-      const userRow = await this.repo.manager
-        .createQueryBuilder()
-        .select('last_selected_model_id')
-        .from('users', 'u')
-        .where('u.id = :uid', { uid: params.userId })
-        .getRawOne<{ last_selected_model_id: string }>();
+    const userRow = await this.repo.manager
+      .createQueryBuilder()
+      .select('last_selected_model_id')
+      .from('users', 'u')
+      .where('u.id = :uid', { uid: params.userId })
+      .getRawOne<{ last_selected_model_id: string }>();
 
-      const stickyId = userRow?.last_selected_model_id;
-      if (stickyId) {
-        const sticky = await this.repo.findOne({
-          where: { id: stickyId, enabled: true },
-        });
-        if (sticky) return sticky;
-      }
+    const stickyId = userRow?.last_selected_model_id;
+    if (stickyId) {
+      const sticky = await this.repo.findOne({ where: { id: stickyId } });
+      if (sticky && this.access.canAccess(viewer, sticky)) return sticky;
     }
 
     // 3. Admin default model (AppConfig.default_model_id → Model).
@@ -130,22 +188,24 @@ export class ModelsService {
 
     const defaultId = appConfigRow?.default_model_id;
     if (defaultId) {
-      const defaultModel = await this.repo.findOne({
-        where: { id: defaultId, enabled: true },
-      });
-      if (defaultModel) return defaultModel;
+      const defaultModel = await this.repo.findOne({ where: { id: defaultId } });
+      if (defaultModel && this.access.canAccess(viewer, defaultModel)) return defaultModel;
     }
     return null;
   }
 
   /**
    * Admin: create a new model. Enforces displayName uniqueness
-   * (case-insensitive) and the actual-name length constraints.
+   * (case-insensitive), the actual-name length constraints, and
+   * provider association rules.
    */
   async create(input: CreateModelInput): Promise<Model> {
     const displayName = input.displayName;
     const actualName = input.actualName;
     const enabled = input.enabled ?? true;
+
+    await this.assertValidFallback(null, input.fallbackModelId);
+    await this.assertPreferredApiKeyBelongsToProvider(input.providerId, input.preferredApiKeyId);
 
     // Display name uniqueness: case-insensitive lookup catches the
     // common mistake of "GPT-4o Mini" vs "gpt-4o mini".
@@ -160,22 +220,151 @@ export class ModelsService {
       });
     }
 
+    const provider = await this.repo.manager
+      .createQueryBuilder()
+      .select('is_active')
+      .from('providers', 'p')
+      .where('p.id = :pid', { pid: input.providerId })
+      .getRawOne<{ is_active: boolean }>();
+    if (!provider || !provider.is_active) {
+      throw new UnprocessableEntityException({
+        code: 'provider_not_available',
+        message: enabled
+          ? 'Cannot create an enabled model for an inactive provider. Activate the provider first or create the model as disabled.'
+          : 'The referenced provider does not exist or is inactive.',
+      });
+    }
+
+    // Discovery always runs on create so an automatic model has a snapshot, and
+    // a manual model still shows the admin what the provider reports.
+    const reasoningConfig = await this.buildReasoningConfig(EMPTY_REASONING_CONFIG, input.reasoning, {
+      providerId: input.providerId,
+      modelName: actualName,
+      refreshDiscovery: true,
+    });
+
     const created = this.repo.create({
       displayName,
       actualName,
+      providerId: input.providerId,
+      visibility: input.visibility ?? 'public',
       enabled,
+      inputPricePer1m: input.inputPricePer1m ?? 0,
+      outputPricePer1m: input.outputPricePer1m ?? 0,
       isDefault: false,
+      fallbackModelId: input.fallbackModelId ?? null,
+      preferredApiKeyId: input.preferredApiKeyId ?? null,
+      reasoningConfig,
     });
     return this.repo.save(created);
+  }
+
+  /**
+   * A fallback must be a different, enabled model on an active provider.
+   *
+   * Validating in the service (not only in the DTO) means the rule holds for
+   * every caller, including the scripts under `scripts/`, and it is the only
+   * place that can catch a self-reference on create, where the id does not
+   * exist yet.
+   */
+  private async assertValidFallback(
+    modelId: string | null,
+    fallbackModelId: string | null | undefined,
+  ): Promise<void> {
+    if (fallbackModelId === undefined || fallbackModelId === null) return;
+
+    if (fallbackModelId === modelId) {
+      throw new UnprocessableEntityException({
+        code: 'invalid_fallback_model',
+        message: 'A model cannot fall back to itself.',
+      });
+    }
+
+    const fallback = await this.repo.findOne({ where: { id: fallbackModelId } });
+    if (!fallback || !fallback.enabled) {
+      throw new UnprocessableEntityException({
+        code: 'invalid_fallback_model',
+        message: 'The fallback model must exist and be enabled.',
+      });
+    }
+
+    // Raw query rather than an injected Provider repository — this is the same
+    // pattern `create` already uses to check the primary provider.
+    const provider = await this.repo.manager
+      .createQueryBuilder()
+      .select('is_active')
+      .from('providers', 'p')
+      .where('p.id = :pid', { pid: fallback.providerId })
+      .getRawOne<{ is_active: boolean }>();
+    if (!provider || !provider.is_active) {
+      throw new UnprocessableEntityException({
+        code: 'invalid_fallback_model',
+        message: 'The fallback model must be on an active provider.',
+      });
+    }
+  }
+
+  /**
+   * A preferred API key is only meaningful for the provider that owns it. A
+   * key from another provider (or an unknown id) would be stored and then
+   * silently ignored at runtime, because key selection only considers keys of
+   * the model's provider — so refuse it at write time instead.
+   */
+  private async assertPreferredApiKeyBelongsToProvider(
+    providerId: string,
+    preferredApiKeyId: string | null | undefined,
+  ): Promise<void> {
+    if (preferredApiKeyId === undefined || preferredApiKeyId === null) return;
+
+    const key = await this.repo.manager
+      .createQueryBuilder()
+      .select('k.id', 'id')
+      .from('provider_api_keys', 'k')
+      .where('k.id = :kid', { kid: preferredApiKeyId })
+      .andWhere('k.provider_id = :pid', { pid: providerId })
+      .getRawOne<{ id: string }>();
+
+    if (!key) {
+      throw new UnprocessableEntityException({
+        code: 'invalid_preferred_api_key',
+        message: "The preferred API key does not exist or does not belong to the model's provider.",
+      });
+    }
   }
 
   /**
    * Admin: partial update of a model. Enforces the "only enabled
    * model can be isDefault" invariant: if the model is currently
    * the default and the admin disables it, isDefault is cleared.
+   * Also enforces that enabled models reference active providers.
    */
   async update(id: string, input: UpdateModelInput): Promise<Model> {
     const model = await this.findById(id);
+
+    await this.assertValidFallback(id, input.fallbackModelId);
+    if (input.fallbackModelId !== undefined) {
+      model.fallbackModelId = input.fallbackModelId;
+    }
+    const previousProviderId = model.providerId;
+    if (input.inputPricePer1m !== undefined) {
+      model.inputPricePer1m = input.inputPricePer1m;
+    }
+    if (input.outputPricePer1m !== undefined) {
+      model.outputPricePer1m = input.outputPricePer1m;
+    }
+
+    const reasoningBase = readStoredReasoningConfig(model.reasoningConfig);
+    const identityChanged =
+      (input.actualName !== undefined && input.actualName !== model.actualName) ||
+      (input.providerId !== undefined && input.providerId !== model.providerId);
+    const switchedToAutomatic =
+      input.reasoning?.mode === 'automatic' && reasoningBase.mode !== 'automatic';
+
+    model.reasoningConfig = await this.buildReasoningConfig(reasoningBase, input.reasoning, {
+      providerId: input.providerId ?? model.providerId,
+      modelName: input.actualName ?? model.actualName,
+      refreshDiscovery: identityChanged || switchedToAutomatic,
+    });
 
     if (input.displayName !== undefined && input.displayName !== model.displayName) {
       const dup = await this.repo
@@ -196,14 +385,152 @@ export class ModelsService {
     if (input.actualName !== undefined) {
       model.actualName = input.actualName;
     }
+    if (input.providerId !== undefined) {
+      model.providerId = input.providerId;
+    }
+    if (input.visibility !== undefined) {
+      if (!MODEL_VISIBILITIES.includes(input.visibility)) {
+        throw new UnprocessableEntityException({
+          code: 'validation_failed',
+          message: 'visibility must be one of public, private.',
+        });
+      }
+      // Invariant: the configured system default must stay usable by every
+      // user. Demoting it would silently strand the default for most users,
+      // so refuse and let the admin pick another default first.
+      const cfg = await this.repo.manager
+        .createQueryBuilder()
+        .select('ac.default_model_id', 'default_model_id')
+        .from('app_config', 'ac')
+        .where('ac.id = :sid', { sid: 'singleton' })
+        .getRawOne<{ default_model_id: string | null }>();
+      if (input.visibility !== 'public' && (model.isDefault || cfg?.default_model_id === id)) {
+        throw new ConflictException({
+          code: 'model_is_default',
+          message: 'This model is the system default. Choose another default before restricting its visibility.',
+        });
+      }
+      model.visibility = input.visibility;
+    }
+    let clearConfiguredDefault = false;
     if (input.enabled !== undefined) {
       model.enabled = input.enabled;
       // Invariant: a disabled model cannot be the default. Toggling
-      // enabled=false on the current default clears isDefault.
-      if (input.enabled === false && model.isDefault) {
-        model.isDefault = false;
+      // enabled=false on the current default clears BOTH default pointers —
+      // the `is_default` mirror (read by the public model listing) and the
+      // AppConfig pointer (read by chat model resolution) — so the two can
+      // never disagree about which model is the default. Without this, a
+      // re-enabled model would be the runtime default while the picker showed
+      // no default at all.
+      if (input.enabled === false) {
+        const cfg = await this.repo.manager
+          .createQueryBuilder()
+          .select('ac.default_model_id', 'default_model_id')
+          .from('app_config', 'ac')
+          .where('ac.id = :sid', { sid: 'singleton' })
+          .getRawOne<{ default_model_id: string | null }>();
+        clearConfiguredDefault = cfg?.default_model_id === id;
+        if (model.isDefault) model.isDefault = false;
       }
     }
+
+    // A preferred API key is provider-scoped: validate it against the model's
+    // (possibly new) provider and drop a stale pin when the provider changes,
+    // so a stored pin can never point at another provider's key and be silently
+    // ignored by runtime key selection.
+    await this.assertPreferredApiKeyBelongsToProvider(model.providerId, input.preferredApiKeyId);
+    if (input.preferredApiKeyId !== undefined) {
+      model.preferredApiKeyId = input.preferredApiKeyId ?? null;
+    } else if (input.providerId !== undefined && input.providerId !== previousProviderId) {
+      model.preferredApiKeyId = null;
+    }
+
+    if (clearConfiguredDefault) {
+      return this.repo.manager.transaction(async (em) => {
+        const saved = await this.repo.save(model);
+        await em.getRepository(AppConfig).update({ id: 'singleton' }, { defaultModelId: null });
+        return saved;
+      });
+    }
+
+    // After applying updates, validate that an enabled model references an active provider.
+    if (model.enabled) {
+      const provider = await this.repo.manager
+        .createQueryBuilder()
+        .select('is_active')
+        .from('providers', 'p')
+        .where('p.id = :pid', { pid: model.providerId })
+        .getRawOne<{ is_active: boolean }>();
+      if (!provider || !provider.is_active) {
+        throw new UnprocessableEntityException({
+          code: 'provider_not_available',
+          message: 'Cannot enable a model whose provider is inactive. Activate the provider first.',
+        });
+      }
+    }
+
+    return this.repo.save(model);
+  }
+
+  /**
+   * Build the persisted reasoning snapshot.
+   *
+   * Discovery is re-run whenever the provider-side identity may have changed, so
+   * the admin always sees what the provider currently reports. Manual values are
+   * validated as a triple, so a contradictory configuration can never be stored.
+   */
+  private async buildReasoningConfig(
+    base: StoredReasoningConfig,
+    patch: ReasoningConfigInput | undefined,
+    context: { providerId: string; modelName: string; refreshDiscovery: boolean },
+  ): Promise<StoredReasoningConfig> {
+    const mode = patch?.mode ?? base.mode;
+
+    const manual: ReasoningCapability = {
+      supported: patch?.supported !== undefined ? patch.supported : base.manual.supported,
+      output: patch?.output !== undefined ? patch.output : base.manual.output,
+      streaming: patch?.streaming !== undefined ? patch.streaming : base.manual.streaming,
+    };
+    try {
+      assertValidReasoningCapability(manual);
+    } catch (err) {
+      // A cross-field rule that class-validator cannot express must still surface
+      // as a client error, not a 500.
+      throw new UnprocessableEntityException({
+        code: 'invalid_reasoning_configuration',
+        message: err instanceof Error ? err.message : 'Invalid reasoning configuration.',
+      });
+    }
+
+    let discovered = base.discovered;
+    if (context.refreshDiscovery) {
+      const result = await this.reasoningCapability.discover({
+        providerId: context.providerId,
+        modelName: context.modelName,
+      });
+      discovered = {
+        supported: result.capability.supported,
+        output: result.capability.output,
+        streaming: result.capability.streaming,
+        sources: result.sources,
+        discoveredAt: result.discoveredAt,
+      };
+    }
+
+    return { mode, discovered, manual };
+  }
+
+  /**
+   * Admin: re-run capability discovery and persist the snapshot. Manual values
+   * are left untouched — discovery is never the final authority for them.
+   */
+  async rediscoverReasoning(id: string): Promise<Model> {
+    const model = await this.findById(id);
+    model.reasoningConfig = await this.buildReasoningConfig(
+      readStoredReasoningConfig(model.reasoningConfig),
+      undefined,
+      { providerId: model.providerId, modelName: model.actualName, refreshDiscovery: true },
+    );
     return this.repo.save(model);
   }
 

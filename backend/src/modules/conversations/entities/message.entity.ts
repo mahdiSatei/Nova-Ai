@@ -10,6 +10,7 @@ import {
 import { Conversation } from './conversation.entity';
 import { FileRecord } from '../../files/entities/file.entity';
 import { MessageStatus } from '../conversations.types';
+import type { CitationSource } from '../../web-search/web-search.types';
 
 @Entity({ name: 'messages' })
 @Index('idx_msg_conv_created', ['conversationId', 'createdAt'])
@@ -28,7 +29,11 @@ export class Message {
   @Column({ name: 'file_id', type: 'text', nullable: true })
   fileId!: string | null;
 
-  @ManyToOne(() => FileRecord, { nullable: true, eager: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => FileRecord, {
+    nullable: true,
+    eager: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'file_id' })
   file!: FileRecord | null;
 
@@ -43,4 +48,28 @@ export class Message {
 
   @Column({ name: 'status', type: 'text', default: 'completed' })
   status!: MessageStatus;
+
+  /** Web-search sources cited by this assistant message (empty for normal turns). */
+  @Column({
+    name: 'citations',
+    type: 'jsonb',
+    default: () => "'[]'::jsonb",
+  })
+  citations!: CitationSource[];
+
+  /** True when the user enabled reasoning for this turn. */
+  @Column({
+    name: 'reasoning_enabled',
+    type: 'boolean',
+    default: false,
+  })
+  reasoningEnabled!: boolean;
+
+  /**
+   * The provider's user-visible reasoning summary, when one was exposed.
+   * Only ever written on successful completion — never chain-of-thought, never
+   * internal reasoning tokens, never a summary for an interrupted generation.
+   */
+  @Column({ name: 'reasoning_summary', type: 'text', nullable: true })
+  reasoningSummary!: string | null;
 }

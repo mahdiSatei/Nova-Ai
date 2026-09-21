@@ -11,15 +11,19 @@ import {
   PhWarning,
   PhArrowsClockwise,
   PhStop,
+  PhBrain,
 } from '@phosphor-icons/vue'
 import MarkdownRenderer from '@/components/chat/MarkdownRenderer.vue'
+import SearchActivity from '@/components/chat/SearchActivity.vue'
+import SourceCitations from '@/components/chat/SourceCitations.vue'
+import ReasoningPanel from '@/components/chat/ReasoningPanel.vue'
 import UserAvatar from '@/components/user/UserAvatar.vue'
 import { copyText } from '@/utils/clipboard'
 import { formatDateTime } from '@/utils/time'
 import { avatarValueFor } from '@/utils/avatar'
 import { formatFileSize } from '@/api/files'
 import { useAuthStore } from '@/stores/auth'
-import type { MessagePublic, MessageStatus } from '@/types/api'
+import type { CitationSource, MessagePublic, MessageStatus, SearchPhase } from '@/types/api'
 
 const props = withDefaults(
   defineProps<{
@@ -32,7 +36,24 @@ const props = withDefaults(
     file?: MessagePublic['file'] | null
     status?: MessageStatus
     showRecovery?: boolean
-    recoveryStatus?: MessageStatus | null
+    recoveryStatus?: MessageStatus | 'idle' | null
+    /** فاز ۷ — منابع وبِ استنادشده. */
+    citations?: CitationSource[]
+    /** فاز ۷ — پیشرفت جستجو/بازیابی حین نسخه‌برداری. */
+    searchActivity?: {
+      phase: SearchPhase
+      query?: string
+      sources?: number
+      credits?: number
+    } | null
+    /** فاز ۸ — استدلال برای این پیام فعال بوده است. */
+    reasoningEnabled?: boolean
+    /** فاز ۸ — سرور تأیید کرده که استدلال در جریان است. */
+    reasoningActive?: boolean
+    /** فاز ۸ — استدلال این نوبت به پایان رسیده است. */
+    reasoningCompleted?: boolean
+    /** فاز ۸ — خلاصهٔ استدلال (در حال استریم یا ذخیره‌شده). */
+    reasoningSummary?: string | null
     onRetry?: (failedMessageId: string) => void
     onReconnect?: () => void
     onCancel?: () => void
@@ -44,6 +65,10 @@ const props = withDefaults(
     file: null,
     status: 'completed',
     showRecovery: false,
+    reasoningEnabled: false,
+    reasoningActive: false,
+    reasoningCompleted: false,
+    reasoningSummary: null,
   },
 )
 
@@ -105,7 +130,6 @@ function onCopy(): void {
           v-if="isUser"
           class="flex flex-col gap-2 rounded-2xl rounded-se-sm bg-elevated px-4 py-2.5 text-sm leading-relaxed text-ink shadow-sm w-full text-right"
         >
-          <!-- فایل پیوست -->
           <div
             v-if="file"
             class="flex items-center gap-2.5 rounded-xl border border-line bg-surface/80 px-3 py-2 text-xs shadow-xs"
@@ -128,6 +152,44 @@ function onCopy(): void {
         <!-- بدنه پیام هوش مصنوعی -->
         <div v-else class="min-w-0 py-0.5 text-ink">
           <MarkdownRenderer :source="content" :streaming="streaming" />
+
+          <!-- فاز ۸ — پانل استدلال مدل -->
+          <ReasoningPanel
+            v-if="reasoningSummary"
+            :summary="reasoningSummary"
+            :streaming="streaming || reasoningActive"
+          />
+
+          <p
+            v-else-if="reasoningActive"
+            class="mt-2 flex items-center gap-1.5 px-1 text-xs text-ink-muted"
+            role="status"
+            aria-live="polite"
+          >
+            <PhBrain class="size-3.5 animate-pulse text-primary" aria-hidden="true" />
+            <span>در حال استدلال…</span>
+          </p>
+
+          <p
+            v-else-if="reasoningEnabled && reasoningCompleted"
+            class="mt-2 flex items-center gap-1.5 px-1 text-xs text-ink-muted"
+            role="status"
+            aria-live="polite"
+          >
+            <PhBrain class="size-3.5 text-ink-muted" aria-hidden="true" />
+            <span>استدلال فعال بود؛ این مدل محتوایی برای نمایش ارائه نکرد.</span>
+          </p>
+
+          <!-- فاز ۷ — پیشرفت جستجو و فهرست منابع -->
+          <SearchActivity
+            v-if="searchActivity && streaming"
+            :activity="searchActivity"
+          />
+
+          <SourceCitations
+            v-if="citations?.length"
+            :sources="citations"
+          />
         </div>
 
         <!-- فوتر: دکمه کپی و حالت‌های استریم/خطا -->
@@ -146,6 +208,11 @@ function onCopy(): void {
             <span>در حال تولید پاسخ…</span>
           </template>
           <template v-else>
+            <!-- تاریخ برای بات یا دکمه کپی -->
+            <span v-if="!isUser && createdAt" class="font-mono">
+              {{ formatDateTime(createdAt) }}
+            </span>
+
             <!-- دکمه کپی -->
             <button
               type="button"
@@ -209,6 +276,7 @@ function onCopy(): void {
           </template>
         </footer>
       </div>
+
     </div>
   </li>
 </template>

@@ -5,12 +5,12 @@ import { ModelsService } from '../../src/modules/models/models.service';
 describe('ModelsPublicController', () => {
   let controller: ModelsPublicController;
   let modelsService: {
-    listEnabled: jest.Mock;
+    listAccessibleFor: jest.Mock;
   };
 
   beforeEach(async () => {
     modelsService = {
-      listEnabled: jest.fn(),
+      listAccessibleFor: jest.fn(),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -33,25 +33,60 @@ describe('ModelsPublicController', () => {
   describe('list', () => {
     it('returns enabled models with only public fields', async () => {
       const models = [
-        { id: 'm1', displayName: 'GPT-4o', actualName: 'gpt-4o', enabled: true, isDefault: true },
+        {
+          id: 'm1',
+          displayName: 'GPT-4o',
+          actualName: 'gpt-4o',
+          enabled: true,
+          isDefault: true,
+          // Phase 8: an explicit reasoning capability reported by the provider.
+          reasoningConfig: {
+            mode: 'automatic',
+            discovered: {
+              supported: true,
+              output: 'summary',
+              streaming: true,
+              sources: {
+                supported: 'provider_api',
+                output: 'provider_rules',
+                streaming: 'provider_rules',
+              },
+              discoveredAt: '2026-09-19T00:00:00.000Z',
+            },
+            manual: { supported: null, output: null, streaming: null },
+          },
+        },
         { id: 'm2', displayName: 'GPT-4o mini', actualName: 'gpt-4o-mini', enabled: true, isDefault: false },
       ];
-      modelsService.listEnabled.mockResolvedValue(models);
+      modelsService.listAccessibleFor.mockResolvedValue(models);
 
       const user = { id: 'u-1', email: 'a@b.com', role: 'user' as const, jti: 'jti-1' };
       const result = await controller.list(user as any);
 
-      expect(modelsService.listEnabled).toHaveBeenCalled();
+      expect(modelsService.listAccessibleFor).toHaveBeenCalledWith('u-1');
       expect(result).toEqual({
         items: [
-          { id: 'm1', displayName: 'GPT-4o', isDefault: true },
-          { id: 'm2', displayName: 'GPT-4o mini', isDefault: false },
+          {
+            id: 'm1',
+            displayName: 'GPT-4o',
+            isDefault: true,
+            providerName: null,
+            reasoning: { supported: true, output: 'summary', streaming: true },
+          },
+          {
+            id: 'm2',
+            displayName: 'GPT-4o mini',
+            isDefault: false,
+            providerName: null,
+            // Unknown capability narrows to "unsupported with no output".
+            reasoning: { supported: false, output: 'none', streaming: false },
+          },
         ],
       });
     });
 
     it('returns empty items when no models are enabled', async () => {
-      modelsService.listEnabled.mockResolvedValue([]);
+      modelsService.listAccessibleFor.mockResolvedValue([]);
 
       const user = { id: 'u-1', email: 'a@b.com', role: 'user' as const, jti: 'jti-1' };
       const result = await controller.list(user as any);
@@ -63,7 +98,7 @@ describe('ModelsPublicController', () => {
       const models = [
         { id: 'm1', displayName: 'GPT-4o', actualName: 'gpt-4o', enabled: true, isDefault: false },
       ];
-      modelsService.listEnabled.mockResolvedValue(models);
+      modelsService.listAccessibleFor.mockResolvedValue(models);
 
       const user = { id: 'u-1', email: 'a@b.com', role: 'user' as const, jti: 'jti-1' };
       const result = await controller.list(user as any);
@@ -71,6 +106,16 @@ describe('ModelsPublicController', () => {
       expect((result.items[0] as any).actualName).toBeUndefined();
       // Ensure raw model object isn't leaked
       expect(JSON.stringify(result)).not.toContain('gpt-4o');
+    });
+
+    it('filters the catalog by the caller (never returns another user’s models)', async () => {
+      modelsService.listAccessibleFor.mockResolvedValue([]);
+
+      const user = { id: 'u-restricted', email: 'r@b.com', role: 'user' as const, jti: 'jti-2' };
+      const result = await controller.list(user as any);
+
+      expect(modelsService.listAccessibleFor).toHaveBeenCalledWith('u-restricted');
+      expect(result).toEqual({ items: [] });
     });
   });
 });

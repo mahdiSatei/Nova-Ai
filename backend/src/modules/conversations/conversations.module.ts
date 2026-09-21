@@ -4,10 +4,14 @@ import { ConversationsController } from './conversations.controller';
 import { ConversationsService } from './conversations.service';
 import { Conversation } from './entities/conversation.entity';
 import { Message } from './entities/message.entity';
+import { ModelsModule } from '../models/models.module';
 import { FileRecord } from '../files/entities/file.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Conversation, Message, FileRecord])],
+  imports: [
+    TypeOrmModule.forFeature([Conversation, Message, FileRecord]),
+    ModelsModule,
+  ],
   controllers: [ConversationsController],
   providers: [ConversationsService],
   exports: [ConversationsService],

@@ -27,6 +27,9 @@ const routes: RouteRecordRaw[] = [
       { path: '', name: 'chat', component: () => import('@/views/ChatView.vue') },
       { path: 'c/:id', name: 'chat-conversation', component: () => import('@/views/ChatView.vue'), props: true },
       { path: 'conversations/:id', name: 'conversation', component: () => import('@/views/ConversationView.vue'), props: true },
+      { path: 'dashboard', name: 'user-dashboard', component: () => import('@/views/UsageDashboardView.vue'), meta: { role: 'user' } },
+      { path: 'wallet', name: 'wallet', component: () => import('@/views/WalletView.vue'), meta: { role: 'user' } },
+      { path: 'payment-result', name: 'payment-result', component: () => import('@/views/PaymentResultView.vue'), meta: { role: 'user' } },
     ],
   },
 
@@ -45,11 +48,20 @@ const routes: RouteRecordRaw[] = [
       { path: '', redirect: { name: 'admin-provider' } },
       { path: 'provider', name: 'admin-provider', component: () => import('@/views/admin/ProviderView.vue') },
       { path: 'models', name: 'admin-models', component: () => import('@/views/admin/ModelsView.vue') },
-      { path: 'default-model', name: 'admin-default-model', component: () => import('@/views/admin/DefaultModelView.vue') },
-      {path: 'files', name: 'admin-files', component: () => import('@/views/admin/FilesView.vue') 
-      },
       { path: 'users', name: 'admin-users', component: () => import('@/views/admin/UsersView.vue') },
+      { path: 'usage', name: 'admin-usage', component: () => import('@/views/admin/UsageView.vue') },
+      { path: 'payments', name: 'admin-payments', component: () => import('@/views/admin/PaymentsView.vue') },
+      { path: 'audit', name: 'admin-audit', component: () => import('@/views/admin/AuditLogView.vue') },
+      { path: 'files', name: 'admin-files', component: () => import('@/views/admin/FilesView.vue') },
     ],
+  },
+
+  // ---- Public (no auth) ----
+  {
+    path: '/s/:shareId',
+    name: 'shared-chat',
+    component: () => import('@/views/SharedChatView.vue'),
+    props: true,
   },
 
   { path: '/forbidden', name: 'forbidden', component: () => import('@/views/ForbiddenView.vue') },

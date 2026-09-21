@@ -20,6 +20,7 @@ import { AppConfig as AppConfigEntity } from './modules/app-config/entities/app-
 import { Conversation } from './modules/conversations/entities/conversation.entity';
 import { Message } from './modules/conversations/entities/message.entity';
 import { FileRecord } from './modules/files/entities/file.entity';
+import { Wallet } from './modules/wallet/entities/wallet.entity';
 import { ChatModule } from './modules/chat/chat.module';
 import { FilesModule } from './modules/files/files.module';
 import { ModelsModule } from './modules/models/models.module';
@@ -28,6 +29,11 @@ import { UsersModule } from './modules/users/users.module';
 import { HealthModule } from './modules/health/health.module';
 import { ProviderModule } from './modules/provider/provider.module';
 import { AppConfigModule } from './modules/app-config/app-config.module';
+import { WalletModule } from './modules/wallet/wallet.module';
+import { BillingModule } from './modules/billing/billing.module';
+import { PaymentsModule } from './modules/payments/payments.module';
+import { SharingModule } from './modules/sharing/sharing.module';
+import { AuditModule } from './modules/audit/audit.module';
 import { BullModule } from '@nestjs/bullmq';
 
 @Module({
@@ -90,24 +96,13 @@ import { BullModule } from '@nestjs/bullmq';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService<AppConfig, true>): TypeOrmModuleOptions => {
-        const driver = config.get('db.driver', { infer: true });
-        if (driver === 'postgres') {
-          const pg = config.get('db.postgres', { infer: true });
-          const url =
-            config.get('db.postgresUrl', { infer: true }) ||
-            `postgres://${encodeURIComponent(pg.user)}:${encodeURIComponent(pg.password)}@${pg.host}:${pg.port}/${pg.db}`;
-          return {
-            type: 'postgres',
-            url,
-            autoLoadEntities: true,
-            synchronize: false,
-            migrations: [migrationsGlob],
-            migrationsRun: false,
-          };
-        }
+        const pg = config.get('db.postgres', { infer: true });
+        const url =
+          config.get('db.postgresUrl', { infer: true }) ||
+          `postgres://${encodeURIComponent(pg.user)}:${encodeURIComponent(pg.password)}@${pg.host}:${pg.port}/${pg.db}`;
         return {
-          type: 'sqlite',
-          database: config.get('db.sqliteFile', { infer: true }),
+          type: 'postgres',
+          url,
           autoLoadEntities: true,
           synchronize: false,
           migrations: [migrationsGlob],
@@ -118,12 +113,10 @@ import { BullModule } from '@nestjs/bullmq';
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService<AppConfig, true>) => ({
-        connection: {
-          host: config.get('redis.host', { infer: true }),
-          port: config.get('redis.port', { infer: true }),
-        },
-      }),
+      useFactory: (config: ConfigService<AppConfig, true>) => {
+        const redis = config.get('redis', { infer: true });
+        return { connection: { host: redis.host, port: redis.port } };
+      },
     }),
     TypeOrmModule.forFeature([
       User,
@@ -134,6 +127,7 @@ import { BullModule } from '@nestjs/bullmq';
       Conversation,
       Message,
       FileRecord,
+      Wallet,
     ]),
     ChatModule,
     FilesModule,
@@ -143,6 +137,11 @@ import { BullModule } from '@nestjs/bullmq';
     HealthModule,
     ProviderModule,
     AppConfigModule,
+    WalletModule,
+    BillingModule,
+    PaymentsModule,
+    SharingModule,
+    AuditModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

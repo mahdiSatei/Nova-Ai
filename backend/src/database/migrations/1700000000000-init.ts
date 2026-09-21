@@ -1,34 +1,23 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * Initial schema for the MVP. Six tables + indexes, written with
- * cross-DB SQL that works on both SQLite and PostgreSQL.
+ * Initial schema for the MVP. Six tables + indexes, PostgreSQL only.
  */
 export class Init1700000000000 implements MigrationInterface {
   name = 'Init1700000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    const dbDriver = (process.env.DB_DRIVER ?? 'sqlite') as 'sqlite' | 'postgres';
+    // UUID primary keys get a DB-side default from this extension.
+    await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`);
 
-    // For PostgreSQL, create the uuid-ossp extension so UUID primary keys
-    // get a DB-side default. SQLite uses TEXT primary keys filled by
-    // TypeORM's JavaScript-side UUID generation.
-    if (dbDriver === 'postgres') {
-      await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`);
-    }
+    const idCol = `id UUID PRIMARY KEY DEFAULT uuid_generate_v4()`;
 
-    const idCol = (_table: string) =>
-      dbDriver === 'postgres'
-        ? `id UUID PRIMARY KEY DEFAULT uuid_generate_v4()`
-        : `id TEXT PRIMARY KEY`;
-
-    const fkId = (column: string) =>
-      dbDriver === 'postgres' ? `${column} UUID NOT NULL` : `${column} TEXT NOT NULL`;
+    const fkId = (column: string) => `${column} UUID NOT NULL`;
 
     // users
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS users (
-        ${idCol('id')},
+        ${idCol},
         email TEXT NOT NULL,
         password_hash TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'user',
@@ -44,7 +33,7 @@ export class Init1700000000000 implements MigrationInterface {
     // refresh_tokens
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS refresh_tokens (
-        ${idCol('id')},
+        ${idCol},
         ${fkId('user_id')},
         jti TEXT NOT NULL,
         expires_at TIMESTAMP NOT NULL,
@@ -75,7 +64,7 @@ export class Init1700000000000 implements MigrationInterface {
     // models
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS models (
-        ${idCol('id')},
+        ${idCol},
         display_name TEXT NOT NULL,
         actual_name TEXT NOT NULL,
         enabled BOOLEAN NOT NULL DEFAULT true,
@@ -92,7 +81,7 @@ export class Init1700000000000 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS app_config (
         id TEXT PRIMARY KEY DEFAULT 'singleton',
-        default_model_id ${dbDriver === 'postgres' ? 'UUID' : 'TEXT'},
+        default_model_id UUID,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (default_model_id) REFERENCES models(id) ON DELETE SET NULL
       );
@@ -101,7 +90,7 @@ export class Init1700000000000 implements MigrationInterface {
     // conversations
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS conversations (
-        ${idCol('id')},
+        ${idCol},
         ${fkId('user_id')},
         ${fkId('model_id')},
         title TEXT,
@@ -118,7 +107,7 @@ export class Init1700000000000 implements MigrationInterface {
     // messages
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS messages (
-        ${idCol('id')},
+        ${idCol},
         ${fkId('conversation_id')},
         role TEXT NOT NULL,
         content TEXT NOT NULL,
@@ -131,16 +120,9 @@ export class Init1700000000000 implements MigrationInterface {
     );
 
     // Seed the AppConfig singleton row so PUT can update it.
-    // Use driver-specific syntax: INSERT OR IGNORE (SQLite) vs ON CONFLICT DO NOTHING (Postgres).
-    if (dbDriver === 'postgres') {
-      await queryRunner.query(
-        `INSERT INTO app_config (id, default_model_id) VALUES ('singleton', NULL) ON CONFLICT (id) DO NOTHING;`,
-      );
-    } else {
-      await queryRunner.query(
-        `INSERT OR IGNORE INTO app_config (id, default_model_id) VALUES ('singleton', NULL);`,
-      );
-    }
+    await queryRunner.query(
+      `INSERT INTO app_config (id, default_model_id) VALUES ('singleton', NULL) ON CONFLICT (id) DO NOTHING;`,
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

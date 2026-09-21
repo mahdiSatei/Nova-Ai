@@ -18,10 +18,15 @@ withDefaults(
 </script>
 
 <template>
-  <div
-    role="alert"
-    class="flex items-start gap-3 rounded-lg border border-danger/40 bg-danger/10 px-4 py-3"
+  <Transition
+    enter-active-class="transition duration-200 ease-out"
+    enter-from-class="-translate-y-1 opacity-0"
+    enter-to-class="translate-y-0 opacity-100"
   >
+    <div
+      role="alert"
+      class="flex items-start gap-3 rounded-xl border border-danger/40 bg-danger/10 px-4 py-3 shadow-sm"
+    >
     <PhWarningCircle class="mt-0.5 size-5 shrink-0 text-danger" aria-hidden="true" />
     <div class="min-w-0 flex-1">
       <p class="text-sm text-ink">{{ message }}</p>
@@ -39,7 +44,8 @@ withDefaults(
           <span v-if="requestId">{{ requestId }}</span>
         </p>
       </details>
+      </div>
     </div>
-  </div>
+  </Transition>
 </template>
 

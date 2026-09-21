@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { ConversationsService } from '../../src/modules/conversations/conversations.service';
 import { Conversation } from '../../src/modules/conversations/entities/conversation.entity';
 import { Message } from '../../src/modules/conversations/entities/message.entity';
@@ -183,7 +183,33 @@ describe('ConversationsService', () => {
     it('throws ForbiddenException when requester is not the owner', async () => {
       const conv = await svc.create({ userId: 'u2', modelId: 'm1', userMessage: 'hi' });
 
-      expect(svc.setPinned(conv.id, 'u1', true)).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(svc.setPinned(conv.id, 'u1', true)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(conversationRepo.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── setModel ──────────────────────────────────────────────────────────
+
+  describe('setModel', () => {
+    it('updates the model id when the caller is the owner', async () => {
+      const conv = await svc.create({ userId: 'u1', modelId: 'm1', userMessage: 'hi' });
+
+      const updated = await svc.setModel(conv.id, 'u1', 'm2');
+
+      expect(conversationRepo.update).toHaveBeenCalledWith(conv.id, { modelId: 'm2' });
+      expect(updated).not.toBeNull();
+    });
+
+    it('throws ForbiddenException when caller is not the owner', async () => {
+      const conv = await svc.create({ userId: 'u1', modelId: 'm1', userMessage: 'hi' });
+
+      await expect(svc.setModel(conv.id, 'someone-else', 'm2')).rejects.toBeInstanceOf(ForbiddenException);
+      expect(conversationRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('returns null when the conversation does not exist', async () => {
+      const result = await svc.setModel('c-missing', 'u1', 'm2');
+      expect(result).toBeNull();
       expect(conversationRepo.update).not.toHaveBeenCalled();
     });
   });
@@ -204,10 +230,10 @@ describe('ConversationsService', () => {
       expect(result).toBe(false);
     });
 
-    it('throws ConflictException when requester is not the owner', async () => {
+    it('throws ForbiddenException when requester is not the owner', async () => {
       const conv = await svc.create({ userId: 'u2', modelId: 'm1', userMessage: 'hi' });
 
-      expect(svc.delete(conv.id, 'u1')).rejects.toBeInstanceOf(ConflictException);
+      await expect(svc.delete(conv.id, 'u1')).rejects.toBeInstanceOf(ForbiddenException);
       expect(conversationRepo.delete).not.toHaveBeenCalled();
     });
   });

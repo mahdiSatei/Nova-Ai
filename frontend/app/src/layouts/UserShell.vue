@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // پوسته‌ی کاربر: نوار کنایی (جمع‌شونده/کشویی) + ناحیه‌ی اصلی تمام‌ارتفاع.
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 import { PhList, PhChatCircleText } from '@phosphor-icons/vue'
 import ChatSidebar from '@/components/chat/ChatSidebar.vue'
@@ -10,16 +10,22 @@ const drawerOpen = ref(false)
 
 // با تغییر مسیر، کشوی موبایل بسته شود.
 watch(() => route.fullPath, () => (drawerOpen.value = false))
+
+// صفحات کیف پول/گزارش محتوای بلند دارند و باید خودشان اسکرول داشته باشند؛
+// فضای چت اسکرول داخلی مخصوص پیام‌ها را حفظ می‌کند.
+const scrollablePage = computed(() =>
+  ['wallet', 'user-dashboard', 'payment-result', 'conversation'].includes(String(route.name)),
+)
 </script>
 
 <template>
-  <div class="flex h-dvh overflow-hidden">
+  <div class="app-shell-bg flex h-dvh overflow-hidden">
     <ChatSidebar v-model:mobile-open="drawerOpen" @navigate="drawerOpen = false" />
 
     <div class="flex min-w-0 flex-1 flex-col">
       <!-- نوار بالایی موبایل -->
       <header
-        class="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-bg/90 px-3 backdrop-blur lg:hidden"
+        class="flex h-14 shrink-0 items-center gap-2 border-b border-line/70 bg-surface/75 px-3 shadow-sm backdrop-blur-xl lg:hidden"
       >
         <button
           type="button"
@@ -35,9 +41,11 @@ watch(() => route.fullPath, () => (drawerOpen.value = false))
         </span>
       </header>
 
-      <main class="flex min-h-0 flex-1 flex-col overflow-hidden px-2 sm:px-4">
-        <RouterView />
-      </main>
+      <main
+        class="flex min-h-0 flex-1 flex-col px-2 sm:px-4"
+        :class="scrollablePage ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'"
+      ><Transition name="page" mode="out-in"><RouterView />
+        </Transition></main>
     </div>
   </div>
 </template>

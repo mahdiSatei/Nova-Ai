@@ -27,7 +27,7 @@ function handleRemoveClick(id: string) {
 
 <template>
   <div
-    class="group relative flex h-9 items-center overflow-hidden rounded-lg transition-colors"
+    class="group relative flex h-11 items-center overflow-hidden rounded-lg transition-colors"
     :class="active ? 'bg-primary-soft' : 'hover:bg-hover'"
   >
     <!-- عنوان گفتگو -->
@@ -39,7 +39,13 @@ function handleRemoveClick(id: string) {
       @click="$emit('open', conversation.id)"
     >
       <PhChatsCircle class="size-4 shrink-0" aria-hidden="true" />
-      <span class="min-w-0 flex-1 truncate">{{ conversation.title?.trim() || 'بدون عنوان' }}</span>
+      <span class="flex min-w-0 flex-1 flex-col gap-1">
+        <span class="truncate">{{ conversation.title?.trim() || 'بدون عنوان' }}</span>
+        <span
+          v-if="conversation.modelDisplayName"
+          class="truncate text-[11px] text-ink-muted/80"
+        >{{ conversation.modelDisplayName }}</span>
+      </span>
     </button>
 
     <!-- ابزارهای اصلی (پین و حذف) -->

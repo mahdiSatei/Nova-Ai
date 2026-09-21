@@ -1,6 +1,14 @@
 import { API_BASE, buildUrl, newRequestId, request, withStreamAuthRetry } from '@/api/http'
 import { streamErrorMessage } from '@/utils/errors'
-import type { ChatRequest, SseDelta, SseError } from '@/types/api'
+import type {
+  ChatRequest,
+  CitationSource,
+  SseCitations,
+  SseDelta,
+  SseError,
+  SseReasoningDelta,
+  SseStatus,
+} from '@/types/api'
 
 export interface StreamStartInfo {
   conversationId: string
@@ -13,6 +21,12 @@ export interface StreamHandlers {
   onDone: () => void
   /** Stream-level error event, HTTP-level error, or network failure */
   onError: (err: { code: string; message: string }) => void
+  /** Backend status change: retry/failover (phase 6) or web-search lifecycle (phase 7). */
+  onStatus?: (info: SseStatus) => void
+  /** Web-search sources cited by the final answer (phase 7). */
+  onCitations?: (sources: CitationSource[]) => void
+  /** Provider-visible reasoning summary chunk (phase 8). isFirst = replace accumulated text. */
+  onReasoningDelta?: (delta: string, isFirst: boolean) => void
   /** Server assigns the real conversation + assistant message ids (new streams) */
   onStart?: (info: StreamStartInfo) => void
 }
@@ -56,6 +70,7 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
         handlers.onError({ code, message: streamErrorMessage(code, serverMessage) })
         return
       }
+
       if (!res.body) {
         handlers.onError({
           code: 'no_stream',
@@ -81,16 +96,55 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
 
           let eventName = 'message'
           const dataLines: string[] = []
+
           for (const line of rawEvent.split('\n')) {
             if (line.startsWith('event:')) eventName = line.slice(6).trim()
             else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
           }
+
           const payload = dataLines.join('\n')
 
           if (eventName === 'done') {
             handlers.onDone()
             return
           }
+
+          if (eventName === 'status') {
+            // Phase 6/7: non-terminal progress event — retry/failover before
+            // the first token, or a web-search lifecycle phase.
+            try {
+              const parsed = JSON.parse(payload) as SseStatus
+              handlers.onStatus?.(parsed)
+            } catch {
+              /* ignore malformed status frame */
+            }
+            continue
+          }
+
+          if (eventName === 'citations') {
+            try {
+              const parsed = JSON.parse(payload) as SseCitations
+              if (Array.isArray(parsed.sources)) {
+                handlers.onCitations?.(parsed.sources)
+              }
+            } catch {
+              /* ignore malformed citations frame */
+            }
+            continue
+          }
+
+          if (eventName === 'reasoning_delta') {
+            try {
+              const parsed = JSON.parse(payload) as SseReasoningDelta
+              if (typeof parsed.delta === 'string') {
+                handlers.onReasoningDelta?.(parsed.delta, false)
+              }
+            } catch {
+              /* ignore malformed reasoning frame */
+            }
+            continue
+          }
+
           if (eventName === 'error') {
             let parsed: Partial<SseError> = {}
             try {
@@ -98,6 +152,7 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
             } catch {
               /* malformed payload */
             }
+
             const code = parsed.code ?? 'stream_error'
             handlers.onError({
               code,
@@ -105,6 +160,7 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
             })
             return
           }
+
           if (eventName === 'start') {
             let startInfo: Partial<StreamStartInfo> = {}
             try {
@@ -112,6 +168,7 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
             } catch {
               /* malformed payload */
             }
+
             if (startInfo.conversationId && startInfo.assistantMessageId) {
               handlers.onStart?.({
                 conversationId: startInfo.conversationId,
@@ -120,22 +177,28 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
             }
             continue
           }
+
           if (payload) {
             try {
               const parsed = JSON.parse(payload) as SseDelta
-              if (typeof parsed.delta === 'string') handlers.onDelta(parsed.delta, false)
+              if (typeof parsed.delta === 'string') {
+                handlers.onDelta(parsed.delta, false)
+              }
             } catch {
               /* ignore malformed data frame */
             }
           }
         }
       }
+
       // Stream closed without an explicit done/error event.
       handlers.onDone()
     } catch (err) {
       if (controller.signal.aborted) return
+
       const fallback =
         err instanceof Error && err.message ? err.message : undefined
+
       handlers.onError({
         code: 'network_error',
         message: streamErrorMessage('network_error', fallback),
@@ -149,10 +212,15 @@ export function streamChat(body: ChatRequest, handlers: StreamHandlers): AbortCo
 /**
  * POST /v1/chat/:conversationId/cancel — cancel the active generation.
  */
-export async function cancelGeneration(conversationId: string): Promise<{ messageId: string; status: string }> {
-  return request<{ messageId: string; status: string }>(`/v1/chat/${conversationId}/cancel`, {
-    method: 'POST',
-  })
+export async function cancelGeneration(
+  conversationId: string,
+): Promise<{ messageId: string; status: string }> {
+  return request<{ messageId: string; status: string }>(
+    `/v1/chat/${conversationId}/cancel`,
+    {
+      method: 'POST',
+    },
+  )
 }
 
 /**
@@ -164,6 +232,7 @@ export function retryStream(
   conversationId: string,
   failedMessageId: string,
   handlers: StreamHandlers,
+  options?: { webSearch?: boolean; reasoning?: boolean },
 ): AbortController {
   const controller = new AbortController()
 
@@ -175,19 +244,30 @@ export function retryStream(
           Accept: 'text/event-stream',
           'X-Request-ID': newRequestId(),
         }
+
         if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+
         return fetch(buildUrl(`/v1/chat/${conversationId}/retry`), {
           method: 'POST',
           headers,
-          body: JSON.stringify({ failedMessageId }),
+          // The retry keeps the caller's current toggles so the regenerated
+          // answer matches the request that failed. Both flags are optional
+          // server-side, so they are only sent when actually enabled.
+          body: JSON.stringify({
+            failedMessageId,
+            ...(options?.webSearch ? { webSearch: true } : {}),
+            ...(options?.reasoning ? { reasoning: true } : {}),
+          }),
           signal: controller.signal,
         })
       })
+
       if (!res) return
 
       if (!res.ok) {
         let code = 'unknown_error'
         let serverMessage = `Request failed with status ${res.status}`
+
         try {
           const errBody = await res.json()
           code = errBody.code ?? code
@@ -195,9 +275,14 @@ export function retryStream(
         } catch {
           /* non-JSON error body */
         }
-        handlers.onError({ code, message: streamErrorMessage(code, serverMessage) })
+
+        handlers.onError({
+          code,
+          message: streamErrorMessage(code, serverMessage),
+        })
         return
       }
+
       if (!res.body) {
         handlers.onError({
           code: 'no_stream',
@@ -213,6 +298,7 @@ export function retryStream(
       while (true) {
         const { value, done: eof } = await reader.read()
         if (eof) break
+
         buffer += decoder.decode(value, { stream: true })
 
         let sep: number
@@ -222,37 +308,70 @@ export function retryStream(
 
           let eventName = 'message'
           const dataLines: string[] = []
+
           for (const line of rawEvent.split('\n')) {
             if (line.startsWith('event:')) eventName = line.slice(6).trim()
             else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
           }
+
           const payload = dataLines.join('\n')
 
           if (eventName === 'done') {
             handlers.onDone()
             return
           }
+
+          if (eventName === 'citations') {
+            try {
+              const parsed = JSON.parse(payload) as SseCitations
+              if (Array.isArray(parsed.sources)) {
+                handlers.onCitations?.(parsed.sources)
+              }
+            } catch {
+              /* ignore malformed citations frame */
+            }
+            continue
+          }
+
+          if (eventName === 'reasoning_delta') {
+            try {
+              const parsed = JSON.parse(payload) as SseReasoningDelta
+              if (typeof parsed.delta === 'string') {
+                handlers.onReasoningDelta?.(parsed.delta, false)
+              }
+            } catch {
+              /* ignore malformed reasoning frame */
+            }
+            continue
+          }
+
           if (eventName === 'error') {
             let parsed: Partial<SseError> = {}
+
             try {
               parsed = JSON.parse(payload) as SseError
             } catch {
               /* malformed payload */
             }
+
             const code = parsed.code ?? 'stream_error'
+
             handlers.onError({
               code,
               message: streamErrorMessage(code, parsed.message),
             })
             return
           }
+
           if (eventName === 'start') {
             let startInfo: Partial<StreamStartInfo> = {}
+
             try {
               startInfo = JSON.parse(payload) as Partial<StreamStartInfo>
             } catch {
               /* malformed payload */
             }
+
             if (startInfo.conversationId && startInfo.assistantMessageId) {
               handlers.onStart?.({
                 conversationId: startInfo.conversationId,
@@ -261,22 +380,28 @@ export function retryStream(
             }
             continue
           }
+
           if (payload) {
             try {
               const parsed = JSON.parse(payload) as SseDelta
-              if (typeof parsed.delta === 'string') handlers.onDelta(parsed.delta, false)
+              if (typeof parsed.delta === 'string') {
+                handlers.onDelta(parsed.delta, false)
+              }
             } catch {
               /* ignore malformed data frame */
             }
           }
         }
       }
+
       // Stream closed without an explicit done/error event.
       handlers.onDone()
     } catch (err) {
       if (controller.signal.aborted) return
+
       const fallback =
         err instanceof Error && err.message ? err.message : undefined
+
       handlers.onError({
         code: 'network_error',
         message: streamErrorMessage('network_error', fallback),
@@ -306,18 +431,22 @@ export function resumeStream(
           Accept: 'text/event-stream',
           'X-Request-ID': newRequestId(),
         }
+
         if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+
         return fetch(buildUrl(`/v1/chat/${conversationId}/resume`), {
           method: 'POST',
           headers,
           signal: controller.signal,
         })
       })
+
       if (!res) return
 
       if (!res.ok) {
         let code = 'unknown_error'
         let serverMessage = `Request failed with status ${res.status}`
+
         try {
           const errBody = await res.json()
           code = errBody.code ?? code
@@ -325,9 +454,14 @@ export function resumeStream(
         } catch {
           /* non-JSON error body */
         }
-        handlers.onError({ code, message: streamErrorMessage(code, serverMessage) })
+
+        handlers.onError({
+          code,
+          message: streamErrorMessage(code, serverMessage),
+        })
         return
       }
+
       if (!res.body) {
         handlers.onError({
           code: 'no_stream',
@@ -341,10 +475,12 @@ export function resumeStream(
       let buffer = ''
       let done = false
       let receivedAccumulated = false
+      let receivedAccumulatedReasoning = false
 
       while (!done) {
         const { value, done: eof } = await reader.read()
         if (eof) break
+
         buffer += decoder.decode(value, { stream: true })
 
         let sep: number
@@ -354,33 +490,71 @@ export function resumeStream(
 
           let eventName = 'message'
           const dataLines: string[] = []
+
           for (const line of rawEvent.split('\n')) {
             if (line.startsWith('event:')) eventName = line.slice(6).trim()
             else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
           }
+
           const payload = dataLines.join('\n')
 
           if (eventName === 'done') {
             handlers.onDone()
             return
           }
+
+          if (eventName === 'citations') {
+            try {
+              const parsed = JSON.parse(payload) as SseCitations
+              if (Array.isArray(parsed.sources)) {
+                handlers.onCitations?.(parsed.sources)
+              }
+            } catch {
+              /* ignore malformed citations frame */
+            }
+            continue
+          }
+
+          if (eventName === 'reasoning_delta') {
+            try {
+              const parsed = JSON.parse(payload) as SseReasoningDelta
+
+              if (typeof parsed.delta === 'string') {
+                // As with answer text, the first reasoning frame on resume is
+                // the full accumulated summary, so it replaces what the client
+                // already has instead of duplicating it.
+                const isFirst = !receivedAccumulatedReasoning
+                receivedAccumulatedReasoning = true
+                handlers.onReasoningDelta?.(parsed.delta, isFirst)
+              }
+            } catch {
+              /* ignore malformed reasoning frame */
+            }
+            continue
+          }
+
           if (eventName === 'error') {
             let parsed: Partial<SseError> = {}
+
             try {
               parsed = JSON.parse(payload) as SseError
             } catch {
               /* malformed payload */
             }
+
             const code = parsed.code ?? 'stream_error'
+
             handlers.onError({
               code,
               message: streamErrorMessage(code, parsed.message),
             })
             return
           }
+
           if (payload) {
             try {
               const parsed = JSON.parse(payload) as SseDelta
+
               if (typeof parsed.delta === 'string') {
                 // First delta from resume is the full accumulated text from the
                 // backend — replace current content rather than append to avoid
@@ -398,12 +572,15 @@ export function resumeStream(
           }
         }
       }
+
       // Stream closed without an explicit done/error event.
       handlers.onDone()
     } catch (err) {
       if (controller.signal.aborted) return
+
       const fallback =
         err instanceof Error && err.message ? err.message : undefined
+
       handlers.onError({
         code: 'network_error',
         message: streamErrorMessage('network_error', fallback),

@@ -1,3 +1,6 @@
+// MUST stay the first import: OpenTelemetry must hook modules
+// (http, pg, pino, ...) before they are loaded anywhere else.
+import './instrumentation';
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';

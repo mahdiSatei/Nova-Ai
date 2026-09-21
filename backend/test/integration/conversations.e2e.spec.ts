@@ -1,15 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
 import { Model } from '../../src/modules/models/entities/model.entity';
 import { encrypt } from '../../src/common/crypto/credential-cipher';
-import { OpenAICompatibleClient } from '../../src/modules/chat/provider/openai-compatible.client';
+import { Provider } from '../../src/modules/provider/entities/provider.entity';
+import { randomUUID } from 'crypto';
 
 /**
  * Integration test for conversations CRUD endpoints.
@@ -19,36 +17,35 @@ import { OpenAICompatibleClient } from '../../src/modules/chat/provider/openai-c
  */
 describe('Conversations — e2e', () => {
   let app: INestApplication;
-  let dbPath: string;
   let accessTokenA: string; // user A
   let accessTokenB: string; // user B
+
+  // Seeds and users are run-scoped: `chatbot_test` is a shared, persistent
+  // database, and `providers.name` is unique on PostgreSQL.
+  const RUN = Date.now().toString(36);
+  const PROVIDER_ID = `convs-prov-${RUN}`;
+  const MODEL_ID = randomUUID();
+  const EMAIL_A = `user-a-${RUN}@example.com`;
+  const EMAIL_B = `user-b-${RUN}@example.com`;
+  const USER_A = `user_a_${RUN}`;
+  const USER_B = `user_b_${RUN}`;
 
   jest.setTimeout(30_000);
 
   beforeAll(async () => {
-    dbPath = path.join(os.tmpdir(), `chatbot-convs-${Date.now()}.sqlite`);
     process.env.NODE_ENV = 'test';
-    process.env.DB_DRIVER = 'sqlite';
-    process.env.SQLITE_FILE = dbPath;
+    process.env.POSTGRES_HOST = '127.0.0.1';
+    process.env.POSTGRES_PORT = process.env.TEST_POSTGRES_PORT ?? '5432';
+    process.env.POSTGRES_USER = 'postgres';
+    process.env.POSTGRES_PASSWORD = process.env.TEST_POSTGRES_PASSWORD ?? 'postgres';
+    process.env.POSTGRES_DB = 'chatbot_test';
     process.env.JWT_SECRET = 'integration-test-secret-with-enough-entropy-here';
     process.env.JWT_REFRESH_SECRET = 'integration-test-refresh-secret-entropy';
     process.env.PROVIDER_ENCRYPTION_KEY = Buffer.alloc(32, 1).toString('base64');
 
-    const mockStream = (async function* () {
-      yield { choices: [{ delta: { content: 'Mock' } }] } as any;
-    })();
-
-    const mockProvider = {
-      getClient: jest.fn().mockResolvedValue({}),
-      stream: jest.fn().mockResolvedValue(mockStream),
-    };
-
     const moduleRef: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    })
-      // .overrideProvider(OpenAICompatibleClient)
-      // .useValue(mockProvider)
-      .compile();
+    }).compile();
 
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
@@ -58,24 +55,29 @@ describe('Conversations — e2e', () => {
     const ds = app.get(DataSource);
     await ds.runMigrations();
 
-    // Seed provider + model.
-    const { CentralProvider } = await import('../../src/modules/provider/entities/central-provider.entity');
-    const providerRepo = ds.getRepository(CentralProvider);
+    // Seed provider + model. Phase 2 replaced the `central_providers`
+    // singleton with the multi-provider catalog, so a model now needs a real
+    // `providers` row to point at.
+    const providerRepo = ds.getRepository(Provider);
     await providerRepo.save(
       providerRepo.create({
-        id: 'singleton',
+        id: PROVIDER_ID,
+        name: `Convs Provider ${RUN}`,
+        type: 'openai-compatible',
         baseUrl: 'http://localhost:9999',
         apiKeyEncrypted: encrypt('test-api-key'),
-        lastValidatedAt: null,
+        isActive: true,
       }),
     );
 
     const modelRepo = ds.getRepository(Model);
     await modelRepo.save(
       modelRepo.create({
-        id: 'model-1',
-        displayName: 'Test Model',
-        actualName: 'test-model-v1',
+        id: MODEL_ID,
+        displayName: `Test Model ${RUN}`,
+        actualName: `test-model-${RUN}`,
+        providerId: PROVIDER_ID,
+        visibility: 'public',
         enabled: true,
         isDefault: true,
       }),
@@ -90,31 +92,30 @@ describe('Conversations — e2e', () => {
     const appConfigRepo = ds.getRepository(AppConfig);
     const cfg = await appConfigRepo.findOne({ where: { id: 'singleton' } });
     if (cfg) {
-      cfg.defaultModelId = 'model-1';
+      cfg.defaultModelId = MODEL_ID;
       await appConfigRepo.save(cfg);
     }
 
     // Register two users.
     const regA = await request(app.getHttpServer())
       .post('/v1/auth/register')
-      .send({ email: 'user-a@example.com', password: 'correct-horse-battery-staple' });
+      .send({ username: USER_A, email: EMAIL_A, password: 'correct-horse-battery-staple' });
     accessTokenA = regA.body.accessToken;
 
     const regB = await request(app.getHttpServer())
       .post('/v1/auth/register')
-      .send({ email: 'user-b@example.com', password: 'correct-horse-battery-staple' });
+      .send({ username: USER_B, email: EMAIL_B, password: 'correct-horse-battery-staple' });
     accessTokenB = regB.body.accessToken;
   });
 
   afterAll(async () => {
     if (app) await app.close();
-    try { fs.unlinkSync(dbPath); } catch { /* ignore */ }
   });
 
   // Helper: query the seeded user-a row directly.
   async function dsUserA(): Promise<{ id: string }> {
     const ds = app.get(DataSource);
-    const rows = await ds.query('SELECT id FROM users WHERE email = ? LIMIT 1', ['user-a@example.com']);
+    const rows = await ds.query('SELECT id FROM users WHERE email = $1 LIMIT 1', [EMAIL_A]);
     return rows[0];
   }
 
@@ -137,12 +138,12 @@ describe('Conversations — e2e', () => {
 
       await conversations.create({
         userId: (await dsUserA()).id,
-        modelId: 'model-1',
+        modelId: MODEL_ID,
         userMessage: 'First message',
       });
       await conversations.create({
         userId: (await dsUserA()).id,
-        modelId: 'model-1',
+        modelId: MODEL_ID,
         userMessage: 'Second message',
       });
 
@@ -152,9 +153,9 @@ describe('Conversations — e2e', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.items).toHaveLength(2);
-      // SQLite timestamps have second granularity, so both rows can share
-      // an updatedAt when created in the same second — assert membership
-      // and non-ascending timestamps instead of an exact row order.
+      // Both rows can be created within the same clock tick, so they may share
+      // an updatedAt — assert membership and non-ascending timestamps instead
+      // of an exact row order.
       expect(new Set(res.body.items.map((i: any) => i.title))).toEqual(
         new Set(['First message', 'Second message']),
       );
@@ -190,7 +191,7 @@ describe('Conversations — e2e', () => {
 
       const created = await conversations.create({
         userId: (await dsUserA()).id,
-        modelId: 'model-1',
+        modelId: MODEL_ID,
         userMessage: 'Hello detail',
       });
 
@@ -206,13 +207,35 @@ describe('Conversations — e2e', () => {
       expect(detailRes.body.messages[0].status).toBe('completed');
     });
 
+    it('GET /v1/conversations/:id includes modelDisplayName', async () => {
+      const { ConversationsService } = await import('../../src/modules/conversations/conversations.service');
+      const conversations = app.get(ConversationsService);
+
+      const created = await conversations.create({
+        userId: (await dsUserA()).id,
+        modelId: MODEL_ID,
+        userMessage: 'Test chat',
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/v1/conversations/${created.id}`)
+        .set('Authorization', `Bearer ${accessTokenA}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        id: created.id,
+        modelId: MODEL_ID,
+        modelDisplayName: `Test Model ${RUN}`,
+      });
+    });
+
     it('returns 403 for another user\'s conversation', async () => {
       const { ConversationsService } = await import('../../src/modules/conversations/conversations.service');
       const conversations = app.get(ConversationsService);
 
       const created = await conversations.create({
         userId: (await dsUserA()).id,
-        modelId: 'model-1',
+        modelId: MODEL_ID,
         userMessage: 'secret',
       });
 
@@ -233,7 +256,7 @@ describe('Conversations — e2e', () => {
 
       const created = await conversations.create({
         userId: (await dsUserA()).id,
-        modelId: 'model-1',
+        modelId: MODEL_ID,
         userMessage: 'to pin',
       });
 
@@ -251,8 +274,8 @@ describe('Conversations — e2e', () => {
       const conversations = app.get(ConversationsService);
       const userId = (await dsUserA()).id;
 
-      const older = await conversations.create({ userId, modelId: 'model-1', userMessage: 'older pinned' });
-      const newer = await conversations.create({ userId, modelId: 'model-1', userMessage: 'newer unpinned' });
+      const older = await conversations.create({ userId, modelId: MODEL_ID, userMessage: 'older pinned' });
+      const newer = await conversations.create({ userId, modelId: MODEL_ID, userMessage: 'newer unpinned' });
 
       await request(app.getHttpServer())
         .patch(`/v1/conversations/${older.id}/pin`)
@@ -280,7 +303,7 @@ describe('Conversations — e2e', () => {
 
       const created = await conversations.create({
         userId: (await dsUserA()).id,
-        modelId: 'model-1',
+        modelId: MODEL_ID,
         userMessage: 'unpin me',
       });
       await request(app.getHttpServer())
@@ -303,7 +326,7 @@ describe('Conversations — e2e', () => {
 
       const created = await conversations.create({
         userId: (await dsUserA()).id,
-        modelId: 'model-1',
+        modelId: MODEL_ID,
         userMessage: 'not yours',
       });
 
@@ -330,7 +353,7 @@ describe('Conversations — e2e', () => {
 
       const created = await conversations.create({
         userId: (await dsUserA()).id,
-        modelId: 'model-1',
+        modelId: MODEL_ID,
         userMessage: 'validate me',
       });
 
@@ -364,7 +387,7 @@ describe('Conversations — e2e', () => {
 
       const created = await conversations.create({
         userId: (await dsUserA()).id,
-        modelId: 'model-1',
+        modelId: MODEL_ID,
         userMessage: 'to delete',
       });
 

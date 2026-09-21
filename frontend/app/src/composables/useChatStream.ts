@@ -1,13 +1,30 @@
 // Composable مرکزی چت: dual state model — connection + generation.
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { streamChat, resumeStream, retryStream, cancelGeneration, type StreamHandlers } from '@/api/chat'
-import { getConversation, listConversations } from '@/api/conversations'
+import {
+  streamChat,
+  resumeStream,
+  retryStream,
+  cancelGeneration,
+  type StreamHandlers,
+  type StreamStartInfo,
+} from '@/api/chat'
+import { getConversation, listConversations, setConversationModel } from '@/api/conversations'
+import { useWalletStore } from '@/stores/wallet'
 import { ApiError } from '@/api/http'
 import { streamErrorMessage } from '@/utils/errors'
-import type { MessagePublic } from '@/types/api'
+import type { CitationSource, MessagePublic, SearchPhase, SseStatus } from '@/types/api'
 
 const SESSION_KEY = 'mmcb.lastModelId'
 const CONVERSATION_KEY = 'mmcb.lastConversationId'
+const WEB_SEARCH_KEY = 'mmcb.webSearchEnabled'
+const REASONING_KEY = 'mmcb.reasoningEnabled'
+
+type SearchActivityState = {
+  phase: SearchPhase
+  query?: string
+  sources?: number
+  credits?: number
+}
 
 type ConnectionState = 'connected' | 'disconnected' | 'reconnecting'
 type GenerationState = 'idle' | 'streaming' | 'completed' | 'failed' | 'cancelled'
@@ -17,6 +34,7 @@ interface ActiveGeneration {
   assistantMessageId: string
   status: GenerationState
   content: string
+  citations?: CitationSource[]
 }
 
 function loadSavedModelId(): string | null {
@@ -35,6 +53,45 @@ function saveModelId(id: string): void {
   }
 }
 
+function loadSavedWebSearch(): boolean {
+  try {
+    return sessionStorage.getItem(WEB_SEARCH_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function saveWebSearch(enabled: boolean): void {
+  try {
+    sessionStorage.setItem(WEB_SEARCH_KEY, enabled ? 'true' : 'false')
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadSavedReasoning(): boolean {
+  try {
+    return sessionStorage.getItem(REASONING_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function saveReasoning(enabled: boolean): void {
+  try {
+    sessionStorage.setItem(REASONING_KEY, enabled ? 'true' : 'false')
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Codes that mean "the model this client holds is not usable by this account".
+ * When one arrives, drop the selection and reload the entitlement-filtered
+ * catalog so the picker repopulates with what is actually available.
+ */
+const MODEL_REJECTION_CODES = new Set(['model_forbidden', 'model_unavailable'])
+
 export interface ChatStreamHandle {
   connectionState: import('vue').Ref<ConnectionState>
   connectionError: import('vue').Ref<{ code: string; message: string } | null>
@@ -44,10 +101,36 @@ export interface ChatStreamHandle {
   conversationId: import('vue').Ref<string | null>
   selectedModelId: import('vue').Ref<string | null>
   inputDisabled: import('vue').ComputedRef<boolean>
-  setModel: (id: string | null) => void
+  /** Non-null while the server retries or fails over before the first token (فاز ۶). */
+  retrying: import('vue').Ref<{ attempt: number; maxAttempts: number } | null>
+  /** Web Search preference for the next turn (فاز ۷). Disabled by default. */
+  webSearchEnabled: import('vue').Ref<boolean>
+  /** Live search/retrieval progress while a grounded answer is generating. */
+  searchActivity: import('vue').Ref<SearchActivityState | null>
+  /** Sources cited by the latest grounded answer. */
+  citations: import('vue').Ref<CitationSource[]>
+  /** فاز ۸ — استدلال برای نوبت بعد. فقط برای مدل‌های دارای استدلال معنا دارد. */
+  reasoningEnabled: import('vue').Ref<boolean>
+  /** فاز ۸ — توان مؤثر مدل انتخاب‌شده (از چیدمان عمومی مدل‌ها). */
+  reasoningSupported: import('vue').Ref<boolean>
+  /** فاز ۸ — وضعیت «در حال استدلال»، فقط بر اساس رویدادهای سرور. */
+  reasoningActive: import('vue').Ref<boolean>
+  /** فاز ۸ — استدلال این نوبت تمام شده است (بدون اینکه لزوماً محتوایی داشته باشد). */
+  reasoningCompleted: import('vue').Ref<boolean>
+  /** فاز ۸ — خلاصهٔ استدلال دریافتی (خالی یعنی محتوایی برای نمایش نیست). */
+  reasoningSummary: import('vue').Ref<string>
+  /** فاز ۸ — آیا محتوای استدلال برای نمایش وجود دارد. */
+  reasoningAvailable: import('vue').ComputedRef<boolean>
+  setWebSearch: (value: boolean) => void
+  setReasoning: (value: boolean) => void
+  setReasoningSupport: (supported: boolean) => void
+  setModel: (id: string | null) => Promise<void>
   loadConversation: (id: string) => Promise<void>
   resetConversation: () => void
-  send: (text: string, opts?: { fileId?: string | null; file?: MessagePublic['file'] }) => Promise<void>
+  send: (
+    text: string,
+    opts?: { fileId?: string | null; file?: MessagePublic['file'] },
+  ) => Promise<void>
   abort: () => void
   replaceSnapshot: (snapshot: string) => void
   cancel: () => Promise<void>
@@ -70,6 +153,24 @@ export function useChatStream(): ChatStreamHandle {
   // ── Other ────────────────────────────────────────────────────────
   const conversationId = ref<string | null>(null)
   const selectedModelId = ref<string | null>(loadSavedModelId())
+  const retrying = ref<{ attempt: number; maxAttempts: number } | null>(null)
+  const webSearchEnabled = ref<boolean>(loadSavedWebSearch())
+  const searchActivity = ref<SearchActivityState | null>(null)
+  const citations = ref<CitationSource[]>([])
+  const reasoningEnabled = ref<boolean>(loadSavedReasoning())
+  const reasoningSupported = ref<boolean>(false)
+  const reasoningActive = ref<boolean>(false)
+  const reasoningCompleted = ref<boolean>(false)
+  const reasoningSummary = ref<string>('')
+  const reasoningAvailable = computed(() => reasoningSummary.value.length > 0)
+
+  function refreshWalletBalance(): void {
+    try {
+      void useWalletStore().refresh()
+    } catch {
+      // Tests and non-mounted consumers may not have an active Pinia yet.
+    }
+  }
 
   let controller: AbortController | null = null
   let retryTimer: ReturnType<typeof setInterval> | null = null
@@ -79,6 +180,27 @@ export function useChatStream(): ChatStreamHandle {
 
   // ── Computed ─────────────────────────────────────────────────
   const inputDisabled = computed(() => generationState.value === 'streaming')
+
+  async function recoverFromModelRejection(code: string | undefined): Promise<boolean> {
+    if (!code || !MODEL_REJECTION_CODES.has(code)) return false
+
+    selectedModelId.value = null
+
+    try {
+      sessionStorage.removeItem(SESSION_KEY)
+    } catch {
+      /* ignore */
+    }
+
+    try {
+      const { useModelsStore } = await import('@/stores/models')
+      await useModelsStore().load(true)
+    } catch {
+      /* catalog refresh is best-effort */
+    }
+
+    return true
+  }
 
   // ── Connection helpers ────────────────────────────────────────────
   function setConnected(): void {
@@ -123,13 +245,16 @@ export function useChatStream(): ChatStreamHandle {
     stopAutoRetry()
     retryCount = 0
     setReconnecting()
+
     retryTimer = setInterval(async () => {
       if (retryCount >= MAX_RETRIES) {
         stopAutoRetry()
         setDisconnected()
         return
       }
+
       retryCount++
+
       try {
         await reconnect()
         stopAutoRetry()
@@ -145,6 +270,7 @@ export function useChatStream(): ChatStreamHandle {
       clearInterval(retryTimer)
       retryTimer = null
     }
+
     retryCount = 0
   }
 
@@ -161,18 +287,22 @@ export function useChatStream(): ChatStreamHandle {
   function startWatchdog(): void {
     stopWatchdog()
     touchStreamActivity()
+
     watchdogTimer = setInterval(() => {
       if (generationState.value !== 'streaming') {
         stopWatchdog()
         return
       }
+
       if (Date.now() - lastStreamActivityAt > STREAM_IDLE_TIMEOUT_MS) {
         const convId = generation.value?.conversationId || conversationId.value
+
         if (convId) {
           void reconcileWithServer(convId)
         } else {
           abort()
         }
+
         stopWatchdog()
       }
     }, WATCHDOG_TICK_MS)
@@ -195,6 +325,7 @@ export function useChatStream(): ChatStreamHandle {
       const streamingMsg = detail.messages.find(
         (m) => m.role === 'assistant' && m.status === 'streaming',
       )
+
       if (streamingMsg) {
         generation.value = {
           conversationId: detail.id,
@@ -205,6 +336,7 @@ export function useChatStream(): ChatStreamHandle {
         generationState.value = 'failed'
       } else {
         const last = detail.messages.at(-1)
+
         if (last && last.role === 'assistant') {
           const st = last.status as GenerationState
           generation.value = {
@@ -219,7 +351,11 @@ export function useChatStream(): ChatStreamHandle {
           generationState.value = 'idle'
         }
       }
+
       connectionError.value = null
+      reasoningActive.value = false
+      reasoningCompleted.value = false
+      reasoningSummary.value = ''
       setConnected()
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) {
@@ -231,6 +367,7 @@ export function useChatStream(): ChatStreamHandle {
         }
         return
       }
+
       setDisconnected(err instanceof Error ? err : undefined)
     }
   }
@@ -241,27 +378,108 @@ export function useChatStream(): ChatStreamHandle {
     }
   }
 
+  function setWebSearch(value: boolean): void {
+    webSearchEnabled.value = value
+    saveWebSearch(value)
+  }
+
+  function setReasoning(value: boolean): void {
+    if (value && !reasoningSupported.value) return
+    reasoningEnabled.value = value
+    saveReasoning(value)
+  }
+
+  function setReasoningSupport(supported: boolean): void {
+    reasoningSupported.value = supported
+    if (!supported && reasoningEnabled.value) setReasoning(false)
+  }
+
+  function applyStatus(info: SseStatus): void {
+    if (info.phase === 'retrying') {
+      retrying.value = {
+        attempt: info.attempt ?? 1,
+        maxAttempts: info.maxAttempts ?? 1,
+      }
+      return
+    }
+
+    if (info.phase === 'reasoning_started') {
+      reasoningActive.value = true
+      return
+    }
+
+    if (info.phase === 'reasoning_completed' || info.phase === 'answer_started') {
+      reasoningActive.value = false
+      reasoningCompleted.value = true
+      return
+    }
+
+    if (info.phase === 'generating') {
+      searchActivity.value = null
+    } else {
+      searchActivity.value = {
+        phase: info.phase,
+        query: info.query,
+        sources: info.sources,
+        credits: info.credits,
+      }
+    }
+  }
+
+  function applyReasoningDelta(delta: string, isFirst: boolean): void {
+    reasoningSummary.value = isFirst
+      ? delta
+      : reasoningSummary.value + delta
+  }
+
+  function applyCitations(sources: CitationSource[]): void {
+    citations.value = sources
+
+    if (generation.value) {
+      generation.value = { ...generation.value, citations: sources }
+    }
+
+    const idx = transcript.value.findIndex(
+      (m) => m.id === generation.value?.assistantMessageId,
+    )
+
+    if (idx !== -1) {
+      transcript.value = [
+        ...transcript.value.slice(0, idx),
+        { ...transcript.value[idx], citations: sources },
+        ...transcript.value.slice(idx + 1),
+      ]
+    }
+  }
+
   async function cancel(): Promise<void> {
     stopAutoRetry()
+
     if (!generation.value) return
 
     const convId = generation.value.conversationId || conversationId.value
+
     if (!convId) {
       abort()
       return
     }
+
     try {
       const res = await cancelGeneration(convId)
       const serverStatus = res.status as GenerationState
+
       generation.value = { ...generation.value, status: serverStatus }
       generationState.value = serverStatus
+
       stopWatchdog()
+
       if (controller) {
         controller.abort()
         controller = null
       }
     } catch (err) {
       const apiErr = err as ApiError
+
       if (apiErr.code === 'no_active_generation') {
         if (conversationId.value) {
           await loadConversation(conversationId.value)
@@ -279,6 +497,7 @@ export function useChatStream(): ChatStreamHandle {
     if (generationState.value === 'streaming') return
 
     const convId = conversationId.value ?? generation.value?.conversationId
+
     if (!convId) {
       connectionError.value = {
         code: 'conversation_not_found',
@@ -288,15 +507,19 @@ export function useChatStream(): ChatStreamHandle {
     }
 
     const isRetryable = (m: MessagePublic) =>
-      m.role === 'assistant' && (m.status === 'failed' || m.status === 'cancelled')
+      m.role === 'assistant' &&
+      (m.status === 'failed' || m.status === 'cancelled')
+
     const targeted = targetMessageId
       ? transcript.value.find((m) => m.id === targetMessageId && isRetryable(m))
       : undefined
+
     const fromGeneration =
       generation.value &&
       (generation.value.status === 'failed' || generation.value.status === 'cancelled')
         ? transcript.value.find((m) => m.id === generation.value!.assistantMessageId)
         : null
+
     const failedMsg =
       targeted ??
       fromGeneration ??
@@ -310,55 +533,38 @@ export function useChatStream(): ChatStreamHandle {
       return
     }
 
+    const retriedRowId = failedMsg.id
+
     generation.value = {
       conversationId: convId,
       assistantMessageId: `assistant-${Date.now()}`,
       status: 'streaming',
       content: '',
     }
+
     generationState.value = 'streaming'
     connectionError.value = null
+    reasoningActive.value = false
+    reasoningCompleted.value = false
+    reasoningSummary.value = ''
 
     const handlers: StreamHandlers = {
-      onStart: (info) => {
-        saveConversationId(info.conversationId)
-        if (generation.value) {
-          generation.value = {
-            ...generation.value,
-            conversationId: info.conversationId,
-            assistantMessageId: info.assistantMessageId,
-          }
-          const prevFailedIdx = transcript.value.findIndex(
-            (m) => m.id === failedMsg.id,
-          )
-          const liveRow: MessagePublic = {
-            id: info.assistantMessageId,
-            role: 'assistant',
-            content: generation.value.content,
-            createdAt: new Date().toISOString(),
-            status: 'streaming',
-          }
-          if (!transcript.value.some((m) => m.id === info.assistantMessageId)) {
-            transcript.value =
-              prevFailedIdx !== -1
-                ? [
-                    ...transcript.value.slice(0, prevFailedIdx),
-                    liveRow,
-                    ...transcript.value.slice(prevFailedIdx + 1),
-                  ]
-                : [...transcript.value, liveRow]
-          }
-        }
+      onStart: makeOnStart(retriedRowId),
+      onStatus: applyStatus,
+      onCitations: applyCitations,
+      onReasoningDelta: applyReasoningDelta,
+      onDelta: (_delta: string, _isFirst: boolean) => {
         touchStreamActivity()
-      },
-      onDelta: (delta: string) => {
-        touchStreamActivity()
+
         if (!generation.value) return
-        const newContent = generation.value.content + delta
+
+        const newContent = generation.value.content + _delta
         generation.value = { ...generation.value, content: newContent }
+
         const idx = transcript.value.findIndex(
           (m) => m.id === generation.value!.assistantMessageId,
         )
+
         if (idx !== -1) {
           transcript.value = [
             ...transcript.value.slice(0, idx),
@@ -366,72 +572,82 @@ export function useChatStream(): ChatStreamHandle {
             ...transcript.value.slice(idx + 1),
           ]
         }
+
+        retrying.value = null
       },
-        onDone: () => {
-          if (generation.value) {
-            generation.value = { ...generation.value, status: 'completed' }
-            const idx = transcript.value.findIndex(
-              (m) => m.id === generation.value!.assistantMessageId,
-            )
-            if (idx !== -1) {
-              transcript.value = [
-                ...transcript.value.slice(0, idx),
-                { ...transcript.value[idx], status: 'completed' as const },
-                ...transcript.value.slice(idx + 1),
-              ]
-            } else {
-              transcript.value.push({
-                id: generation.value.assistantMessageId,
-                role: 'assistant',
-                content: generation.value.content,
-                createdAt: new Date().toISOString(),
-                status: 'completed' as const,
-              })
-            }
+      onDone: async () => {
+        retrying.value = null
+        searchActivity.value = null
+        reasoningActive.value = false
+
+        if (generation.value) {
+          generation.value = { ...generation.value, status: 'completed' }
+
+          const idx = transcript.value.findIndex(
+            (m) => m.id === generation.value!.assistantMessageId,
+          )
+
+          if (idx !== -1) {
+            transcript.value = [
+              ...transcript.value.slice(0, idx),
+              { ...transcript.value[idx], status: 'completed' as const },
+              ...transcript.value.slice(idx + 1),
+            ]
           }
-          generationState.value = 'completed'
-          controller = null
-          stopWatchdog()
-        },
-      onError: (err) => {
-        if (err.code === 'generation_cancelled') {
-          if (generation.value) {
-            generation.value = { ...generation.value, status: 'cancelled' }
-            const idx = transcript.value.findIndex(
-              (m) => m.id === generation.value!.assistantMessageId,
-            )
-            if (idx !== -1) {
-              transcript.value = [
-                ...transcript.value.slice(0, idx),
-                { ...transcript.value[idx], status: 'cancelled' as const },
-                ...transcript.value.slice(idx + 1),
-              ]
-            }
-          }
-          generationState.value = 'cancelled'
-        } else {
-          connectionError.value = err
-          if (generation.value) {
-            generation.value = { ...generation.value, status: 'failed' }
-            const idx = transcript.value.findIndex(
-              (m) => m.id === generation.value!.assistantMessageId,
-            )
-            if (idx !== -1) {
-              transcript.value = [
-                ...transcript.value.slice(0, idx),
-                { ...transcript.value[idx], status: 'failed' as const },
-                ...transcript.value.slice(idx + 1),
-              ]
-            }
-          }
-          generationState.value = 'failed'
         }
+
+        generationState.value = 'completed'
         controller = null
         stopWatchdog()
+        refreshWalletBalance()
+      },
+      onError: (err) => {
+        connectionError.value = err
+        retrying.value = null
+        searchActivity.value = null
+        reasoningActive.value = false
+
+        if (generation.value) {
+          if (err.code === 'generation_cancelled') {
+            generation.value = { ...generation.value, status: 'cancelled' }
+          } else {
+            generation.value = { ...generation.value, status: 'failed' }
+          }
+
+          const idx = transcript.value.findIndex(
+            (m) => m.id === generation.value!.assistantMessageId,
+          )
+
+          if (idx !== -1) {
+            transcript.value = [
+              ...transcript.value.slice(0, idx),
+              {
+                ...transcript.value[idx],
+                status:
+                  err.code === 'generation_cancelled'
+                    ? ('cancelled' as const)
+                    : ('failed' as const),
+              },
+              ...transcript.value.slice(idx + 1),
+            ]
+          }
+        }
+
+        generationState.value =
+          err.code === 'generation_cancelled' ? 'cancelled' : 'failed'
+
+        if (err.code === 'credit_exhausted') refreshWalletBalance()
+        controller = null
+        stopWatchdog()
+        void recoverFromModelRejection(err.code)
       },
     }
 
-    controller = retryStream(convId, failedMsg.id, handlers)
+    controller = retryStream(convId, failedMsg.id, handlers, {
+      webSearch: webSearchEnabled.value,
+      reasoning: reasoningEnabled.value && reasoningSupported.value,
+    })
+
     startWatchdog()
   }
 
@@ -457,19 +673,28 @@ export function useChatStream(): ChatStreamHandle {
           status: 'streaming',
           content: streamingMsg.content,
         }
+
         generationState.value = 'streaming'
         saveConversationId(detail.id)
-        await startResumeStream(detail.id)
+
+        await startResumeStream(
+          detail.id,
+          streamingMsg.id,
+          streamingMsg.content,
+        )
       } else {
         const finalMsg = detail.messages.at(-1)
+
         if (finalMsg?.role === 'assistant') {
           const finalStatus = finalMsg.status as GenerationState
+
           generation.value = {
             conversationId: detail.id,
             assistantMessageId: finalMsg.id,
             status: finalStatus,
             content: finalMsg.content,
           }
+
           generationState.value = finalStatus
         } else {
           generation.value = null
@@ -483,36 +708,79 @@ export function useChatStream(): ChatStreamHandle {
     }
   }
 
-  async function startResumeStream(convId: string): Promise<void> {
-    controller = resumeStream(
-      convId,
-      {
-        onDelta: (_text: string, isFirst: boolean) => {
-          touchStreamActivity()
-          if (!generation.value) return
-          const newContent = isFirst ? _text : generation.value.content + _text
-          generation.value = { ...generation.value, content: newContent }
+  async function startResumeStream(
+    convId: string,
+    _assistantMsgId: string,
+    _existingContent: string,
+  ): Promise<void> {
+    controller = resumeStream(convId, {
+      onStatus: applyStatus,
+      onCitations: applyCitations,
+      onReasoningDelta: applyReasoningDelta,
+      onDelta: (_text: string, isFirst: boolean) => {
+        touchStreamActivity()
+
+        if (!generation.value) return
+
+        const newContent = isFirst
+          ? _text
+          : generation.value.content + _text
+
+        generation.value = { ...generation.value, content: newContent }
+
+        const idx = transcript.value.findIndex(
+          (m) => m.id === generation.value!.assistantMessageId,
+        )
+
+        if (idx !== -1) {
+          transcript.value = [
+            ...transcript.value.slice(0, idx),
+            { ...transcript.value[idx], content: newContent },
+            ...transcript.value.slice(idx + 1),
+          ]
+        }
+      },
+      onDone: () => {
+        if (generation.value) {
+          generation.value = { ...generation.value, status: 'completed' }
+
           const idx = transcript.value.findIndex(
             (m) => m.id === generation.value!.assistantMessageId,
           )
+
           if (idx !== -1) {
             transcript.value = [
               ...transcript.value.slice(0, idx),
-              { ...transcript.value[idx], content: newContent },
+              { ...transcript.value[idx], status: 'completed' as const },
               ...transcript.value.slice(idx + 1),
             ]
           }
-        },
-        onDone: () => {
+        }
+
+        generationState.value = 'completed'
+        controller = null
+        stopWatchdog()
+      },
+      onError: (err) => {
+        if (
+          err.code === 'no_active_stream' ||
+          err.code === 'generation_cancelled'
+        ) {
+          void reconcileWithServer(convId)
+        } else {
+          connectionError.value = err
+
           if (generation.value) {
-            generation.value = { ...generation.value, status: 'completed' }
+            generation.value = { ...generation.value, status: 'failed' }
+
             const idx = transcript.value.findIndex(
               (m) => m.id === generation.value!.assistantMessageId,
             )
+
             if (idx !== -1) {
               transcript.value = [
                 ...transcript.value.slice(0, idx),
-                { ...transcript.value[idx], status: 'completed' as const },
+                { ...transcript.value[idx], status: 'failed' as const },
                 ...transcript.value.slice(idx + 1),
               ]
             } else {
@@ -525,34 +793,15 @@ export function useChatStream(): ChatStreamHandle {
               })
             }
           }
-          generationState.value = 'completed'
-          controller = null
-        },
-        onError: (err) => {
-          if (err.code === 'no_active_stream' || err.code === 'generation_cancelled') {
-            void reconcileWithServer(convId)
-          } else {
-            connectionError.value = err
-            if (generation.value) {
-              generation.value = { ...generation.value, status: 'failed' }
-              const idx = transcript.value.findIndex(
-                (m) => m.id === generation.value!.assistantMessageId,
-              )
-              if (idx !== -1) {
-                transcript.value = [
-                  ...transcript.value.slice(0, idx),
-                  { ...transcript.value[idx], status: 'failed' as const },
-                  ...transcript.value.slice(idx + 1),
-                ]
-              }
-            }
-            generationState.value = 'failed'
-          }
-          controller = null
-          stopWatchdog()
-        },
+
+          generationState.value = 'failed'
+        }
+
+        controller = null
+        stopWatchdog()
       },
-    )
+    })
+
     startWatchdog()
   }
 
@@ -563,13 +812,25 @@ export function useChatStream(): ChatStreamHandle {
     ) {
       return
     }
+
     connectionError.value = null
+    searchActivity.value = null
+    citations.value = []
+    reasoningActive.value = false
+    reasoningCompleted.value = false
+    reasoningSummary.value = ''
     setConnected()
+
     try {
       const detail = await getConversation(id)
       transcript.value = detail.messages
       conversationId.value = detail.id
       saveConversationId(detail.id)
+
+      if (detail.modelId && detail.modelId !== selectedModelId.value) {
+        selectedModelId.value = detail.modelId
+        saveModelId(detail.modelId)
+      }
 
       const streamingMsg = detail.messages.find(
         (m) => m.role === 'assistant' && m.status === 'streaming',
@@ -582,14 +843,21 @@ export function useChatStream(): ChatStreamHandle {
           status: 'streaming',
           content: streamingMsg.content,
         }
+
         generationState.value = 'streaming'
-        await startResumeStream(detail.id)
+
+        await startResumeStream(
+          detail.id,
+          streamingMsg.id,
+          streamingMsg.content,
+        )
       } else {
         generation.value = null
         generationState.value = 'idle'
       }
     } catch (err) {
       const apiErr = err instanceof ApiError ? err : null
+
       if (apiErr?.status === 404) {
         clearSavedConversationId()
         resetConversation()
@@ -599,9 +867,11 @@ export function useChatStream(): ChatStreamHandle {
         }
         return
       }
+
       connectionError.value = apiErr
         ? { code: apiErr.code, message: apiErr.message }
         : { code: 'network_error', message: 'خطا در بارگذاری گفتگو.' }
+
       setDisconnected()
     }
   }
@@ -615,9 +885,86 @@ export function useChatStream(): ChatStreamHandle {
     generationState.value = 'idle'
     connectionState.value = 'connected'
     connectionError.value = null
+    searchActivity.value = null
+    citations.value = []
+    reasoningActive.value = false
+    reasoningCompleted.value = false
+    reasoningSummary.value = ''
   }
 
-  async function send(text: string, opts?: { fileId?: string | null; file?: MessagePublic['file'] }): Promise<void> {
+  function makeOnStart(replaceRowId: string | null) {
+    return (info: StreamStartInfo): void => {
+      conversationId.value = info.conversationId
+      saveConversationId(info.conversationId)
+
+      if (
+        generation.value &&
+        generation.value.assistantMessageId !== info.assistantMessageId
+      ) {
+        const oldId = generation.value.assistantMessageId
+
+        generation.value = {
+          ...generation.value,
+          conversationId: info.conversationId,
+          assistantMessageId: info.assistantMessageId,
+        }
+
+        const userIdx = transcript.value.findIndex(
+          (m) => m.id === `user-${oldId.slice('assistant-'.length)}`,
+        )
+
+        if (userIdx !== -1) {
+          transcript.value = [
+            ...transcript.value.slice(0, userIdx),
+            {
+              ...transcript.value[userIdx],
+              id: `user-${info.assistantMessageId}`,
+            },
+            ...transcript.value.slice(userIdx + 1),
+          ]
+        }
+
+        if (replaceRowId) {
+          const retriedIdx = transcript.value.findIndex(
+            (m) => m.id === replaceRowId,
+          )
+
+          if (retriedIdx !== -1) {
+            transcript.value = [
+              ...transcript.value.slice(0, retriedIdx),
+              {
+                ...transcript.value[retriedIdx],
+                id: info.assistantMessageId,
+                content: '',
+                status: 'streaming',
+              },
+              ...transcript.value.slice(retriedIdx + 1),
+            ]
+          }
+        } else {
+          // send() path: the assistant message was never added to transcript
+          // (only the user message was pushed). Insert it now with the
+          // server-assigned id so deltas and the final done event can update
+          // it. Without this, the message only lives in generation.value and
+          // disappears once generation.status becomes 'completed'.
+          transcript.value.push({
+            id: info.assistantMessageId,
+            role: 'assistant',
+            content: generation.value.content,
+            createdAt: new Date().toISOString(),
+            status: 'streaming',
+          })
+        }
+      }
+
+      touchStreamActivity()
+    }
+  }
+
+  async function send(
+    text: string,
+    opts?: { fileId?: string | null; file?: MessagePublic['file'] },
+  ): Promise<void> {
     const trimmed = text.trim()
     if (!trimmed) return Promise.resolve()
 
@@ -630,6 +977,7 @@ export function useChatStream(): ChatStreamHandle {
     }
 
     const modelId = selectedModelId.value
+
     if (!modelId) {
       connectionError.value = {
         code: 'no_model_selected',
@@ -643,120 +991,132 @@ export function useChatStream(): ChatStreamHandle {
     generation.value = null
     generationState.value = 'idle'
     connectionError.value = null
+    retrying.value = null
+    searchActivity.value = null
+    citations.value = []
+    reasoningActive.value = false
+    reasoningCompleted.value = false
+    reasoningSummary.value = ''
 
     const targetConversationId = conversationId.value
-    if (targetConversationId) saveConversationId(targetConversationId)
+
+    if (targetConversationId) {
+      saveConversationId(targetConversationId)
+    }
 
     const handlers: StreamHandlers = {
-      onStart: (info) => {
-        conversationId.value = info.conversationId
-        saveConversationId(info.conversationId)
-        if (generation.value && generation.value.assistantMessageId !== info.assistantMessageId) {
-          const oldId = generation.value.assistantMessageId
-          generation.value = {
-            ...generation.value,
-            conversationId: info.conversationId,
-            assistantMessageId: info.assistantMessageId,
-          }
-          const userIdx = transcript.value.findIndex((m) => m.id === `user-${oldId.slice('assistant-'.length)}`)
-          if (userIdx !== -1) {
-            transcript.value = [
-              ...transcript.value.slice(0, userIdx),
-              { ...transcript.value[userIdx], id: `user-${info.assistantMessageId}` },
-              ...transcript.value.slice(userIdx + 1),
-            ]
-          }
-        }
-        touchStreamActivity()
-      },
+      onStart: makeOnStart(null),
+      onStatus: applyStatus,
+      onCitations: applyCitations,
+      onReasoningDelta: applyReasoningDelta,
       onDelta: (_delta: string, _isFirst: boolean) => {
         touchStreamActivity()
+
+        if (!generation.value) return
+
+        const newContent = generation.value.content + _delta
+        generation.value = {
+          ...generation.value,
+          content: newContent,
+        }
+
+        const idx = transcript.value.findIndex(
+          (m) => m.id === generation.value!.assistantMessageId,
+        )
+
+        if (idx !== -1) {
+          transcript.value = [
+            ...transcript.value.slice(0, idx),
+            { ...transcript.value[idx], content: newContent },
+            ...transcript.value.slice(idx + 1),
+          ]
+        }
+
+        retrying.value = null
+      },
+      onDone: async () => {
+        retrying.value = null
+        searchActivity.value = null
+        reasoningActive.value = false
+
         if (generation.value) {
           generation.value = {
             ...generation.value,
-            content: generation.value.content + _delta,
+            status: 'completed',
           }
+
           const idx = transcript.value.findIndex(
             (m) => m.id === generation.value!.assistantMessageId,
           )
+
           if (idx !== -1) {
             transcript.value = [
               ...transcript.value.slice(0, idx),
-              { ...transcript.value[idx], content: generation.value.content },
+              { ...transcript.value[idx], status: 'completed' as const },
               ...transcript.value.slice(idx + 1),
             ]
           }
         }
-      },
-        onDone: async () => {
-          if (generation.value) {
-            generation.value = { ...generation.value, status: 'completed' }
-            const idx = transcript.value.findIndex(
-              (m) => m.id === generation.value!.assistantMessageId,
-            )
-            if (idx !== -1) {
-              transcript.value = [
-                ...transcript.value.slice(0, idx),
-                { ...transcript.value[idx], status: 'completed' as const },
-                ...transcript.value.slice(idx + 1),
-              ]
-            } else {
-              transcript.value.push({
-                id: generation.value.assistantMessageId,
-                role: 'assistant',
-                content: generation.value.content,
-                createdAt: new Date().toISOString(),
-                status: 'completed' as const,
-              })
-            }
-          }
-          generationState.value = 'completed'
-          controller = null
-          stopWatchdog()
 
-          if (!conversationId.value) {
-            const id = await findLatestConversationId()
-            if (id) {
-              conversationId.value = id
-              saveConversationId(id)
-            }
-          }
-        },
-      onError: (err) => {
-        if (err.code === 'generation_cancelled') {
-          if (generation.value) {
-            generation.value = { ...generation.value, status: 'cancelled' }
-            const idx = transcript.value.findIndex(
-              (m) => m.id === generation.value!.assistantMessageId,
-            )
-            if (idx !== -1) {
-              transcript.value = [
-                ...transcript.value.slice(0, idx),
-                { ...transcript.value[idx], status: 'cancelled' as const },
-                ...transcript.value.slice(idx + 1),
-              ]
-            }
-          }
-          generationState.value = 'cancelled'
-        } else {
-          connectionError.value = err
-          if (generation.value) {
-            generation.value = { ...generation.value, status: 'failed' }
-            const idx = transcript.value.findIndex(
-              (m) => m.id === generation.value!.assistantMessageId,
-            )
-            if (idx !== -1) {
-              transcript.value = [
-                ...transcript.value.slice(0, idx),
-                { ...transcript.value[idx], status: 'failed' as const },
-                ...transcript.value.slice(idx + 1),
-              ]
-            }
-          }
-          generationState.value = 'failed'
-        }
+        generationState.value = 'completed'
         controller = null
         stopWatchdog()
+        refreshWalletBalance()
+
+        if (!conversationId.value) {
+          const id = await findLatestConversationId()
+
+          if (id) {
+            conversationId.value = id
+            saveConversationId(id)
+          }
+        }
+      },
+      onError: (err) => {
+        connectionError.value = err
+        retrying.value = null
+        searchActivity.value = null
+        reasoningActive.value = false
+
+        if (generation.value) {
+          if (err.code === 'generation_cancelled') {
+            generation.value = {
+              ...generation.value,
+              status: 'cancelled',
+            }
+          } else {
+            generation.value = {
+              ...generation.value,
+              status: 'failed',
+            }
+          }
+
+          const idx = transcript.value.findIndex(
+            (m) => m.id === generation.value!.assistantMessageId,
+          )
+
+          if (idx !== -1) {
+            transcript.value = [
+              ...transcript.value.slice(0, idx),
+              {
+                ...transcript.value[idx],
+                status:
+                  err.code === 'generation_cancelled'
+                    ? ('cancelled' as const)
+                    : ('failed' as const),
+              },
+              ...transcript.value.slice(idx + 1),
+            ]
+          }
+        }
+
+        generationState.value =
+          err.code === 'generation_cancelled' ? 'cancelled' : 'failed'
+
+        if (err.code === 'credit_exhausted') refreshWalletBalance()
+        controller = null
+        stopWatchdog()
+        void recoverFromModelRejection(err.code)
       },
     }
 
@@ -766,22 +1126,26 @@ export function useChatStream(): ChatStreamHandle {
         modelId: modelId ?? undefined,
         message: trimmed,
         fileId,
+        webSearch: webSearchEnabled.value,
+        reasoning: reasoningEnabled.value && reasoningSupported.value,
       },
       handlers,
     )
+
     startWatchdog()
 
     const optimisticId = String(Date.now())
     const assistantMsgId = `assistant-${optimisticId}`
+
     generation.value = {
       conversationId: targetConversationId ?? '',
       assistantMessageId: assistantMsgId,
       status: 'streaming',
       content: '',
     }
+
     generationState.value = 'streaming'
 
-    // Add user message to transcript immediately with file option
     transcript.value.push({
       id: `user-${optimisticId}`,
       role: 'user',
@@ -796,28 +1160,26 @@ export function useChatStream(): ChatStreamHandle {
 
   function abort(): void {
     stopWatchdog()
+
     if (controller) {
       controller.abort()
       controller = null
     }
-    if (generationState.value === 'streaming' && generation.value) {
-      generation.value = { ...generation.value, status: 'cancelled' }
-      generationState.value = 'cancelled'
-    }
-  }
 
-  async function findLatestConversationId(): Promise<string | null> {
-    try {
-      const page = await listConversations({ limit: 1 })
-      return page.items[0]?.id ?? null
-    } catch {
-      return null
+    if (generationState.value === 'streaming' && generation.value) {
+      generation.value = {
+        ...generation.value,
+        status: 'cancelled',
+      }
+      generationState.value = 'cancelled'
     }
   }
 
   function saveConversationId(id: string | null): void {
     try {
-      if (id) localStorage.setItem(CONVERSATION_KEY, id)
+      if (id) {
+        localStorage.setItem(CONVERSATION_KEY, id)
+      }
     } catch {
       /* ignore */
     }
@@ -839,14 +1201,52 @@ export function useChatStream(): ChatStreamHandle {
     }
   }
 
-  function setModel(id: string | null): void {
+  async function findLatestConversationId(): Promise<string | null> {
+    try {
+      const result = await listConversations()
+
+      const latest = Array.isArray(result)
+        ? result[0]
+        : result.items?.[0]
+
+      return latest?.id ?? null
+    } catch {
+      return null
+    }
+  }
+
+  async function setModel(id: string | null): Promise<void> {
+    if (generationState.value === 'streaming') return
+
     selectedModelId.value = id
-    if (id) saveModelId(id)
-    else {
+
+    if (id) {
+      saveModelId(id)
+    } else {
       try {
         sessionStorage.removeItem(SESSION_KEY)
       } catch {
         /* ignore */
+      }
+    }
+
+    const convId = conversationId.value
+
+    if (convId && id) {
+      try {
+        await setConversationModel(convId, id)
+      } catch (err) {
+        const apiErr = err as ApiError
+
+        connectionError.value = {
+          code: apiErr.code ?? 'set_model_failed',
+          message: streamErrorMessage(
+            apiErr.code ?? 'set_model_failed',
+            apiErr.message,
+          ),
+        }
+
+        await recoverFromModelRejection(apiErr.code)
       }
     }
   }
@@ -854,10 +1254,12 @@ export function useChatStream(): ChatStreamHandle {
   onBeforeUnmount(() => {
     stopAutoRetry()
     stopWatchdog()
+
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', goOnline)
       window.removeEventListener('offline', goOffline)
     }
+
     abort()
   })
 
@@ -870,6 +1272,19 @@ export function useChatStream(): ChatStreamHandle {
     conversationId,
     selectedModelId,
     inputDisabled,
+    retrying,
+    webSearchEnabled,
+    searchActivity,
+    citations,
+    reasoningEnabled,
+    reasoningSupported,
+    reasoningActive,
+    reasoningCompleted,
+    reasoningSummary,
+    reasoningAvailable,
+    setWebSearch,
+    setReasoning,
+    setReasoningSupport,
     setModel,
     loadConversation,
     resetConversation,

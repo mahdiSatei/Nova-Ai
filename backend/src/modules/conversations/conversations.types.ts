@@ -22,6 +22,10 @@ export interface MessageRecord {
   content: string;
   createdAt: Date;
   status: MessageStatus;
+  fileId: string | null;
+  citations: unknown[];
+  reasoningEnabled: boolean;
+  reasoningSummary: string | null;
 }
 
 export type MessageStatus = 'pending' | 'streaming' | 'completed' | 'failed' | 'cancelled';
